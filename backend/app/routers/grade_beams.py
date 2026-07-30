@@ -41,6 +41,31 @@ def _resync_parent_slab(db: Session, mono_slab_id: UUID) -> None:
         refresh_mono_slab_calcs(db, slab)
 
 
+def _resync_estimate_takeoffs(db: Session, mono_slab_id: UUID) -> None:
+    """
+    Refresh the estimate's stored forming/labor/equipment after a beam change.
+
+    Beams feed all three: drop-kind length is the drops driver behind the 2x4,
+    bracing and ply lines and the labor DROPS line (sql/022), beam rebar feeds
+    forming accessories and labor tie steel, and beam concrete feeds equipment
+    pumping. Without this a beam edit silently leaves those lines on the
+    previous quantities.
+
+    Call after commit — the pour calcs must already be written. Pours are not
+    recalculated here; _resync_parent_slab has already done the one that moved.
+    """
+    from app.models.estimate import Estimate
+    from app.services.recalc import recalc_estimate
+
+    slab = db.get(MonoSlab, mono_slab_id)
+    if slab is None:
+        return
+    estimate = db.get(Estimate, slab.estimate_id)
+    if estimate is None:
+        return
+    recalc_estimate(db, estimate, pours=False)
+
+
 def _validate_kind(kind: str) -> BeamKind:
     if kind not in BEAM_KINDS:
         raise HTTPException(
@@ -93,6 +118,7 @@ def create_grade_beam(body: GradeBeamCreate, db: Session = Depends(get_db)) -> G
     db.flush()
     _resync_parent_slab(db, row.mono_slab_id)
     db.commit()
+    _resync_estimate_takeoffs(db, row.mono_slab_id)
     db.refresh(row)
     return _to_read(row)
 
@@ -116,6 +142,7 @@ def update_grade_beam(
     db.flush()
     _resync_parent_slab(db, row.mono_slab_id)
     db.commit()
+    _resync_estimate_takeoffs(db, row.mono_slab_id)
     db.refresh(row)
     return _to_read(row)
 
@@ -130,6 +157,7 @@ def delete_grade_beam(beam_id: UUID, db: Session = Depends(get_db)) -> None:
     db.flush()
     _resync_parent_slab(db, slab_id)
     db.commit()
+    _resync_estimate_takeoffs(db, slab_id)
 
 
 @router.put(
@@ -207,6 +235,7 @@ def replace_grade_beams(
     db.flush()
     refresh_mono_slab_calcs(db, slab)
     db.commit()
+    _resync_estimate_takeoffs(db, slab_id)
     for r in created:
         db.refresh(r)
     return [_to_read(r) for r in created]
