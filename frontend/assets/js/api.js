@@ -75,6 +75,14 @@ export const Api = {
   updateEstimate: (id, body) => api(`/estimates/${id}`, { method: "PATCH", body }),
   getEstimate: (id) => api(`/estimates/${id}`),
   deleteEstimate: (id) => api(`/estimates/${id}`, { method: "DELETE" }),
+  // Rewrite pours + stored takeoffs from current inputs (after settings changes)
+  recalcEstimate: (id) => api(`/estimates/${id}/recalc`, { method: "POST" }),
+  // Company defaults
+  listSettings: (prefix) =>
+    api(`/system-settings${prefix ? "?prefix=" + encodeURIComponent(prefix) : ""}`),
+  updateSetting: (key, value) =>
+    api(`/system-settings/${encodeURIComponent(key)}`, { method: "PATCH", body: { value } }),
+  recalcAllEstimates: () => api("/system-settings/recalc-all", { method: "POST" }),
   // Mono slabs
   listMonoSlabs: (estimateId) =>
     api(`/mono-slabs?estimate_id=${encodeURIComponent(estimateId)}`),

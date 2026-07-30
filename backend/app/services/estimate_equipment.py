@@ -394,9 +394,11 @@ def refresh_and_store_equipment(db: Session, estimate_id: UUID) -> dict[str, Any
             m.updated_at = now
             continue
 
+        # Rate comes from the equipment catalog / settings; only the on/off
+        # toggle is preserved. Manual lines are handled above and keep theirs.
         prev = existing.get(ln["code"])
         enabled = prev.enabled if prev is not None else ln["enabled"]
-        rate = prev.rate if prev is not None else ln["rate"]
+        rate = ln["rate"]
         days_qty = ln["days_qty"]
         # preserve user day qty if they set without is_manual and skytrack-style zeros
         if prev is not None and prev.code in ("skytrack",) and prev.days_qty is not None:

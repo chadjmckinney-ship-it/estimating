@@ -68,7 +68,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] **Metro / joint / sawcutting** unit prices (from Pricing)
 - [ ] **Job-level price overrides** (estimate-specific unit costs vs company defaults)
 - [ ] `calc_l_bar_lb` (or fold into grade-beam total)
-- [ ] Trigger or service function to **refresh all `calc_*`** on mono_slab + grade_beams
+- [x] Service function to **refresh all `calc_*`** — `app/services/recalc.py`, exposed as
+      `POST /api/estimates/{id}/recalc` (+ UI button) and `POST /api/system-settings/recalc-all`
 - [ ] `cost_codes` table + link to materials / line items
 - [ ] Roles / permissions tables (or defer until auth exists)
 - [ ] Numbered migration discipline (`003_….sql`) + optional Alembic later
@@ -103,7 +104,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Materials browser + edit unit costs (Admin)
 - [ ] Effective-dated rate history
 - [ ] Mix design admin
-- [ ] System settings UI (waste, lb/SF rates)
+- [~] System settings **API** done (`GET/PATCH /api/system-settings`; a PATCH rewrites
+      affected estimates automatically). UI page still to build.
 
 ### Auth & multi-user
 

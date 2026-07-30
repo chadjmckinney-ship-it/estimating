@@ -348,10 +348,13 @@ def refresh_and_store_labor(db: Session, estimate_id: UUID) -> dict[str, Any]:
             m.updated_at = now
             continue
 
-        # Preserve prior enabled/rate if row existed and not first seed
+        # Preserve the on/off toggle, but take the rate from system_settings:
+        # a non-manual line is by definition tracking the company default, so
+        # keeping prev.rate here would make settings changes unreachable.
+        # User rate edits arrive with mark_manual=True and land in `manuals`.
         prev = existing.get(ln["code"])
         enabled = prev.enabled if prev is not None else ln["enabled"]
-        rate = prev.rate if prev is not None else ln["rate"]
+        rate = ln["rate"]
         # qty always recalculated for non-manual (except we already skipped manuals)
         qty = ln["qty"]
         # Special: foreman keeps previous qty if user set it once without is_manual

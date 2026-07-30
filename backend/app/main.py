@@ -18,6 +18,7 @@ from app.routers import (
     mix_designs,
     mono_slabs,
     projects,
+    system_settings,
 )
 
 app = FastAPI(title=settings.api_title, version=settings.api_version)
@@ -41,6 +42,7 @@ app.include_router(grade_beams.router, prefix="/api")
 app.include_router(mix_designs.router, prefix="/api")
 app.include_router(equipment.router, prefix="/api")
 app.include_router(materials.router, prefix="/api")
+app.include_router(system_settings.router, prefix="/api")
 
 # Frontend lives at Estimate_Projects/frontend
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"

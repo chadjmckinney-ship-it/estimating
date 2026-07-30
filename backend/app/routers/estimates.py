@@ -28,22 +28,16 @@ def _recalc_after_estimate_change(db: Session, row: Estimate, changed: set[str])
     stale numbers. Only refreshes takeoffs that were already saved — opening an
     estimate is what creates them, and this shouldn't do it as a side effect.
     """
-    from app.models.estimate_equipment import EstimateEquipmentSummary
-    from app.models.estimate_forming import EstimateFormingSummary
-    from app.services.calc import refresh_estimate_slab_calcs
-    from app.services.estimate_equipment import refresh_and_store_equipment
-    from app.services.forming import refresh_and_store_forming
+    from app.services.recalc import recalc_estimate
 
-    if changed & _POUR_CALC_FIELDS:
-        refresh_estimate_slab_calcs(db, row)
-        db.flush()
-        # Pumping is priced off pour CY, which just moved.
-        if db.get(EstimateEquipmentSummary, row.id) is not None:
-            refresh_and_store_equipment(db, row.id)
-
-    # form_percent scales the form lumber lines only.
-    if "form_percent" in changed and db.get(EstimateFormingSummary, row.id) is not None:
-        refresh_and_store_forming(db, row.id)
+    pours = bool(changed & _POUR_CALC_FIELDS)
+    # A pour change ripples outward: rebar feeds forming accessories and labor
+    # tie steel, concrete CY feeds equipment pumping.
+    if pours:
+        recalc_estimate(db, row)
+    elif "form_percent" in changed:
+        # form_percent scales the form lumber lines only.
+        recalc_estimate(db, row, pours=False, labor=False, equipment=False)
 
 
 def _to_read(db: Session, row: Estimate) -> EstimateRead:
@@ -147,6 +141,26 @@ def update_estimate(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Conflict updating estimate") from None
+    db.refresh(row)
+    return _to_read(db, row)
+
+
+@router.post("/{estimate_id}/recalc", response_model=EstimateRead)
+def recalc_estimate_endpoint(
+    estimate_id: UUID, db: Session = Depends(get_db)
+) -> EstimateRead:
+    """
+    Rewrite this estimate's pours and stored takeoffs from current inputs.
+
+    Use after changing company defaults, or any time the numbers look stale.
+    Takeoffs that were never opened stay uncreated.
+    """
+    from app.services.recalc import recalc_estimate
+
+    row = db.get(Estimate, estimate_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    recalc_estimate(db, row)
     db.refresh(row)
     return _to_read(db, row)
 

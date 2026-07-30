@@ -17,6 +17,7 @@ backups/
 
 # Machine-local tool settings
 .claude/settings.local.json
+.claude/settings.local.json.tmp.*
 .obsidian/
 
 # Editor / OS

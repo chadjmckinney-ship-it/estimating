@@ -657,6 +657,8 @@ async function renderEstimateDetail(root) {
         <button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>
         <button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
         <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>
+        <button class="btn" id="btn-recalc-estimate" type="button"
+          title="Rewrite pours and stored takeoffs from current inputs — use after changing company defaults">Recalculate</button>
         <button class="btn danger" id="btn-del-estimate">Delete estimate</button>
       </div>
     </div>
@@ -881,9 +883,10 @@ async function renderEstimateDetail(root) {
       const enabled = tr.querySelector(".labor-enabled")?.checked ?? true;
       const rate = Number(tr.querySelector(".labor-rate")?.value);
       const qtyEl = tr.querySelector(".labor-qty");
-      // Slab labor: rate only (qty always from pours on refresh).
-      // Supervision: rate + optional qty — mark manual only if qty edited.
-      const body = { enabled, rate, mark_manual: false };
+      // Saving is an explicit override: mark manual so a later refresh (or a
+      // system_settings rate change) does not reset what was typed here.
+      // Slab labor qty still comes from pours; supervision qty is editable.
+      const body = { enabled, rate, mark_manual: true };
       if (qtyEl) {
         const qty = Number(qtyEl.value);
         if (Number.isNaN(qty) || qty < 0) {
@@ -891,7 +894,6 @@ async function renderEstimateDetail(root) {
           return;
         }
         body.qty = qty;
-        body.mark_manual = true;
       }
       if (Number.isNaN(rate) || rate < 0) {
         toast("Rate must be ≥ 0", "err");
@@ -982,6 +984,22 @@ async function renderEstimateDetail(root) {
       }
     };
   });
+  const btnRecalc = $("#btn-recalc-estimate");
+  if (btnRecalc) {
+    btnRecalc.onclick = async () => {
+      btnRecalc.disabled = true;
+      btnRecalc.textContent = "Recalculating…";
+      try {
+        await Api.recalcEstimate(estimate.id);
+        toast("Recalculated from current inputs");
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btnRecalc.disabled = false;
+        btnRecalc.textContent = "Recalculate";
+      }
+    };
+  }
   $("#btn-del-estimate").onclick = async () => {
     const msg =
       `Delete estimate “${estimate.name}”?\n\n` +

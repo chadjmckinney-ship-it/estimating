@@ -91,12 +91,33 @@ psql -d estimating
 | `supplier_bids` | Quoted rebar/PT |
 | `supplier_bid_variance` | View: calc vs quote |
 | `etakeoff_imports` | CSV import audit |
-| `system_settings` | Waste factors, PT rate |
+| `system_settings` | Waste factors, PT rate, labor/equipment defaults |
 | `materials` | Pricing-tab unit catalog (Whitecap lumber + steel/mesh/PT/sand) |
 
 Locked calc helpers: `calc_concrete_cy`, `calc_sand_cy`, `calc_slab_mat_rebar_lf`, `calc_slab_mat_rebar_lb`, `calc_support_rebar_lb`, `calc_pt_cable_lb`, `calc_long_bar_lb`, `calc_stirrup_lb`, `calc_poly_beam_sf`.
 
 Slab steel is `mat + support`: the mat comes from bar size + spacing (`2 × SF × 12 / spacing` LF each way × lb/ft × `(1 + waste_rebar)` for laps), while `support_rebar_lb_per_sf` covers only chairs/dowels/misc at a default 0.1 lb/SF.
+
+### Company defaults & recalculating
+
+Quantities are **stored**, not computed on read, so changing a default has to rewrite them.
+
+```bash
+curl -s localhost:8001/api/system-settings            # list
+curl -s -X PATCH localhost:8001/api/system-settings/labor_forming_sf \
+     -H 'content-type: application/json' -d '{"value":0.50}'   # edits + recalcs
+```
+
+A `PATCH` rewrites every affected estimate automatically. **Editing `system_settings` directly in
+`psql` cannot trigger anything** — follow it with:
+
+```bash
+curl -s -X POST localhost:8001/api/system-settings/recalc-all
+```
+
+Single estimate: the **Recalculate** button on the estimate page, or
+`POST /api/estimates/{id}/recalc`. Lines you have edited by hand are marked `is_manual`
+and always survive a recalc; untouched lines track the company default.
 
 ### Materials
 
