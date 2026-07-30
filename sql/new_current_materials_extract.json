@@ -1,0 +1,650 @@
+[
+  {
+    "row": 4,
+    "name": "2 X 4  X 16'",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 0.859375,
+    "unit_note": null,
+    "norm": "2 X 4 X 16"
+  },
+  {
+    "row": 5,
+    "name": "2 X 6 X 16'",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 1.4453125,
+    "unit_note": null,
+    "norm": "2 X 6 X 16"
+  },
+  {
+    "row": 6,
+    "name": "2 X 8 X 16'",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 1.171875,
+    "unit_note": null,
+    "norm": "2 X 8 X 16"
+  },
+  {
+    "row": 7,
+    "name": "2 X 10 X 16'",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 1.09375,
+    "unit_note": null,
+    "norm": "2 X 10 X 16"
+  },
+  {
+    "row": 8,
+    "name": "3/4 \" FORMING PLY",
+    "category": "lumber",
+    "unit": "SHEET",
+    "unit_cost": 74.75,
+    "unit_note": null,
+    "norm": "3/4  FORMING PLY"
+  },
+  {
+    "row": 9,
+    "name": "MASONITE SIDING",
+    "category": "lumber",
+    "unit": "SHEET",
+    "unit_cost": 20.0,
+    "unit_note": null,
+    "norm": "MASONITE SIDING"
+  },
+  {
+    "row": 10,
+    "name": "1 X 1 TACT STRIP",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 0.70875,
+    "unit_note": null,
+    "norm": "1 X 1 TACT STRIP"
+  },
+  {
+    "row": 11,
+    "name": "1 X 4 RED WOOD",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 0.7771874999999999,
+    "unit_note": null,
+    "norm": "1 X 4 RED WOOD"
+  },
+  {
+    "row": 12,
+    "name": "1 X 6 RED WOOD",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 1.0631249999999999,
+    "unit_note": null,
+    "norm": "1 X 6 RED WOOD"
+  },
+  {
+    "row": 13,
+    "name": "1 X 8 RED WOOD",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 1.494375,
+    "unit_note": null,
+    "norm": "1 X 8 RED WOOD"
+  },
+  {
+    "row": 14,
+    "name": "ACCESSORIES",
+    "category": "form_accessories",
+    "unit": "LB",
+    "unit_cost": 0.04,
+    "unit_note": null,
+    "norm": "ACCESSORIES"
+  },
+  {
+    "row": 15,
+    "name": "2 x 2 x 30 Stakes",
+    "category": "lumber",
+    "unit": "BUNDLE",
+    "unit_cost": 24.0,
+    "unit_note": null,
+    "norm": "2 X 2 X 30 STAKES"
+  },
+  {
+    "row": 16,
+    "name": "16p NAILS DUPLEX",
+    "category": "lumber",
+    "unit": "BOX",
+    "unit_cost": 68.2,
+    "unit_note": null,
+    "norm": "16P NAILS DUPLEX"
+  },
+  {
+    "row": 17,
+    "name": "8p DUPLEX",
+    "category": "lumber",
+    "unit": "BOX",
+    "unit_cost": 68.2,
+    "unit_note": null,
+    "norm": "8P DUPLEX"
+  },
+  {
+    "row": 18,
+    "name": "6p NAILS",
+    "category": "lumber",
+    "unit": "BOX",
+    "unit_cost": 68.2,
+    "unit_note": null,
+    "norm": "6P NAILS"
+  },
+  {
+    "row": 19,
+    "name": "KEYWAY",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 0.95,
+    "unit_note": null,
+    "norm": "KEYWAY"
+  },
+  {
+    "row": 20,
+    "name": "CHAMFER",
+    "category": "lumber",
+    "unit": "LF",
+    "unit_cost": 0.25,
+    "unit_note": null,
+    "norm": "CHAMFER"
+  },
+  {
+    "row": 21,
+    "name": "WALL TIES",
+    "category": "lumber",
+    "unit": "BOX",
+    "unit_cost": 45.0,
+    "unit_note": "50/BOX",
+    "norm": "WALL TIES"
+  },
+  {
+    "row": 22,
+    "name": "1 X 2 X 18\" STAKES",
+    "category": "lumber",
+    "unit": "BUNDLE",
+    "unit_cost": 8.0,
+    "unit_note": null,
+    "norm": "1 X 2 X 18 STAKES"
+  },
+  {
+    "row": 24,
+    "name": "METAL CHAIRS 2.5\"",
+    "category": "structural_accessories",
+    "unit": "BAG/500",
+    "unit_cost": 45.0,
+    "unit_note": null,
+    "norm": "METAL CHAIRS 2.5"
+  },
+  {
+    "row": 25,
+    "name": "LIFT INSERT",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 12.0,
+    "unit_note": null,
+    "norm": "LIFT INSERT"
+  },
+  {
+    "row": 26,
+    "name": "CAMLOCKS",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 0.45,
+    "unit_note": null,
+    "norm": "CAMLOCKS"
+  },
+  {
+    "row": 27,
+    "name": "TURNBUCKLES",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 0.75,
+    "unit_note": null,
+    "norm": "TURNBUCKLES"
+  },
+  {
+    "row": 28,
+    "name": "PATCH MATERIAL",
+    "category": "structural_accessories",
+    "unit": "BAG",
+    "unit_cost": 45.0,
+    "unit_note": null,
+    "norm": "PATCH MATERIAL"
+  },
+  {
+    "row": 29,
+    "name": "PIER SLEDS",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 2.25,
+    "unit_note": null,
+    "norm": "PIER SLEDS"
+  },
+  {
+    "row": 30,
+    "name": "PIER BOOTS",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 3.0,
+    "unit_note": null,
+    "norm": "PIER BOOTS"
+  },
+  {
+    "row": 31,
+    "name": "SLAB CHAIRS",
+    "category": "structural_accessories",
+    "unit": "BAG",
+    "unit_cost": 27.0,
+    "unit_note": null,
+    "norm": "SLAB CHAIRS"
+  },
+  {
+    "row": 32,
+    "name": "POLSTERS",
+    "category": "structural_accessories",
+    "unit": "LF",
+    "unit_cost": 1.25,
+    "unit_note": null,
+    "norm": "POLSTERS"
+  },
+  {
+    "row": 33,
+    "name": "BRACE INSERTS",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 8.0,
+    "unit_note": null,
+    "norm": "BRACE INSERTS"
+  },
+  {
+    "row": 34,
+    "name": "ANCHOR BOLTS 1/2\" x 8\" Galv",
+    "category": "structural_accessories",
+    "unit": "BOX",
+    "unit_cost": 45.239999999999995,
+    "unit_note": null,
+    "norm": "ANCHOR BOLTS 1/2 X 8 GALV"
+  },
+  {
+    "row": 35,
+    "name": "Anchor Bolts 1/2\" x 10\" Galv.",
+    "category": "structural_accessories",
+    "unit": "EA",
+    "unit_cost": 52.260000000000005,
+    "unit_note": null,
+    "norm": "ANCHOR BOLTS 1/2 X 10 GALV."
+  },
+  {
+    "row": 36,
+    "name": "TIE WIRE",
+    "category": "structural_accessories",
+    "unit": "ROLL",
+    "unit_cost": 37.8,
+    "unit_note": null,
+    "norm": "TIE WIRE"
+  },
+  {
+    "row": 38,
+    "name": "2-1/4 PAVING CHAIRS",
+    "category": "site_accessories",
+    "unit": "BAG",
+    "unit_cost": 23.924999999999997,
+    "unit_note": null,
+    "norm": "2-1/4 PAVING CHAIRS"
+  },
+  {
+    "row": 39,
+    "name": "3-1/4 PAVING CHAIRS",
+    "category": "site_accessories",
+    "unit": "BAG",
+    "unit_cost": 27.0,
+    "unit_note": null,
+    "norm": "3-1/4 PAVING CHAIRS"
+  },
+  {
+    "row": 40,
+    "name": "ANCHOR BOLTS 8\"x1/2\" (50/BX)",
+    "category": "site_accessories",
+    "unit": "BOX",
+    "unit_cost": 52.199999999999996,
+    "unit_note": null,
+    "norm": "ANCHOR BOLTS 8X1/2 (50/BX)"
+  },
+  {
+    "row": 41,
+    "name": "SPEED DOWEL INSERT w/ BASE",
+    "category": "site_accessories",
+    "unit": "EA",
+    "unit_cost": 1.5,
+    "unit_note": null,
+    "norm": "SPEED DOWEL INSERT W/ BASE"
+  },
+  {
+    "row": 42,
+    "name": "SNAP TIES",
+    "category": "site_accessories",
+    "unit": "BOX",
+    "unit_cost": 45.0,
+    "unit_note": null,
+    "norm": "SNAP TIES"
+  },
+  {
+    "row": 43,
+    "name": "POLY 10 mil  20 x 100 Black",
+    "category": "site_accessories",
+    "unit": "ROLL",
+    "unit_cost": 105.0,
+    "unit_note": null,
+    "norm": "POLY 10 MIL 20 X 100 BLACK"
+  },
+  {
+    "row": 44,
+    "name": "SLAB CURE",
+    "category": "chemical",
+    "unit": "DRUM",
+    "unit_cost": 567.5,
+    "unit_note": null,
+    "norm": "SLAB CURE"
+  },
+  {
+    "row": 45,
+    "name": "FORM RELEASE",
+    "category": "chemical",
+    "unit": "DRUM",
+    "unit_cost": 542.0,
+    "unit_note": null,
+    "norm": "FORM RELEASE"
+  },
+  {
+    "row": 46,
+    "name": "BOND BREAKER",
+    "category": "chemical",
+    "unit": "DRUM",
+    "unit_cost": 635.0,
+    "unit_note": null,
+    "norm": "BOND BREAKER"
+  },
+  {
+    "row": 47,
+    "name": "1/2\" x 24\" smooth dowels",
+    "category": "steel",
+    "unit": "EA",
+    "unit_cost": 1.995,
+    "unit_note": null,
+    "norm": "1/2 X 24 SMOOTH DOWELS"
+  },
+  {
+    "row": 48,
+    "name": "1/2\" x 30\" smooth dowels",
+    "category": "steel",
+    "unit": "EA",
+    "unit_cost": 2.25,
+    "unit_note": null,
+    "norm": "1/2 X 30 SMOOTH DOWELS"
+  },
+  {
+    "row": 49,
+    "name": "5/8\" x 24\" smooth dowels",
+    "category": "steel",
+    "unit": "EA",
+    "unit_cost": 3.12,
+    "unit_note": null,
+    "norm": "5/8 X 24 SMOOTH DOWELS"
+  },
+  {
+    "row": 50,
+    "name": "3/4\" x 24\" smooth dowels",
+    "category": "steel",
+    "unit": "EA",
+    "unit_cost": 4.995,
+    "unit_note": null,
+    "norm": "3/4 X 24 SMOOTH DOWELS"
+  },
+  {
+    "row": 53,
+    "name": "6 mil 20 x 100",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 66.0,
+    "unit_note": null,
+    "norm": "6 MIL 20 X 100"
+  },
+  {
+    "row": 54,
+    "name": "6 mil 32 x 100",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 82.5,
+    "unit_note": null,
+    "norm": "6 MIL 32 X 100"
+  },
+  {
+    "row": 55,
+    "name": "10 mil 20 x 100",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 110.00000000000001,
+    "unit_note": null,
+    "norm": "10 MIL 20 X 100"
+  },
+  {
+    "row": 56,
+    "name": "10 mil. Stego Wrap 14 x 210",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 370.0,
+    "unit_note": null,
+    "norm": "10 MIL. STEGO WRAP 14 X 210"
+  },
+  {
+    "row": 57,
+    "name": "15 mil Stego Wrap 14' x 140'",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 370.0,
+    "unit_note": null,
+    "norm": "15 MIL STEGO WRAP 14 X 140"
+  },
+  {
+    "row": 58,
+    "name": "10 mil Yellow Guard 14' x 210'",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 310.0,
+    "unit_note": null,
+    "norm": "10 MIL YELLOW GUARD 14 X 210"
+  },
+  {
+    "row": 59,
+    "name": "15 Mil Yellow Guard 14'x210",
+    "category": "vapor_barrier",
+    "unit": "ROLL",
+    "unit_cost": 310.0,
+    "unit_note": null,
+    "norm": "15 MIL YELLOW GUARD 14X210"
+  },
+  {
+    "row": 60,
+    "name": "FOAM FILL VOID",
+    "category": "foam",
+    "unit": "2\"_X_4_X_8",
+    "unit_cost": 22.76,
+    "unit_note": "2\" x 4 x 8",
+    "norm": "FOAM FILL VOID"
+  },
+  {
+    "row": 61,
+    "name": "FOAM FILL VOID",
+    "category": "foam",
+    "unit": "CF",
+    "unit_cost": 1.65,
+    "unit_note": null,
+    "norm": "FOAM FILL VOID"
+  },
+  {
+    "row": 62,
+    "name": "Stego Tape",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 49.50000000000001,
+    "unit_note": null,
+    "norm": "STEGO TAPE"
+  },
+  {
+    "row": 63,
+    "name": "Yellow Guard Tape",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 23.650000000000002,
+    "unit_note": null,
+    "norm": "YELLOW GUARD TAPE"
+  },
+  {
+    "row": 64,
+    "name": "Perminator \u00a015 mil \u00a012' x 200'",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 432.75,
+    "unit_note": null,
+    "norm": "PERMINATOR 15 MIL 12 X 200"
+  },
+  {
+    "row": 66,
+    "name": "Yellow Guard \u00a015 mil 14' x 140'",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 356.67249999999996,
+    "unit_note": null,
+    "norm": "YELLOW GUARD 15 MIL 14 X 140"
+  },
+  {
+    "row": 67,
+    "name": "Tape",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 17.25,
+    "unit_note": null,
+    "norm": "TAPE"
+  },
+  {
+    "row": 68,
+    "name": "Raven 15 x 200  10 mil",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 305.0,
+    "unit_note": null,
+    "norm": "RAVEN 15 X 200 10 MIL"
+  },
+  {
+    "row": 69,
+    "name": "R.W Medows  12' x 200",
+    "category": "vapor_barrier",
+    "unit": "EA",
+    "unit_cost": 249.6,
+    "unit_note": null,
+    "norm": "R.W MEDOWS 12 X 200"
+  },
+  {
+    "row": 19,
+    "name": "SAND DELIVERED PER TON",
+    "category": "aggregate",
+    "unit": "CY",
+    "unit_cost": 25.0,
+    "unit_note": null,
+    "norm": "SAND DELIVERED PER TON"
+  },
+  {
+    "row": 20,
+    "name": "ROCK DELEVERED PER TON",
+    "category": "aggregate",
+    "unit": "CY",
+    "unit_cost": 45.0,
+    "unit_note": null,
+    "norm": "ROCK DELEVERED PER TON"
+  },
+  {
+    "row": 22,
+    "name": "REBAR PIERS / PT slabs",
+    "category": "steel",
+    "unit": "LB",
+    "unit_cost": 0.6,
+    "unit_note": null,
+    "norm": "REBAR PIERS / PT SLABS"
+  },
+  {
+    "row": 23,
+    "name": "REBAR GRADE BEAM",
+    "category": "steel",
+    "unit": "LB",
+    "unit_cost": 0.55,
+    "unit_note": null,
+    "norm": "REBAR GRADE BEAM"
+  },
+  {
+    "row": 24,
+    "name": "REBAR PAVING",
+    "category": "steel",
+    "unit": "LB",
+    "unit_cost": 0.5,
+    "unit_note": null,
+    "norm": "REBAR PAVING"
+  },
+  {
+    "row": 25,
+    "name": "DOWEL SPACING / 3/4\" & CAP",
+    "category": "steel",
+    "unit": "EA",
+    "unit_cost": 1.45,
+    "unit_note": null,
+    "norm": "DOWEL SPACING / 3/4 & CAP"
+  },
+  {
+    "row": 26,
+    "name": "WIRE MESH 10 GAGE",
+    "category": "mesh",
+    "unit": "SF",
+    "unit_cost": 0.4,
+    "unit_note": "10 GAGE",
+    "norm": "WIRE MESH 10 GAGE"
+  },
+  {
+    "row": 27,
+    "name": "WIRE MESH 6 GAGE",
+    "category": "mesh",
+    "unit": "SF",
+    "unit_cost": 0.458125,
+    "unit_note": "6 GAGE",
+    "norm": "WIRE MESH 6 GAGE"
+  },
+  {
+    "row": 28,
+    "name": "WIRE MESH 5 GAGE",
+    "category": "mesh",
+    "unit": "SF",
+    "unit_cost": 0.8625,
+    "unit_note": "5 GAGE",
+    "norm": "WIRE MESH 5 GAGE"
+  },
+  {
+    "row": 29,
+    "name": "POST TENSION CABLES",
+    "category": "pt",
+    "unit": "SF",
+    "unit_cost": 1.05,
+    "unit_note": null,
+    "norm": "POST TENSION CABLES"
+  },
+  {
+    "row": 30,
+    "name": "1/2\" SMOOTH DOWELS & CAP",
+    "category": "steel",
+    "unit": "EA",
+    "unit_cost": 1.0,
+    "unit_note": null,
+    "norm": "1/2 SMOOTH DOWELS & CAP"
+  }
+]

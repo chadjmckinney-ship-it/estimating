@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local config / secrets (DB URL etc.)
+.env
+.env.*
+
+# Database dumps / backups
+backups/
+*.dump
+*.sql.gz
+
+# Excel lock files (created while a workbook is open)
+~$*
+
+# Machine-local tool settings
+.claude/settings.local.json
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

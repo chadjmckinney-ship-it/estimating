@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>S&amp;S Estimating</title>
+    <link rel="stylesheet" href="/assets/css/app.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>S&amp;S Estimating</strong>
+        <span>Mono Slab · catalogs · bids</span>
+      </div>
+      <nav class="nav">
+        <button type="button" data-route="home" class="active">Dashboard</button>
+        <div class="section-label">Work</div>
+        <button type="button" data-route="projects">Projects</button>
+        <button type="button" data-route="estimators">Estimators</button>
+        <div class="section-label">Catalogs</div>
+        <button type="button" data-route="mixes">Mix designs</button>
+        <button type="button" data-route="materials">Materials</button>
+        <button type="button" data-route="equipment">Equipment</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="dot" id="api-dot"></span>
+        <span id="api-status">Checking API…</span>
+      </div>
+    </aside>
+    <main class="main">
+      <div id="app"><div class="loading">Loading…</div></div>
+    </main>
+    <script type="module" src="/assets/js/app.js"></script>
+  </body>
+</html>
