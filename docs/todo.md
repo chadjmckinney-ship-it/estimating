@@ -50,7 +50,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Confirm **waste factors** (concrete, sand, rebar) — defaults in `system_settings`
 - [ ] Confirm **PT quantity** rule (currently 1.0 lb/SF) vs Pricing $/SF
 - [ ] Confirm **slab support rebar** 1.0 lb/SF
-- [ ] Confirm **stirrup** weight method (perimeter, hooks, lap)
+- [~] Confirm **stirrup** weight method — hook allowance locked at 1.0 ft (`sql/023`).
+      Still open: concrete cover deduction (bar is measured out-to-out today, runs
+      16–39% heavy) and the missing end stirrup / unrounded count.
 - [ ] Confirm **L-bar** weight method
 - [ ] Full **mix design** list (w/ ash, sidewalk mixes, etc.) from Pricing / bids
 - [ ] **Cost code** mapping from existing spreadsheet

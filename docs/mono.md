@@ -112,7 +112,9 @@ Excel **04** pour columns **GRADE BEAMS**, **EXP GB**, and **Drops** share one b
 
 ```
 Weight = (Number of bars × Length_ft × Weight_per_ft)
-       + stirrup weight (based on spacing + perimeter of stirrup)
+       + stirrup weight: (L×12/spacing) × (2×(W+H)/12 + 1.0 ft hooks) × lb/ft
+         (out-to-out perimeter — no cover deduction; count omits the end
+          stirrup. Both still open, see docs/todo.md)
        + any L-bars
 ```
 
