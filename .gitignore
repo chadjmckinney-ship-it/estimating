@@ -3,6 +3,13 @@
 __pycache__/
 *.py[cod]
 
+# Frontend dev tooling (dev-only; the app itself has no build step)
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # Local config / secrets (DB URL etc.)
 .env
 .env.*

@@ -54,6 +54,23 @@ sudo ufw allow from 192.168.0.0/24 to any port 8001 proto tcp
 
 Frontend: `frontend/` (static SPA, no build). See `frontend/README.md` and `backend/README.md`.
 
+### Frontend checks
+
+Dev-only — the app still has **no build step** and FastAPI serves `frontend/` as-is.
+Requires `nodejs`/`npm` (`sudo pacman -S nodejs npm`), then `npm install`.
+
+```bash
+npm run check      # node --check on every JS file (syntax)
+npm run lint       # oxlint
+npm run test:e2e   # Playwright smoke tests in a real browser
+npm run verify     # all three
+```
+
+The smoke tests start the API on 8001 if it isn't already up, load real pages, and
+**fail on any console error** — which is what catches a template-literal typo or a
+field the API stopped returning. They are **read-only**: they open dialogs but never
+click Save, Recalculate or Delete. Keep them that way, or a test run will edit real bids.
+
 ## Database
 
 - **Name:** `estimating`
