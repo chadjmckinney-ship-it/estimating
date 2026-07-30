@@ -15,7 +15,8 @@ from app.schemas.estimate import EstimateCreate, EstimateRead, EstimateUpdate
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
 # Estimate-level inputs that feed the stored pour calc_* columns.
-_POUR_CALC_FIELDS = frozenset({"waste_concrete", "waste_sand"})
+# waste_rebar is here because it carries the slab mat's lap allowance.
+_POUR_CALC_FIELDS = frozenset({"waste_concrete", "waste_sand", "waste_rebar"})
 
 
 def _recalc_after_estimate_change(db: Session, row: Estimate, changed: set[str]) -> None:

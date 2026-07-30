@@ -30,7 +30,9 @@ Design field list: [../mono.md](../mono.md)
 | `perimeter_edge_lf` | numeric(14,3) | YES | | Linear feet |
 | `wire_mesh` | boolean | NO | `false` | Gage not linked yet |
 | `drops_ff` | numeric(14,3) | YES | | Total LF of drops |
-| `support_rebar_lb_per_sf` | numeric(8,4) | YES | | SOG support rebar override; NULL = system default |
+| `slab_bar_size` | smallint | YES | | Slab mat bar size #3–#11; NULL = no mat on this pour |
+| `slab_bar_spacing_in` | numeric(8,3) | YES | | Slab mat spacing in o.c., each way; NULL = no mat |
+| `support_rebar_lb_per_sf` | numeric(8,4) | YES | | Support steel only (chairs/dowels/misc) override; NULL = system default 0.1 |
 | `pt_lb_per_sf` | numeric(8,4) | YES | | PT cable lb/SF override; NULL = system default |
 | `notes` | text | YES | | |
 | `sort_order` | integer | NO | `0` | Display order |
@@ -43,10 +45,12 @@ Design field list: [../mono.md](../mono.md)
 |--------|------|------|---------------------|
 | `calc_concrete_cy` | numeric(14,4) | CY | `(SF × thk/12/27) × (1+waste)` |
 | `calc_sand_cy` | numeric(14,4) | CY | sand thickness same pattern |
-| `calc_support_rebar_lb` | numeric(14,3) | lb | SF × 1.0 (default) |
+| `calc_slab_bar_lf` | numeric(14,3) | LF | Mat, each way: 2 × SF × 12 / spacing |
+| `calc_slab_bar_lb` | numeric(14,3) | lb | Mat: LF × lb/ft(size) × (1 + waste_rebar for laps) |
+| `calc_support_rebar_lb` | numeric(14,3) | lb | SF × 0.1 (default) — support steel only |
 | `calc_pt_cable_lb` | numeric(14,3) | lb | SF × 1.0 if PT else 0 |
 | `calc_grade_beam_rebar_lb` | numeric(14,3) | lb | Sum of child grade beams |
-| `calc_total_rebar_lb` | numeric(14,3) | lb | Support + grade beam |
+| `calc_total_rebar_lb` | numeric(14,3) | lb | Mat + support + grade beam |
 
 ### Constraints
 
@@ -70,7 +74,8 @@ Design field list: [../mono.md](../mono.md)
 
 ```sql
 SELECT calc_concrete_cy(9525, 4, 0.05);
-SELECT calc_support_rebar_lb(9525, 1.0);
+SELECT calc_support_rebar_lb(9525, 0.1);          -- support steel only
+SELECT calc_slab_mat_rebar_lb(9525, 4::smallint, 18, 0.10);  -- #4 @ 18" EW + 10% lap
 SELECT calc_pt_cable_lb(9525, true, 1.0);
 SELECT calc_sand_cy(9525, 2, 0.05);
 ```
@@ -96,7 +101,9 @@ RETURNING *;
 UPDATE mono_slabs ms SET
   calc_concrete_cy = calc_concrete_cy(ms.square_footage, ms.thickness_in, 0.05),
   calc_sand_cy = calc_sand_cy(ms.square_footage, ms.sand_thickness_in, 0.05),
-  calc_support_rebar_lb = calc_support_rebar_lb(ms.square_footage, 1.0),
+  calc_slab_bar_lb = calc_slab_mat_rebar_lb(
+      ms.square_footage, ms.slab_bar_size, ms.slab_bar_spacing_in, 0.10),
+  calc_support_rebar_lb = calc_support_rebar_lb(ms.square_footage, 0.1),
   calc_pt_cable_lb = calc_pt_cable_lb(ms.square_footage, ms.post_tension, 1.0),
   updated_at = now()
 WHERE ms.id = :slab_id;

@@ -94,7 +94,9 @@ psql -d estimating
 | `system_settings` | Waste factors, PT rate |
 | `materials` | Pricing-tab unit catalog (Whitecap lumber + steel/mesh/PT/sand) |
 
-Locked calc helpers: `calc_concrete_cy`, `calc_sand_cy`, `calc_support_rebar_lb`, `calc_pt_cable_lb`, `calc_long_bar_lb`, `calc_stirrup_lb`.
+Locked calc helpers: `calc_concrete_cy`, `calc_sand_cy`, `calc_slab_mat_rebar_lf`, `calc_slab_mat_rebar_lb`, `calc_support_rebar_lb`, `calc_pt_cable_lb`, `calc_long_bar_lb`, `calc_stirrup_lb`, `calc_poly_beam_sf`.
+
+Slab steel is `mat + support`: the mat comes from bar size + spacing (`2 × SF × 12 / spacing` LF each way × lb/ft × `(1 + waste_rebar)` for laps), while `support_rebar_lb_per_sf` covers only chairs/dowels/misc at a default 0.1 lb/SF.
 
 ### Materials
 

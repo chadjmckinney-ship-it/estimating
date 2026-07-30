@@ -81,11 +81,12 @@ Excel **04** pour columns **GRADE BEAMS**, **EXP GB**, and **Drops** share one b
 | Item                        | Rule                                                                 | Unit      |
 |----------------------------|----------------------------------------------------------------------|-----------|
 | Concrete CY                | (SF × Thickness_in / 12 / 27) × (1 + waste factor)                  | CY        |
-| Slab Support Rebar         | SF × **1.0** lb/SF                                                  | lbs       |
+| Slab Mat Rebar             | (2 × SF × 12 / spacing_in) LF each way × lb/ft(size) × (1 + waste_rebar) | lbs   |
+| Slab Support Rebar         | SF × **0.1** lb/SF — chairs / dowels / misc only                    | lbs       |
 | PT Cable Quantity          | SF × **1.0** lb/SF                                                  | lbs       |
 | Grade Beam / Exp / Drop Rebar | Same bar schedule for all three kinds; sum into pour             | lbs       |
 | Grade Beam / Exp / Drop CY | Same (W×H×L)/(144×27)×(1+waste); sum into pour concrete             | CY        |
-| **Total Rebar**            | Slab Support Rebar + (GB + Exp + Drop) rebar                        | lbs / tons|
+| **Total Rebar**            | Slab Mat + Slab Support + (GB + Exp + Drop) rebar                   | lbs / tons|
 | Exp / Drop forming & labor | Additional to GBs (cost sheet later); materials already on pour     | $         |
 | Sand CY                    | (SF × Sand_Thickness_in / 12 / 27) × (1 + waste)                    | CY        |
 | Poly / Stego SF            | Pour SF + Σ((2×H″)/12 × L) for beams (sides only, Excel); × (1 + waste_poly) | SF        |

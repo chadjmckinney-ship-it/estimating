@@ -2,7 +2,17 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    SmallInteger,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,7 +40,10 @@ class MonoSlab(Base):
     perimeter_edge_lf: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     wire_mesh: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     drops_ff: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
-    # SOG rate overrides (lb/SF); NULL = system_settings defaults
+    # Slab mat: #4 @ 18" o.c. each way. NULL = no mat priced on this pour.
+    slab_bar_size: Mapped[int | None] = mapped_column(SmallInteger)
+    slab_bar_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    # Support steel only (chairs/dowels/misc) lb/SF; NULL = system default 0.1
     support_rebar_lb_per_sf: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     pt_lb_per_sf: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     pt_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
@@ -41,6 +54,8 @@ class MonoSlab(Base):
     calc_slab_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     calc_gb_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     calc_sand_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    calc_slab_bar_lf: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    calc_slab_bar_lb: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     calc_support_rebar_lb: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     calc_pt_cable_lb: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     calc_pt_slab_lf: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))

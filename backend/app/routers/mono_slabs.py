@@ -28,7 +28,7 @@ router = APIRouter(prefix="/mono-slabs", tags=["mono-slabs"])
 
 def _to_read(db: Session, row: MonoSlab) -> MonoSlabRead:
     mix = db.get(MixDesign, row.mix_design_id) if row.mix_design_id else None
-    sys_support = _setting_numeric(db, "support_rebar_lb_per_sf", Decimal("1.0"))
+    sys_support = _setting_numeric(db, "support_rebar_lb_per_sf", Decimal("0.1"))
     sys_pt = _setting_numeric(db, "pt_lb_per_sf", Decimal("1.0"))
     eff_support = (
         Decimal(str(row.support_rebar_lb_per_sf))
@@ -52,6 +52,8 @@ def _to_read(db: Session, row: MonoSlab) -> MonoSlabRead:
         perimeter_edge_lf=row.perimeter_edge_lf,
         wire_mesh=row.wire_mesh,
         drops_ff=row.drops_ff,
+        slab_bar_size=row.slab_bar_size,
+        slab_bar_spacing_in=row.slab_bar_spacing_in,
         support_rebar_lb_per_sf=row.support_rebar_lb_per_sf,
         pt_lb_per_sf=row.pt_lb_per_sf,
         pt_spacing_in=row.pt_spacing_in,
@@ -61,6 +63,8 @@ def _to_read(db: Session, row: MonoSlab) -> MonoSlabRead:
         calc_slab_concrete_cy=row.calc_slab_concrete_cy,
         calc_gb_concrete_cy=row.calc_gb_concrete_cy,
         calc_sand_cy=row.calc_sand_cy,
+        calc_slab_bar_lf=row.calc_slab_bar_lf,
+        calc_slab_bar_lb=row.calc_slab_bar_lb,
         calc_support_rebar_lb=row.calc_support_rebar_lb,
         calc_pt_cable_lb=row.calc_pt_cable_lb,
         calc_pt_slab_lf=row.calc_pt_slab_lf,
@@ -139,6 +143,8 @@ def create_mono_slab(body: MonoSlabCreate, db: Session = Depends(get_db)) -> Mon
         perimeter_edge_lf=body.perimeter_edge_lf,
         wire_mesh=body.wire_mesh,
         drops_ff=body.drops_ff,
+        slab_bar_size=body.slab_bar_size,
+        slab_bar_spacing_in=body.slab_bar_spacing_in,
         support_rebar_lb_per_sf=body.support_rebar_lb_per_sf,
         pt_lb_per_sf=body.pt_lb_per_sf,
         pt_spacing_in=body.pt_spacing_in,

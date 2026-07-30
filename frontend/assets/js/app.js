@@ -667,10 +667,11 @@ async function renderEstimateDetail(root) {
       <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(totals.total_concrete_cy, 2)}</div><div class="hint">slab ${num(totals.total_slab_concrete_cy, 1)} + beams ${num(totals.total_gb_concrete_cy, 1)} (GB+Exp+Drop)</div></div>
       <div class="card stat"><div class="label">SF / CY</div><div class="value">${num(sfPerCy(totals.total_sf, totals.total_concrete_cy), 1)}</div><div class="hint">total SF ÷ CY (slab + beams)</div></div>
       <div class="card stat"><div class="label">Sand CY</div><div class="value">${num(totals.total_sand_cy, 2)}</div></div>
-      <div class="card stat"><div class="label">Support rebar</div><div class="value">${num(totals.total_support_rebar_lb, 0)}</div><div class="hint">lb</div></div>
+      <div class="card stat"><div class="label">Slab mat</div><div class="value">${num(totals.total_slab_bar_lb, 0)}</div><div class="hint">lb · ${num(totals.total_slab_bar_lf, 0)} LF each way</div></div>
+      <div class="card stat"><div class="label">Support rebar</div><div class="value">${num(totals.total_support_rebar_lb, 0)}</div><div class="hint">lb · chairs/dowels only</div></div>
       <div class="card stat"><div class="label">PT cable LF</div><div class="value">${num(totals.total_pt_cable_lf, 0)}</div><div class="hint">slab + GB PT</div></div>
       <div class="card stat"><div class="label">PT weight</div><div class="value">${num(totals.total_pt_cable_lb, 0)}</div><div class="hint">lb (rate method)</div></div>
-      <div class="card stat"><div class="label">Total rebar</div><div class="value">${num(totals.total_rebar_lb, 0)}</div><div class="hint">lb (support + GB+Exp+Drop)</div></div>
+      <div class="card stat"><div class="label">Total rebar</div><div class="value">${num(totals.total_rebar_lb, 0)}</div><div class="hint">lb · ${num(Number(totals.total_rebar_lb) / 2000, 2)} tons (mat + support + beams)</div></div>
       <div class="card stat"><div class="label">Poly / Stego</div><div class="value">${num(totals.total_poly_sf, 0)}</div><div class="hint">SF · pour ${num(totals.total_poly_slab_sf, 0)} + beams ${num(totals.total_poly_gb_sf, 0)} + waste</div></div>
     </div>
 
@@ -690,6 +691,7 @@ async function renderEstimateDetail(root) {
             <th>CY total</th>
             <th>SF/CY</th>
             <th>PT LF</th>
+            <th>Slab mat</th>
             <th>Total rebar</th>
             <th>Poly SF</th>
             <th></th>
@@ -716,8 +718,14 @@ async function renderEstimateDetail(root) {
                 (slabOnlySfPerCy != null
                   ? ` · slab only ${num(slabOnlySfPerCy, 1)} SF/CY`
                   : "");
+              const matTitle = s.slab_bar_size
+                ? `#${s.slab_bar_size} @ ${num(s.slab_bar_spacing_in, 1)}" each way` +
+                  ` · 2 × ${num(s.square_footage, 0)} SF × 12 / ${num(s.slab_bar_spacing_in, 1)}` +
+                  ` = ${num(s.calc_slab_bar_lf, 0)} LF → ${num(s.calc_slab_bar_lb, 0)} lb (incl. lap)`
+                : "No slab mat — enter bar size + spacing on this pour";
               const rebarTitle =
-                `support ${num(s.calc_support_rebar_lb, 0)}` +
+                `mat ${num(s.calc_slab_bar_lb, 0)}` +
+                ` + support ${num(s.calc_support_rebar_lb, 0)}` +
                 ` + GB ${num(g.rebar_lb, 0)}` +
                 ` + Exp ${num(e.rebar_lb, 0)}` +
                 ` + Drop ${num(d.rebar_lb, 0)}` +
@@ -756,6 +764,11 @@ async function renderEstimateDetail(root) {
               <td class="num" title="${esc(cyTitle)}"><strong>${num(s.calc_concrete_cy, 2)}</strong></td>
               <td class="num" title="${esc(sfCyTitle)}">${num(pourSfPerCy, 1)}</td>
               <td class="num" title="slab ${num(s.calc_pt_slab_lf, 0)} + GB PT ${num(s.calc_pt_gb_lf, 0)} LF">${num(s.calc_pt_cable_lf, 0)}</td>
+              <td class="num" title="${esc(matTitle)}">
+                ${s.slab_bar_size
+                  ? `${num(s.calc_slab_bar_lb, 0)}<div class="muted">#${s.slab_bar_size} @ ${num(s.slab_bar_spacing_in, 1)}"</div>`
+                  : "—"}
+              </td>
               <td class="num" title="${esc(rebarTitle)}">${num(s.calc_total_rebar_lb, 0)}</td>
               <td class="num" title="${esc(polyTitle)}">${num(s.calc_poly_sf, 0)}</td>
               <td style="white-space:nowrap">
@@ -773,10 +786,12 @@ async function renderEstimateDetail(root) {
           : `<div class="empty">No mono slabs yet. Add a pour to calculate CY and rebar.</div>`
       }
       <p style="color:var(--text-muted);font-size:0.82rem;margin:0.85rem 0 0">
-        Calcs: concrete/sand CY with waste, support rebar &amp; PT at system lb/SF.
+        Calcs: concrete/sand CY with waste. <strong>Slab mat</strong> =
+        <code>2 × SF × 12 / spacing</code> LF each way × lb/ft × (1+waste_rebar for laps);
+        support rebar is chairs/dowels only at lb/SF.
         <strong>Poly/Stego SF</strong> = pour SF + beam wrap
-        <code>((W″ + 2×H″) / 12) × L</code> for GBs, Exp, and Drops, × (1+waste_poly default 10%).
-        Hover Poly / CY / rebar for breakdown.
+        <code>((2×H″) / 12) × L</code> (two sides only) for GBs, Exp, and Drops, × (1+waste_poly default 10%).
+        Hover Poly / CY / mat / rebar for breakdown.
       </p>
     </div>
 
@@ -1672,13 +1687,27 @@ function openMonoSlabModal(estimate, existing = null) {
         </div>
         <div class="field full" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:0.75rem;margin-top:0.25rem">
           <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;margin-bottom:0.5rem">
-            SOG rebar &amp; PT cables — support rebar blank = 1.0 lb/SF; PT LF uses spacing + GB cable counts
+            SOG rebar &amp; PT cables — mat from size + spacing; support blank = 0.1 lb/SF; PT LF uses spacing + GB cable counts
           </div>
+        </div>
+        <div class="field">
+          <label>Slab bar size</label>
+          <select name="slab_bar_size" title="Slab mat bar size, e.g. #4 @ 18&quot; O.C.E.W.">
+            ${barSizeOptions(existing?.slab_bar_size)}
+          </select>
+        </div>
+        <div class="field">
+          <label>Slab bar spacing (in o.c.)</label>
+          <input type="number" name="slab_bar_spacing_in" min="0.1" step="0.5"
+            placeholder="e.g. 18 — each way"
+            title="Each way. LF = 2 × SF × 12 / spacing"
+            value="${existing?.slab_bar_spacing_in != null ? esc(existing.slab_bar_spacing_in) : ""}" />
         </div>
         <div class="field">
           <label>Support rebar lb/SF</label>
           <input type="number" name="support_rebar_lb_per_sf" min="0" step="0.01"
-            placeholder="default 1.0"
+            placeholder="default 0.1"
+            title="Chairs / dowels / misc only — the mat is priced from size + spacing"
             value="${existing?.support_rebar_lb_per_sf != null ? esc(existing.support_rebar_lb_per_sf) : ""}" />
         </div>
         <div class="field">
@@ -1705,6 +1734,8 @@ function openMonoSlabModal(estimate, existing = null) {
               <span>CY total ${num(existing.calc_concrete_cy, 2)}
                 (slab ${num(existing.calc_slab_concrete_cy, 2)} + GB ${num(existing.calc_gb_concrete_cy, 2)})</span>
               <span>Sand ${num(existing.calc_sand_cy, 2)}</span>
+              <span>Mat ${num(existing.calc_slab_bar_lb, 0)} lb
+                ${existing.slab_bar_size ? `(#${existing.slab_bar_size} @ ${num(existing.slab_bar_spacing_in, 1)}" EW, ${num(existing.calc_slab_bar_lf, 0)} LF)` : "(none)"}</span>
               <span>Support ${num(existing.calc_support_rebar_lb, 0)} lb
                 @ ${num(existing.effective_support_rebar_lb_per_sf, 2)} lb/SF</span>
               <span>PT ${num(existing.calc_pt_cable_lf, 0)} LF
@@ -1746,6 +1777,8 @@ function openMonoSlabModal(estimate, existing = null) {
       mix_design_id: fd.get("mix_design_id") ? Number(fd.get("mix_design_id")) : null,
       post_tension: fd.get("post_tension") === "true",
       wire_mesh: fd.get("wire_mesh") === "true",
+      slab_bar_size: optNum("slab_bar_size"),
+      slab_bar_spacing_in: optNum("slab_bar_spacing_in"),
       support_rebar_lb_per_sf: optNum("support_rebar_lb_per_sf"),
       pt_lb_per_sf: optNum("pt_lb_per_sf"),
       pt_spacing_in: optNum("pt_spacing_in"),

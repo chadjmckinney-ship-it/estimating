@@ -17,9 +17,22 @@ class MonoSlabBase(BaseModel):
     perimeter_edge_lf: Decimal | None = Field(None, ge=0, examples=[500])
     wire_mesh: bool = False
     drops_ff: Decimal | None = Field(None, ge=0)
-    # SOG rates (lb/SF). Blank/null → system default (usually 1.0)
+    # Slab mat — plan call-out like #4 @ 18" O.C.E.W. Both required to price a mat.
+    slab_bar_size: int | None = Field(
+        None, ge=3, le=11, examples=[4], description="Slab mat bar size #3–#11"
+    )
+    slab_bar_spacing_in: Decimal | None = Field(
+        None,
+        gt=0,
+        examples=[18],
+        description="Slab mat spacing inches o.c., each way; LF = 2 × SF × 12 / spacing",
+    )
+    # Support steel only (chairs/dowels/misc). Blank/null → system default (0.1)
     support_rebar_lb_per_sf: Decimal | None = Field(
-        None, ge=0, examples=[1.0], description="Override support rebar lb/SF for this pour"
+        None,
+        ge=0,
+        examples=[0.1],
+        description="Override support rebar lb/SF for this pour (excludes the mat)",
     )
     pt_lb_per_sf: Decimal | None = Field(
         None, ge=0, examples=[1.0], description="Optional PT weight lb/SF (legacy / supplier weight)"
@@ -49,6 +62,8 @@ class MonoSlabUpdate(BaseModel):
     perimeter_edge_lf: Decimal | None = Field(None, ge=0)
     wire_mesh: bool | None = None
     drops_ff: Decimal | None = Field(None, ge=0)
+    slab_bar_size: int | None = Field(None, ge=3, le=11)
+    slab_bar_spacing_in: Decimal | None = Field(None, gt=0)
     support_rebar_lb_per_sf: Decimal | None = Field(None, ge=0)
     pt_lb_per_sf: Decimal | None = Field(None, ge=0)
     pt_spacing_in: Decimal | None = Field(None, gt=0)
@@ -75,6 +90,9 @@ class MonoSlabRead(MonoSlabBase):
     # Sum of grade_beam + exposed + drop concrete (name kept for compatibility)
     calc_gb_concrete_cy: Decimal | None = None
     calc_sand_cy: Decimal | None = None
+    # Slab mat (from size + spacing); lb includes the waste_rebar lap allowance
+    calc_slab_bar_lf: Decimal | None = None
+    calc_slab_bar_lb: Decimal | None = None
     calc_support_rebar_lb: Decimal | None = None
     calc_pt_cable_lb: Decimal | None = None
     calc_pt_slab_lf: Decimal | None = None
@@ -108,6 +126,8 @@ class MonoSlabTotals(BaseModel):
     total_slab_concrete_cy: Decimal
     total_gb_concrete_cy: Decimal
     total_sand_cy: Decimal
+    total_slab_bar_lf: Decimal = Decimal("0")
+    total_slab_bar_lb: Decimal = Decimal("0")
     total_support_rebar_lb: Decimal
     total_pt_cable_lb: Decimal
     total_pt_cable_lf: Decimal

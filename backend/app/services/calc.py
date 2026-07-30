@@ -153,7 +153,7 @@ def refresh_mono_slab_calcs(db: Session, slab: MonoSlab, estimate: Estimate | No
     waste_s = _waste(estimate, db, "waste_sand", "waste_sand")
     waste_poly = _setting_numeric(db, "waste_poly", Decimal("0.10"))
     # Per-pour rate overrides for SOG rebar / PT (lb/SF); else system defaults
-    sys_support = _setting_numeric(db, "support_rebar_lb_per_sf", Decimal("1.0"))
+    sys_support = _setting_numeric(db, "support_rebar_lb_per_sf", Decimal("0.1"))
     sys_pt = _setting_numeric(db, "pt_lb_per_sf", Decimal("1.0"))
     support_rate = (
         Decimal(str(slab.support_rebar_lb_per_sf))
@@ -181,6 +181,32 @@ def refresh_mono_slab_calcs(db: Session, slab: MonoSlab, estimate: Estimate | No
         ).scalar()
     else:
         slab.calc_sand_cy = None
+
+    # Slab mat from bar size + spacing (each way). waste_rebar carries the lap
+    # allowance; applied to the mat only, not to support or beam steel.
+    waste_r = _waste(estimate, db, "waste_rebar", "waste_rebar")
+    if slab.slab_bar_size and slab.slab_bar_spacing_in:
+        slab.calc_slab_bar_lf = db.execute(
+            text(
+                "SELECT calc_slab_mat_rebar_lf(CAST(:sf AS numeric), CAST(:sp AS numeric))"
+            ),
+            {"sf": sf, "sp": slab.slab_bar_spacing_in},
+        ).scalar()
+        slab.calc_slab_bar_lb = db.execute(
+            text(
+                "SELECT calc_slab_mat_rebar_lb(CAST(:sf AS numeric), CAST(:sz AS smallint), "
+                "CAST(:sp AS numeric), CAST(:w AS numeric))"
+            ),
+            {
+                "sf": sf,
+                "sz": int(slab.slab_bar_size),
+                "sp": slab.slab_bar_spacing_in,
+                "w": waste_r,
+            },
+        ).scalar()
+    else:
+        slab.calc_slab_bar_lf = Decimal("0")
+        slab.calc_slab_bar_lb = Decimal("0")
 
     slab.calc_support_rebar_lb = db.execute(
         text(
@@ -267,8 +293,10 @@ def refresh_mono_slab_calcs(db: Session, slab: MonoSlab, estimate: Estimate | No
         + Decimal(str(slab.calc_gb_concrete_cy or 0))
     ).quantize(Decimal("0.0001"))
 
+    # Slab steel = mat + support; total also picks up GB + Exp + Drop
     support = Decimal(str(slab.calc_support_rebar_lb or 0))
-    slab.calc_total_rebar_lb = support + slab.calc_grade_beam_rebar_lb
+    mat = Decimal(str(slab.calc_slab_bar_lb or 0))
+    slab.calc_total_rebar_lb = mat + support + slab.calc_grade_beam_rebar_lb
 
     # Poly / Stego: pour SF + beam wrap ((2×H)/12 × L), then waste
     slab.calc_poly_slab_sf = Decimal(str(sf)).quantize(Decimal("0.001"))
@@ -380,6 +408,8 @@ def estimate_mono_totals(db: Session, estimate_id: Any) -> dict[str, Any]:
               coalesce(sum(calc_slab_concrete_cy), 0) AS total_slab_concrete_cy,
               coalesce(sum(calc_gb_concrete_cy), 0) AS total_gb_concrete_cy,
               coalesce(sum(calc_sand_cy), 0) AS total_sand_cy,
+              coalesce(sum(calc_slab_bar_lf), 0) AS total_slab_bar_lf,
+              coalesce(sum(calc_slab_bar_lb), 0) AS total_slab_bar_lb,
               coalesce(sum(calc_support_rebar_lb), 0) AS total_support_rebar_lb,
               coalesce(sum(calc_pt_cable_lb), 0) AS total_pt_cable_lb,
               coalesce(sum(calc_pt_cable_lf), 0) AS total_pt_cable_lf,
