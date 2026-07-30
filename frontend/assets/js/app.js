@@ -1678,12 +1678,6 @@ function openMonoSlabModal(estimate, existing = null) {
             value="${existing?.perimeter_edge_lf ?? ""}" />
         </div>
         <div class="field">
-          <label>Drops</label>
-          <div class="muted" style="font-size:0.8rem;padding:0.45rem 0">
-            Entered as beams — use the <strong>Drops</strong> button on this pour.
-          </div>
-        </div>
-        <div class="field">
           <label>Mix design</label>
           <select name="mix_design_id">
             <option value="">—</option>

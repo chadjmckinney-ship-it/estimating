@@ -96,8 +96,10 @@ test("pour form has bar size + spacing and no Drops input", async ({
 
   await expect(modal.locator('select[name="slab_bar_size"]')).toBeVisible();
   await expect(modal.locator('input[name="slab_bar_spacing_in"]')).toBeVisible();
-  // drops_ff was retired in sql/022 — the input must be gone.
+  // drops_ff was retired in sql/022 — no input, and no leftover label either.
+  // Drops are entered via the pour's Drops button, not this form.
   await expect(modal.locator('input[name="drops_ff"]')).toHaveCount(0);
+  await expect(modal).not.toContainText("Drops");
 
   // Close without saving.
   await modal.getByRole("button", { name: "Cancel" }).click();
