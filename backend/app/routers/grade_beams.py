@@ -1,5 +1,11 @@
+"""
+A pour's use of the estimate's beam types: which type, and how many LF.
+
+The section and bar schedule live on estimate_beam_types (sql/025); these rows
+carry only the quantity.
+"""
+
 from datetime import datetime, timezone
-from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -7,6 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.beam_type import EstimateBeamType
 from app.models.grade_beam import GradeBeam
 from app.models.mono_slab import MonoSlab
 from app.schemas.grade_beam import (
@@ -32,7 +39,38 @@ KIND_LABELS = {
 
 
 def _to_read(row: GradeBeam) -> GradeBeamRead:
-    return GradeBeamRead.model_validate(row)
+    """Flatten the usage with its type so a UI row needs no second lookup."""
+    t = row.beam_type
+    return GradeBeamRead(
+        id=row.id,
+        mono_slab_id=row.mono_slab_id,
+        beam_type_id=row.beam_type_id,
+        length_lf=row.length_lf,
+        notes=row.notes,
+        sort_order=row.sort_order,
+        label=t.label if t else None,
+        kind=t.kind if t else "grade_beam",
+        width_in=t.width_in if t else None,
+        height_in=t.height_in if t else None,
+        top_bars_count=t.top_bars_count if t else None,
+        top_bars_size=t.top_bars_size if t else None,
+        bottom_bars_count=t.bottom_bars_count if t else None,
+        bottom_bars_size=t.bottom_bars_size if t else None,
+        mid_bars_count=t.mid_bars_count if t else None,
+        mid_bars_size=t.mid_bars_size if t else None,
+        stirrup_size=t.stirrup_size if t else None,
+        stirrup_spacing_in=t.stirrup_spacing_in if t else None,
+        l_bars_count=t.l_bars_count if t else None,
+        l_bars_size=t.l_bars_size if t else None,
+        l_bars_spacing_in=t.l_bars_spacing_in if t else None,
+        pt_cables_count=t.pt_cables_count if t else None,
+        calc_rebar_lb=row.calc_rebar_lb,
+        calc_pt_cable_lf=row.calc_pt_cable_lf,
+        calc_concrete_cy=row.calc_concrete_cy,
+        calc_poly_sf=row.calc_poly_sf,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def _resync_parent_slab(db: Session, mono_slab_id: UUID) -> None:
@@ -66,6 +104,19 @@ def _resync_estimate_takeoffs(db: Session, mono_slab_id: UUID) -> None:
     recalc_estimate(db, estimate, pours=False)
 
 
+def _type_for_slab(db: Session, slab: MonoSlab, beam_type_id: UUID) -> EstimateBeamType:
+    """A pour may only use types belonging to its own estimate."""
+    t = db.get(EstimateBeamType, beam_type_id)
+    if t is None:
+        raise HTTPException(status_code=400, detail="beam_type_id not found")
+    if t.estimate_id != slab.estimate_id:
+        raise HTTPException(
+            status_code=400,
+            detail="beam_type_id belongs to a different estimate",
+        )
+    return t
+
+
 def _validate_kind(kind: str) -> BeamKind:
     if kind not in BEAM_KINDS:
         raise HTTPException(
@@ -83,11 +134,17 @@ def list_grade_beams(
     ),
     db: Session = Depends(get_db),
 ) -> list[GradeBeamRead]:
-    stmt = select(GradeBeam).where(GradeBeam.mono_slab_id == mono_slab_id)
+    stmt = (
+        select(GradeBeam)
+        .join(EstimateBeamType, EstimateBeamType.id == GradeBeam.beam_type_id)
+        .where(GradeBeam.mono_slab_id == mono_slab_id)
+    )
     if kind is not None:
-        stmt = stmt.where(GradeBeam.kind == kind)
-    stmt = stmt.order_by(GradeBeam.kind, GradeBeam.sort_order, GradeBeam.created_at)
-    return [_to_read(r) for r in db.scalars(stmt).all()]
+        stmt = stmt.where(EstimateBeamType.kind == kind)
+    stmt = stmt.order_by(
+        EstimateBeamType.kind, GradeBeam.sort_order, EstimateBeamType.label
+    )
+    return [_to_read(r) for r in db.scalars(stmt).unique().all()]
 
 
 @router.get("/grade-beams/{beam_id}", response_model=GradeBeamRead)
@@ -104,14 +161,17 @@ def get_grade_beam(beam_id: UUID, db: Session = Depends(get_db)) -> GradeBeamRea
     status_code=status.HTTP_201_CREATED,
 )
 def create_grade_beam(body: GradeBeamCreate, db: Session = Depends(get_db)) -> GradeBeamRead:
-    if not db.get(MonoSlab, body.mono_slab_id):
+    slab = db.get(MonoSlab, body.mono_slab_id)
+    if not slab:
         raise HTTPException(status_code=400, detail="mono_slab_id not found")
-    _validate_kind(body.kind)
-    data = body.model_dump()
-    # PT cables only for grade beams poured with SOG
-    if data.get("kind") != "grade_beam":
-        data["pt_cables_count"] = None
-    row = GradeBeam(**data)
+    _type_for_slab(db, slab, body.beam_type_id)
+    row = GradeBeam(
+        mono_slab_id=body.mono_slab_id,
+        beam_type_id=body.beam_type_id,
+        length_lf=body.length_lf,
+        notes=body.notes,
+        sort_order=body.sort_order,
+    )
     db.add(row)
     db.flush()
     refresh_grade_beam_calcs(db, row)
@@ -131,13 +191,13 @@ def update_grade_beam(
     if not row:
         raise HTTPException(status_code=404, detail="Grade beam not found")
     data = body.model_dump(exclude_unset=True)
-    if "kind" in data and data["kind"] is not None:
-        _validate_kind(data["kind"])
+    if data.get("beam_type_id") is not None:
+        slab = db.get(MonoSlab, row.mono_slab_id)
+        _type_for_slab(db, slab, data["beam_type_id"])
     for k, v in data.items():
         setattr(row, k, v)
-    if row.kind != "grade_beam":
-        row.pt_cables_count = None
     row.updated_at = datetime.now(timezone.utc)
+    db.flush()
     refresh_grade_beam_calcs(db, row)
     db.flush()
     _resync_parent_slab(db, row.mono_slab_id)
@@ -170,9 +230,11 @@ def replace_grade_beams(
     db: Session = Depends(get_db),
 ) -> list[GradeBeamRead]:
     """
-    Replace all beams of one kind on a mono slab pour.
-    Does not touch other kinds (save GBs without wiping Exp/Drops).
-    Incomplete rows (missing width/height or zero length) are skipped.
+    Replace this pour's usages for one kind. Other kinds are untouched, so
+    saving GBs will not wipe Exp or Drops.
+
+    Rows with length <= 0 are dropped — clearing a length removes that type from
+    the pour.
     """
     slab = db.get(MonoSlab, slab_id)
     if not slab:
@@ -180,52 +242,41 @@ def replace_grade_beams(
 
     kind = _validate_kind(body.kind)
 
-    db.execute(
-        delete(GradeBeam).where(
-            GradeBeam.mono_slab_id == slab_id,
-            GradeBeam.kind == kind,
-        )
-    )
-    db.flush()
-
-    created: list[GradeBeam] = []
-    order = 0
-    default_label = {
-        "grade_beam": "GB Type",
-        "exposed": "EXP Type",
-        "drop": "Drop Type",
-    }[kind]
-
+    # Validate every referenced type before deleting anything.
+    wanted: list[tuple[UUID, GradeBeamBulkReplace]] = []
     for item in body.beams:
         if item.length_lf is None or item.length_lf <= 0:
             continue
-        if item.width_in is None or item.height_in is None:
-            continue
-        if item.width_in <= 0 or item.height_in <= 0:
-            continue
+        t = _type_for_slab(db, slab, item.beam_type_id)
+        if t.kind != kind:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{t.label}' is a {KIND_LABELS[t.kind]}, not a {KIND_LABELS[kind]}",
+            )
+        wanted.append((t, item))
+
+    existing_ids = [
+        r.id
+        for r in db.scalars(
+            select(GradeBeam)
+            .join(EstimateBeamType, EstimateBeamType.id == GradeBeam.beam_type_id)
+            .where(GradeBeam.mono_slab_id == slab_id, EstimateBeamType.kind == kind)
+        ).unique().all()
+    ]
+    if existing_ids:
+        db.execute(delete(GradeBeam).where(GradeBeam.id.in_(existing_ids)))
+        db.flush()
+
+    created: list[GradeBeam] = []
+    order = 0
+    for t, item in wanted:
         order += 10
-        pt = item.pt_cables_count if kind == "grade_beam" else None
         row = GradeBeam(
             mono_slab_id=slab_id,
-            kind=kind,
-            label=item.label or f"{default_label} {order // 10}",
-            width_in=item.width_in,
-            height_in=item.height_in,
+            beam_type_id=t.id,
             length_lf=item.length_lf,
-            top_bars_count=item.top_bars_count,
-            top_bars_size=item.top_bars_size,
-            bottom_bars_count=item.bottom_bars_count,
-            bottom_bars_size=item.bottom_bars_size,
-            mid_bars_count=item.mid_bars_count,
-            mid_bars_size=item.mid_bars_size,
-            stirrup_size=item.stirrup_size,
-            stirrup_spacing_in=item.stirrup_spacing_in,
-            l_bars_count=item.l_bars_count,
-            l_bars_size=item.l_bars_size,
-            l_bars_spacing_in=item.l_bars_spacing_in,
-            pt_cables_count=pt,
             notes=item.notes,
-            sort_order=item.sort_order if item.sort_order else order,
+            sort_order=item.sort_order or order,
         )
         db.add(row)
         db.flush()

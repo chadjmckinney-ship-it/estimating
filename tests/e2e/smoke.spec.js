@@ -108,6 +108,35 @@ test("pour form has bar size + spacing and no Drops input", async ({
   expect(errors).toEqual([]);
 });
 
+test("beam modal shows the estimate schedule and per-pour lengths", async ({
+  page,
+  request,
+}) => {
+  const errors = watchErrors(page);
+  const id = await estimateWithPours(request);
+  await page.goto(`/#estimate/${id}`);
+
+  // The GBs button on the first pour that has one.
+  const gbButton = page.locator('button.btn-gb[data-kind="grade_beam"]').first();
+  await expect(gbButton).toBeVisible();
+  await gbButton.click(); // opens a modal; does not write
+
+  const modal = page.locator(".modal-backdrop .modal");
+  await expect(modal).toBeVisible();
+
+  // Half 1: the estimate's shared schedule (sql/025)
+  await expect(modal.locator("#type-table")).toBeVisible();
+  await expect(modal).toContainText("schedule for this estimate");
+  await expect(modal).toContainText("changes every pour that uses it");
+  // Half 2: lengths for this pour only
+  await expect(modal.locator("#usage-table")).toBeVisible();
+  await expect(modal.locator("input.usage-lf").first()).toBeVisible();
+
+  await modal.getByRole("button", { name: "Close" }).click();
+  await expect(modal).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test("forming, labor and equipment cards render", async ({ page, request }) => {
   const errors = watchErrors(page);
   const id = await estimateWithPours(request);

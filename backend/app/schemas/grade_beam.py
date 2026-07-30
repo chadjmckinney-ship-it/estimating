@@ -1,72 +1,73 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-BeamKind = Literal["grade_beam", "exposed", "drop"]
-BEAM_KINDS = ("grade_beam", "exposed", "drop")
+# Kinds live on the beam type now (sql/025); re-exported so existing imports work.
+from app.schemas.beam_type import BEAM_KINDS, BeamKind
+
+__all__ = [
+    "BEAM_KINDS",
+    "BeamKind",
+    "GradeBeamRead",
+    "GradeBeamCreate",
+    "GradeBeamUpdate",
+    "GradeBeamBulkItem",
+    "GradeBeamBulkReplace",
+]
 
 
-class GradeBeamBase(BaseModel):
-    kind: BeamKind = "grade_beam"
-    label: str | None = Field(None, examples=["GB Type 1", "Perimeter", "EXP 1"])
-    width_in: Decimal = Field(..., gt=0, examples=[12])
-    height_in: Decimal = Field(..., gt=0, examples=[24])
-    length_lf: Decimal = Field(..., ge=0, examples=[120])
-    top_bars_count: int | None = Field(None, ge=0, examples=[2])
-    top_bars_size: int | None = Field(None, ge=3, le=11, examples=[5])
-    bottom_bars_count: int | None = Field(None, ge=0, examples=[3])
-    bottom_bars_size: int | None = Field(None, ge=3, le=11, examples=[5])
-    mid_bars_count: int | None = Field(None, ge=0)
-    mid_bars_size: int | None = Field(None, ge=3, le=11)
-    stirrup_size: int | None = Field(None, ge=3, le=11, examples=[3])
-    stirrup_spacing_in: Decimal | None = Field(None, gt=0, examples=[18])
-    l_bars_count: int | None = Field(None, ge=0)
-    l_bars_size: int | None = Field(None, ge=3, le=11)
-    l_bars_spacing_in: Decimal | None = Field(None, gt=0)
-    pt_cables_count: int | None = Field(
-        None,
-        ge=0,
-        examples=[2],
-        description="PT cables (grade_beam only); LF = count × length",
-    )
+class GradeBeamCreate(BaseModel):
+    """A pour's use of a beam type: which type, and how much."""
+
+    mono_slab_id: UUID
+    beam_type_id: UUID
+    length_lf: Decimal = Field(..., ge=0, examples=[240])
     notes: str | None = None
     sort_order: int = 0
 
 
-class GradeBeamCreate(GradeBeamBase):
-    mono_slab_id: UUID
-
-
 class GradeBeamUpdate(BaseModel):
-    kind: BeamKind | None = None
-    label: str | None = None
-    width_in: Decimal | None = Field(None, gt=0)
-    height_in: Decimal | None = Field(None, gt=0)
+    beam_type_id: UUID | None = None
     length_lf: Decimal | None = Field(None, ge=0)
-    top_bars_count: int | None = Field(None, ge=0)
-    top_bars_size: int | None = Field(None, ge=3, le=11)
-    bottom_bars_count: int | None = Field(None, ge=0)
-    bottom_bars_size: int | None = Field(None, ge=3, le=11)
-    mid_bars_count: int | None = Field(None, ge=0)
-    mid_bars_size: int | None = Field(None, ge=3, le=11)
-    stirrup_size: int | None = Field(None, ge=3, le=11)
-    stirrup_spacing_in: Decimal | None = Field(None, gt=0)
-    l_bars_count: int | None = Field(None, ge=0)
-    l_bars_size: int | None = Field(None, ge=3, le=11)
-    l_bars_spacing_in: Decimal | None = Field(None, gt=0)
-    pt_cables_count: int | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None
 
 
-class GradeBeamRead(GradeBeamBase):
+class GradeBeamRead(BaseModel):
+    """
+    A pour usage, flattened with its type's section so the UI can render a row
+    without a second lookup.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     mono_slab_id: UUID
+    beam_type_id: UUID
+    length_lf: Decimal
+    notes: str | None = None
+    sort_order: int = 0
+
+    # From the type
+    label: str | None = None
+    kind: BeamKind = "grade_beam"
+    width_in: Decimal | None = None
+    height_in: Decimal | None = None
+    top_bars_count: int | None = None
+    top_bars_size: int | None = None
+    bottom_bars_count: int | None = None
+    bottom_bars_size: int | None = None
+    mid_bars_count: int | None = None
+    mid_bars_size: int | None = None
+    stirrup_size: int | None = None
+    stirrup_spacing_in: Decimal | None = None
+    l_bars_count: int | None = None
+    l_bars_size: int | None = None
+    l_bars_spacing_in: Decimal | None = None
+    pt_cables_count: int | None = None
+
     calc_rebar_lb: Decimal | None = None
     calc_pt_cable_lf: Decimal | None = None
     calc_concrete_cy: Decimal | None = None
@@ -75,16 +76,19 @@ class GradeBeamRead(GradeBeamBase):
     updated_at: datetime
 
 
-class GradeBeamBulkItem(GradeBeamBase):
-    """One row in a bulk replace (no mono_slab_id — taken from path)."""
+class GradeBeamBulkItem(BaseModel):
+    """One row of a pour's beam list: a type and a length."""
 
-    pass
+    beam_type_id: UUID
+    length_lf: Decimal = Field(..., ge=0)
+    notes: str | None = None
+    sort_order: int = 0
 
 
 class GradeBeamBulkReplace(BaseModel):
     """
-    Replace beams of one kind on a mono slab pour.
-    Incomplete rows (no W/H/L) are omitted by the API.
+    Replace a pour's usages for one kind. Rows with length <= 0 are dropped, so
+    clearing a length removes that type from the pour.
     """
 
     kind: BeamKind = "grade_beam"

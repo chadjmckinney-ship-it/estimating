@@ -62,13 +62,18 @@ Excel **04** pour columns **GRADE BEAMS**, **EXP GB**, and **Drops** share one b
 | `exposed` | EXP GB | No PT |
 | `drop` | Drops | No PT. The only place drops are entered — the old pour-level `drops_ff` field was retired in sql/022 |
 
+Since `sql/025` the schedule is defined **once per estimate** in
+`estimate_beam_types`; a pour records only which type it uses and how many LF.
+The LBJ import held 80 beam rows describing 9 sections — now 8 types + 71 lengths.
+
+**`estimate_beam_types`** (the schedule, per estimate):
+
 | Field              | Type               | Notes                          |
 |--------------------|--------------------|--------------------------------|
 | Kind               | enum               | grade_beam / exposed / drop    |
-| Label              | text               | e.g. GB1, Perimeter, EXP 1     |
+| Label              | text               | unique per estimate; e.g. GB1  |
 | Width (in)         | decimal            |                                |
 | Height (in)        | decimal            |                                |
-| Length (LF)        | decimal            |                                |
 | Top Bars           | # + size           | e.g. 2 - #5                    |
 | Bottom Bars        | # + size           |                                |
 | Mid Bars           | # + size           | optional                       |
@@ -76,6 +81,10 @@ Excel **04** pour columns **GRADE BEAMS**, **EXP GB**, and **Drops** share one b
 | L-Bars             | # + size + spacing | optional                       |
 | PT cables (#)      | integer            | grade_beam only                |
 | Notes              | text               |                                |
+
+**`grade_beams`** (per pour): `mono_slab_id`, `beam_type_id`, `length_lf`.
+
+Editing a type moves every pour referencing it — the API recalculates them.
 
 ---
 

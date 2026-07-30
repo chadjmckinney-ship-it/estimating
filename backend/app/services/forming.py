@@ -66,7 +66,7 @@ def estimate_forming_drivers(db: Session, estimate_id: UUID) -> dict[str, Any]:
               -- mono_slabs.drops_ff column is gone.
               coalesce((
                   SELECT sum(gb.length_lf)
-                  FROM grade_beams gb
+                  FROM grade_beam_details gb
                   JOIN mono_slabs dm ON dm.id = gb.mono_slab_id
                   WHERE dm.estimate_id = :eid AND gb.kind = 'drop'
               ), 0) AS drops_ff,

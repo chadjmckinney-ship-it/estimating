@@ -103,6 +103,18 @@ export const Api = {
       method: "PUT",
       body: { kind, beams },
     }),
+  // Beam types — the per-estimate schedule a pour's lengths point at
+  listBeamTypes: (estimateId, kind = null) => {
+    const q = kind ? `?kind=${encodeURIComponent(kind)}` : "";
+    return api(`/estimates/${estimateId}/beam-types${q}`);
+  },
+  createBeamType: (estimateId, body) =>
+    api(`/estimates/${estimateId}/beam-types`, { method: "POST", body }),
+  updateBeamType: (typeId, body) =>
+    api(`/beam-types/${typeId}`, { method: "PATCH", body }),
+  deleteBeamType: (typeId, force = false) =>
+    api(`/beam-types/${typeId}${force ? "?force=true" : ""}`, { method: "DELETE" }),
+  beamTypeUsage: (typeId) => api(`/beam-types/${typeId}/usage`),
   // Forming / lumber takeoff (stored on estimate; refresh recalculates from pours)
   formingMaterials: (estimateId) =>
     api(`/estimates/${estimateId}/forming-materials`),

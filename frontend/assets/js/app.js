@@ -1382,7 +1382,6 @@ function renderEquipmentCard(equip) {
 }
 
 const BAR_SIZES = [3, 4, 5, 6, 7, 8, 9, 10, 11];
-const MIN_GB_ROWS = 5;
 
 /** Excel 04 pour roles — same bar-schedule shape, different kind */
 const BEAM_KIND_META = {
@@ -1419,13 +1418,14 @@ function barSizeOptions(selected) {
   );
 }
 
-function emptyGbRow(i, kind = "grade_beam") {
+function emptyBeamType(i, kind = "grade_beam") {
   const prefix = (BEAM_KIND_META[kind] || BEAM_KIND_META.grade_beam).labelPrefix;
   return {
+    id: null,
     label: `${prefix} ${i}`,
+    kind,
     width_in: "",
     height_in: "",
-    length_lf: "",
     top_bars_count: "",
     top_bars_size: "",
     bottom_bars_count: "",
@@ -1435,147 +1435,157 @@ function emptyGbRow(i, kind = "grade_beam") {
     stirrup_size: "",
     stirrup_spacing_in: "",
     pt_cables_count: "",
-    calc_rebar_lb: null,
-    calc_pt_cable_lf: null,
-    calc_concrete_cy: null,
-    calc_poly_sf: null,
+    pour_count: 0,
+    total_lf: 0,
   };
 }
 
-function gbRowHtml(row, idx, showPt = true) {
-  const ptCells = showPt
-    ? `<td><input type="number" name="pt_cables_count" min="0" step="1" value="${esc(row.pt_cables_count ?? "")}" style="width:3rem" title="PT cables in this GB" /></td>
-      <td class="num muted">${row.calc_pt_cable_lf != null ? num(row.calc_pt_cable_lf, 0) : "—"}</td>`
+/** One editable row of the estimate's beam schedule. */
+function beamTypeRowHtml(t, idx, showPt) {
+  const ptCell = showPt
+    ? `<td><input type="number" name="pt_cables_count" min="0" step="1"
+         value="${esc(t.pt_cables_count ?? "")}" style="width:3rem" title="PT cables through this section" /></td>`
     : "";
+  const used = Number(t.pour_count) || 0;
   return `
-    <tr data-gb-idx="${idx}">
-      <td><input name="label" value="${esc(row.label || "")}" style="width:7rem" /></td>
-      <td><input type="number" name="width_in" min="0" step="0.1" value="${esc(row.width_in ?? "")}" style="width:4rem" /></td>
-      <td><input type="number" name="height_in" min="0" step="0.1" value="${esc(row.height_in ?? "")}" style="width:4rem" /></td>
-      <td><input type="number" name="length_lf" min="0" step="0.1" value="${esc(row.length_lf ?? "")}" style="width:5rem" /></td>
-      <td><input type="number" name="top_bars_count" min="0" step="1" value="${esc(row.top_bars_count ?? "")}" style="width:3rem" /></td>
-      <td><select name="top_bars_size">${barSizeOptions(row.top_bars_size)}</select></td>
-      <td><input type="number" name="bottom_bars_count" min="0" step="1" value="${esc(row.bottom_bars_count ?? "")}" style="width:3rem" /></td>
-      <td><select name="bottom_bars_size">${barSizeOptions(row.bottom_bars_size)}</select></td>
-      <td><input type="number" name="mid_bars_count" min="0" step="1" value="${esc(row.mid_bars_count ?? "")}" style="width:3rem" /></td>
-      <td><select name="mid_bars_size">${barSizeOptions(row.mid_bars_size)}</select></td>
-      <td><select name="stirrup_size">${barSizeOptions(row.stirrup_size)}</select></td>
-      <td><input type="number" name="stirrup_spacing_in" min="0" step="0.5" value="${esc(row.stirrup_spacing_in ?? "")}" style="width:3.5rem" placeholder="in" /></td>
-      ${ptCells}
-      <td class="num muted gb-lb">${row.calc_rebar_lb != null ? num(row.calc_rebar_lb, 1) : "—"}</td>
-      <td class="num muted">${row.calc_concrete_cy != null ? num(row.calc_concrete_cy, 2) : "—"}</td>
-      <td class="num muted" title="((2×H)/12)×L sides only">${row.calc_poly_sf != null ? num(row.calc_poly_sf, 0) : "—"}</td>
+    <tr data-type-idx="${idx}" data-type-id="${esc(t.id ?? "")}">
+      <td><input name="label" value="${esc(t.label || "")}" style="width:8rem" /></td>
+      <td><input type="number" name="width_in" min="0" step="0.1" value="${esc(t.width_in ?? "")}" style="width:4rem" /></td>
+      <td><input type="number" name="height_in" min="0" step="0.1" value="${esc(t.height_in ?? "")}" style="width:4rem" /></td>
+      <td><input type="number" name="top_bars_count" min="0" step="1" value="${esc(t.top_bars_count ?? "")}" style="width:3rem" /></td>
+      <td><select name="top_bars_size">${barSizeOptions(t.top_bars_size)}</select></td>
+      <td><input type="number" name="bottom_bars_count" min="0" step="1" value="${esc(t.bottom_bars_count ?? "")}" style="width:3rem" /></td>
+      <td><select name="bottom_bars_size">${barSizeOptions(t.bottom_bars_size)}</select></td>
+      <td><input type="number" name="mid_bars_count" min="0" step="1" value="${esc(t.mid_bars_count ?? "")}" style="width:3rem" /></td>
+      <td><select name="mid_bars_size">${barSizeOptions(t.mid_bars_size)}</select></td>
+      <td><select name="stirrup_size">${barSizeOptions(t.stirrup_size)}</select></td>
+      <td><input type="number" name="stirrup_spacing_in" min="0" step="0.5" value="${esc(t.stirrup_spacing_in ?? "")}" style="width:3.5rem" placeholder="in" /></td>
+      ${ptCell}
+      <td class="num muted" title="Pours using this type across the estimate">
+        ${used ? `${used} pour${used === 1 ? "" : "s"}<div class="muted">${num(t.total_lf, 0)} LF</div>` : "—"}
+      </td>
     </tr>`;
 }
 
+/**
+ * Beam entry, in two halves:
+ *   1. the estimate's schedule (a type is defined once)
+ *   2. how many LF of each type this pour uses
+ * Editing a type moves every pour that references it, so the two are saved
+ * separately and the shared edit is called out.
+ */
 async function openGradeBeamsModal(slab, kind = "grade_beam") {
   const meta = BEAM_KIND_META[kind] || BEAM_KIND_META.grade_beam;
   const showPt = !!meta.showPt;
 
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
-  backdrop.innerHTML = `<div class="modal" style="width:min(1100px,100%)"><div class="loading">Loading ${esc(meta.title.toLowerCase())}…</div></div>`;
+  backdrop.innerHTML = `<div class="modal" style="width:min(1150px,100%)"><div class="loading">Loading ${esc(meta.title.toLowerCase())}…</div></div>`;
   document.body.appendChild(backdrop);
 
-  let existing = [];
+  let types = [];
+  let usages = [];
   try {
-    existing = await Api.listGradeBeams(slab.id, kind);
+    [types, usages] = await Promise.all([
+      Api.listBeamTypes(slab.estimate_id, kind),
+      Api.listGradeBeams(slab.id, kind),
+    ]);
   } catch (err) {
     toast(err.message, "err");
     backdrop.remove();
     return;
   }
 
-  let rows = existing.map((b) => ({
-    label: b.label,
-    width_in: b.width_in,
-    height_in: b.height_in,
-    length_lf: b.length_lf,
-    top_bars_count: b.top_bars_count,
-    top_bars_size: b.top_bars_size,
-    bottom_bars_count: b.bottom_bars_count,
-    bottom_bars_size: b.bottom_bars_size,
-    mid_bars_count: b.mid_bars_count,
-    mid_bars_size: b.mid_bars_size,
-    stirrup_size: b.stirrup_size,
-    stirrup_spacing_in: b.stirrup_spacing_in,
-    pt_cables_count: b.pt_cables_count,
-    calc_rebar_lb: b.calc_rebar_lb,
-    calc_pt_cable_lf: b.calc_pt_cable_lf,
-    calc_concrete_cy: b.calc_concrete_cy,
-    calc_poly_sf: b.calc_poly_sf,
-  }));
-  while (rows.length < MIN_GB_ROWS) {
-    rows.push(emptyGbRow(rows.length + 1, kind));
-  }
+  // length this pour uses of each type, keyed by type id
+  const lengthByType = new Map(usages.map((u) => [u.beam_type_id, u.length_lf]));
+  let draftTypes = types.map((t) => ({ ...t }));
 
   function paint() {
-    const totalGb = existing.reduce((a, b) => a + Number(b.calc_rebar_lb || 0), 0);
-    const totalPt = existing.reduce((a, b) => a + Number(b.calc_pt_cable_lf || 0), 0);
-    const totalCy = existing.reduce((a, b) => a + Number(b.calc_concrete_cy || 0), 0);
-    const totalPoly = existing.reduce((a, b) => a + Number(b.calc_poly_sf || 0), 0);
-    const ptHint = showPt
-      ? (existing.length
-          ? `· rebar <strong>${num(totalGb, 1)} lb</strong> · PT <strong>${num(totalPt, 0)} LF</strong> · <strong>${num(totalCy, 2)} CY</strong> · poly <strong>${num(totalPoly, 0)} SF</strong>`
-          : "")
-      : existing.length
-        ? `· rebar <strong>${num(totalGb, 1)} lb</strong> · <strong>${num(totalCy, 2)} CY</strong> · poly <strong>${num(totalPoly, 0)} SF</strong>`
-        : "";
-    const ptHeads = showPt ? `<th>PT #</th><th>PT LF</th>` : "";
+    const totalLf = usages.reduce((a, u) => a + Number(u.length_lf || 0), 0);
+    const totalCy = usages.reduce((a, u) => a + Number(u.calc_concrete_cy || 0), 0);
+    const totalLb = usages.reduce((a, u) => a + Number(u.calc_rebar_lb || 0), 0);
+    const ptHead = showPt ? "<th>PT #</th>" : "";
+
     $(".modal", backdrop).innerHTML = `
       <h2>${esc(meta.title)} — ${esc(slab.description || "Pour")}</h2>
-      <p style="margin:-0.4rem 0 0.85rem;color:var(--text-muted);font-size:0.9rem">
-        ${meta.hint} At least ${MIN_GB_ROWS} slots; blank rows ignored.
-        CY = (W″ × H″ × L) / (144 × 27) × (1+waste).
-        Poly wrap SF = ((2×H″) / 12) × L — two sides only (Excel; pour SF covers bottoms).
-        Saving this kind leaves GBs / Exp / Drops of other kinds alone.
-        ${ptHint}
+      <p style="margin:-0.4rem 0 1rem;color:var(--text-muted);font-size:0.9rem">
+        ${meta.hint}
+        ${usages.length ? `· this pour: <strong>${num(totalLf, 0)} LF</strong> · <strong>${num(totalCy, 2)} CY</strong> · rebar <strong>${num(totalLb, 1)} lb</strong>` : ""}
       </p>
-      <div class="table-wrap" style="max-height:55vh">
-        <table class="data" id="gb-table">
+
+      <h4 style="margin:0 0 0.4rem">1. ${esc(meta.title)} schedule for this estimate</h4>
+      <p style="margin:0 0 0.6rem;color:var(--text-muted);font-size:0.82rem">
+        Defined once and shared by every pour. <strong>Editing a row changes every pour that uses it.</strong>
+      </p>
+      <div class="table-wrap" style="max-height:34vh">
+        <table class="data" id="type-table">
           <thead>
             <tr>
-              <th>Type / label</th>
-              <th>W"</th>
-              <th>H"</th>
-              <th>L (ft)</th>
-              <th>Top #</th>
-              <th>Top sz</th>
-              <th>Bot #</th>
-              <th>Bot sz</th>
-              <th>Mid #</th>
-              <th>Mid sz</th>
-              <th>Stirrup</th>
-              <th>@ in</th>
-              ${ptHeads}
-              <th>rebar lb</th>
-              <th>CY</th>
-              <th>poly SF</th>
+              <th>Type / label</th><th>W"</th><th>H"</th>
+              <th>Top #</th><th>Top sz</th><th>Bot #</th><th>Bot sz</th>
+              <th>Mid #</th><th>Mid sz</th><th>Stirrup</th><th>@ in</th>
+              ${ptHead}<th>Used</th>
             </tr>
           </thead>
           <tbody>
-            ${rows.map((r, i) => gbRowHtml(r, i, showPt)).join("")}
+            ${draftTypes.map((t, i) => beamTypeRowHtml(t, i, showPt)).join("") ||
+              `<tr><td colspan="13" class="muted">No ${esc(meta.title.toLowerCase())} yet — add one.</td></tr>`}
           </tbody>
         </table>
       </div>
-      <div class="modal-actions" style="justify-content:space-between;margin-top:1rem">
-        <button type="button" class="btn" id="gb-add-row">+ Add type</button>
-        <div style="display:flex;gap:0.5rem">
-          <button type="button" class="btn ghost" id="cancel">Cancel</button>
-          <button type="button" class="btn primary" id="gb-save">Save ${esc(meta.short)}</button>
-        </div>
+      <div style="display:flex;gap:0.5rem;margin:0.6rem 0 1.2rem">
+        <button type="button" class="btn" id="type-add">+ Add type</button>
+        <button type="button" class="btn primary" id="type-save">Save schedule</button>
+      </div>
+
+      <h4 style="margin:0 0 0.4rem">2. Lengths in this pour</h4>
+      <p style="margin:0 0 0.6rem;color:var(--text-muted);font-size:0.82rem">
+        Enter LF of each type used here. Blank or 0 removes it from this pour.
+        CY = (W″ × H″ × L) / (144 × 27) × (1+waste); poly wrap = ((2×H″)/12) × L.
+      </p>
+      ${
+        draftTypes.filter((t) => t.id).length
+          ? `<div class="table-wrap" style="max-height:30vh">
+        <table class="data" id="usage-table">
+          <thead><tr><th>Type</th><th>Section</th><th>LF in this pour</th><th>CY</th><th>rebar lb</th><th>poly SF</th></tr></thead>
+          <tbody>
+            ${draftTypes
+              .filter((t) => t.id)
+              .map((t) => {
+                const u = usages.find((x) => x.beam_type_id === t.id);
+                return `<tr data-usage-type="${esc(t.id)}">
+                  <td><strong>${esc(t.label)}</strong></td>
+                  <td class="muted">${num(t.width_in, 0)}×${num(t.height_in, 0)}"</td>
+                  <td><input type="number" class="usage-lf" min="0" step="0.1"
+                       value="${esc(lengthByType.get(t.id) ?? "")}" style="width:6rem" /></td>
+                  <td class="num muted">${u ? num(u.calc_concrete_cy, 2) : "—"}</td>
+                  <td class="num muted">${u ? num(u.calc_rebar_lb, 1) : "—"}</td>
+                  <td class="num muted">${u ? num(u.calc_poly_sf, 0) : "—"}</td>
+                </tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table></div>`
+          : `<div class="empty">Save a schedule row first, then enter its length here.</div>`
+      }
+
+      <div class="modal-actions" style="justify-content:flex-end;margin-top:1rem;gap:0.5rem">
+        <button type="button" class="btn ghost" id="cancel">Close</button>
+        <button type="button" class="btn primary" id="usage-save">Save lengths</button>
       </div>`;
 
     $("#cancel", backdrop).onclick = () => backdrop.remove();
-    $("#gb-add-row", backdrop).onclick = () => {
-      rows = collectRows().concat([emptyGbRow(rows.length + 1, kind)]);
+    $("#type-add", backdrop).onclick = () => {
+      draftTypes = collectTypes().concat([emptyBeamType(draftTypes.length + 1, kind)]);
       paint();
     };
-    $("#gb-save", backdrop).onclick = () => save();
+    $("#type-save", backdrop).onclick = () => saveTypes();
+    const us = $("#usage-save", backdrop);
+    if (us) us.onclick = () => saveUsages();
   }
 
-  function collectRows() {
-    return $$("#gb-table tbody tr", backdrop).map((tr) => {
+  function collectTypes() {
+    return $$("#type-table tbody tr[data-type-idx]", backdrop).map((tr) => {
       const g = (n) => {
         const el = tr.querySelector(`[name="${n}"]`);
         return el ? el.value : "";
@@ -1584,13 +1594,14 @@ async function openGradeBeamsModal(slab, kind = "grade_beam") {
         const v = g(name);
         return v === "" ? null : Number(v);
       };
-      const pt = showPt ? n("pt_cables_count") : null;
+      const idx = Number(tr.dataset.typeIdx);
+      const prev = draftTypes[idx] || {};
       return {
+        id: tr.dataset.typeId || null,
         kind,
         label: g("label") || null,
         width_in: n("width_in"),
         height_in: n("height_in"),
-        length_lf: n("length_lf"),
         top_bars_count: n("top_bars_count"),
         top_bars_size: n("top_bars_size"),
         bottom_bars_count: n("bottom_bars_count"),
@@ -1599,28 +1610,64 @@ async function openGradeBeamsModal(slab, kind = "grade_beam") {
         mid_bars_size: n("mid_bars_size"),
         stirrup_size: n("stirrup_size"),
         stirrup_spacing_in: n("stirrup_spacing_in"),
-        pt_cables_count: pt != null ? Math.round(pt) : null,
+        pt_cables_count: showPt ? n("pt_cables_count") : null,
+        pour_count: prev.pour_count || 0,
+        total_lf: prev.total_lf || 0,
       };
     });
   }
 
-  async function save() {
-    const beams = collectRows().filter(
-      (r) =>
-        r.length_lf != null &&
-        r.length_lf > 0 &&
-        r.width_in != null &&
-        r.width_in > 0 &&
-        r.height_in != null &&
-        r.height_in > 0
+  async function saveTypes() {
+    const rows = collectTypes();
+    const bad = rows.find(
+      (r) => !r.label || !(r.width_in > 0) || !(r.height_in > 0)
     );
+    if (bad) {
+      toast("Every type needs a label, width and height", "err");
+      return;
+    }
+    const btn = $("#type-save", backdrop);
+    btn.disabled = true;
     try {
-      const saved = await Api.replaceGradeBeams(slab.id, beams, kind);
-      toast(`Saved ${saved.length} ${meta.title.toLowerCase()} type(s)`);
+      for (const r of rows) {
+        const body = { ...r };
+        delete body.id;
+        delete body.pour_count;
+        delete body.total_lf;
+        if (r.id) await Api.updateBeamType(r.id, body);
+        else await Api.createBeamType(slab.estimate_id, body);
+      }
+      toast("Schedule saved — pours using these types were recalculated");
+      types = await Api.listBeamTypes(slab.estimate_id, kind);
+      usages = await Api.listGradeBeams(slab.id, kind);
+      lengthByType.clear();
+      usages.forEach((u) => lengthByType.set(u.beam_type_id, u.length_lf));
+      draftTypes = types.map((t) => ({ ...t }));
+      paint();
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+      btn.disabled = false;
+    }
+  }
+
+  async function saveUsages() {
+    const beams = $$("#usage-table tbody tr[data-usage-type]", backdrop)
+      .map((tr) => ({
+        beam_type_id: tr.dataset.usageType,
+        length_lf: Number(tr.querySelector(".usage-lf")?.value || 0),
+      }))
+      .filter((b) => b.length_lf > 0);
+    const btn = $("#usage-save", backdrop);
+    btn.disabled = true;
+    try {
+      await Api.replaceGradeBeams(slab.id, beams, kind);
+      toast(`Saved ${beams.length} ${meta.title.toLowerCase()} length(s)`);
       backdrop.remove();
       render();
     } catch (err) {
       toast(err.message, "err");
+      btn.disabled = false;
     }
   }
 

@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routers import (
+    beam_types,
     equipment,
     estimate_equipment,
     estimators,
@@ -39,6 +40,7 @@ app.include_router(labor.router, prefix="/api")
 app.include_router(estimate_equipment.router, prefix="/api")
 app.include_router(mono_slabs.router, prefix="/api")
 app.include_router(grade_beams.router, prefix="/api")
+app.include_router(beam_types.router, prefix="/api")
 app.include_router(mix_designs.router, prefix="/api")
 app.include_router(equipment.router, prefix="/api")
 app.include_router(materials.router, prefix="/api")

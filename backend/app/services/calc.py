@@ -132,11 +132,9 @@ def refresh_grade_beam_calcs(
     Exposed GBs and drops use the same bar schedule; no PT cables.
     """
     kind = getattr(beam, "kind", None) or "grade_beam"
+    # PT cables live on the beam type (sql/025) and are cleared there when a
+    # type's kind changes; nothing to reset on the usage row.
     include_pt = kind == "grade_beam"
-    if not include_pt:
-        # clear any leftover PT if kind changed
-        if hasattr(beam, "pt_cables_count"):
-            beam.pt_cables_count = None
     return _apply_beam_rebar_and_cy(
         db, beam, waste_concrete, include_pt_cables=include_pt
     )
@@ -266,7 +264,7 @@ def refresh_mono_slab_calcs(db: Session, slab: MonoSlab, estimate: Estimate | No
               coalesce(sum(length_lf) FILTER (WHERE kind = 'grade_beam'), 0) AS gb_lf,
               coalesce(sum(length_lf) FILTER (WHERE kind = 'exposed'), 0) AS exposed_lf,
               coalesce(sum(length_lf) FILTER (WHERE kind = 'drop'), 0) AS drop_lf
-            FROM grade_beams
+            FROM grade_beam_details
             WHERE mono_slab_id = :id
             """
         ),
@@ -362,7 +360,7 @@ def beam_kind_breakdown(db: Session, mono_slab_id: Any) -> dict[str, dict[str, A
               coalesce(sum(calc_rebar_lb), 0) AS rebar_lb,
               coalesce(sum(calc_concrete_cy), 0) AS concrete_cy,
               coalesce(sum(calc_poly_sf), 0) AS poly_sf
-            FROM grade_beams
+            FROM grade_beam_details
             WHERE mono_slab_id = :id
             GROUP BY kind
             """

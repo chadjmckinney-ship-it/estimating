@@ -1,0 +1,194 @@
+"""
+Per-estimate grade beam / exposed GB / drop schedule (sql/025).
+
+A type is defined once and referenced by every pour that uses it, so editing one
+moves every pour it appears in — those recalcs happen here rather than being
+left for the next page load.
+"""
+
+from datetime import datetime, timezone
+from decimal import Decimal
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app.models.beam_type import EstimateBeamType
+from app.models.estimate import Estimate
+from app.models.grade_beam import GradeBeam
+from app.schemas.beam_type import (
+    BeamKind,
+    BeamTypeCreate,
+    BeamTypeRead,
+    BeamTypeUpdate,
+)
+
+router = APIRouter(tags=["beam-types"])
+
+
+def _usage(db: Session, type_id: UUID) -> tuple[int, Decimal]:
+    row = db.execute(
+        text(
+            "SELECT count(*)::int AS n, coalesce(sum(length_lf), 0) AS lf "
+            "FROM grade_beams WHERE beam_type_id = :t"
+        ),
+        {"t": str(type_id)},
+    ).mappings().one()
+    return int(row["n"] or 0), Decimal(str(row["lf"] or 0))
+
+
+def _to_read(db: Session, row: EstimateBeamType) -> BeamTypeRead:
+    pours, lf = _usage(db, row.id)
+    return BeamTypeRead(
+        id=row.id,
+        estimate_id=row.estimate_id,
+        label=row.label,
+        kind=row.kind,
+        width_in=row.width_in,
+        height_in=row.height_in,
+        top_bars_count=row.top_bars_count,
+        top_bars_size=row.top_bars_size,
+        bottom_bars_count=row.bottom_bars_count,
+        bottom_bars_size=row.bottom_bars_size,
+        mid_bars_count=row.mid_bars_count,
+        mid_bars_size=row.mid_bars_size,
+        stirrup_size=row.stirrup_size,
+        stirrup_spacing_in=row.stirrup_spacing_in,
+        l_bars_count=row.l_bars_count,
+        l_bars_size=row.l_bars_size,
+        l_bars_spacing_in=row.l_bars_spacing_in,
+        pt_cables_count=row.pt_cables_count,
+        notes=row.notes,
+        sort_order=row.sort_order,
+        pour_count=pours,
+        total_lf=lf,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _recalc_estimate(db: Session, estimate_id: UUID) -> None:
+    """A type edit moves every pour using it, so redo the whole estimate."""
+    from app.services.recalc import recalc_estimate
+
+    estimate = db.get(Estimate, estimate_id)
+    if estimate is not None:
+        recalc_estimate(db, estimate)
+
+
+@router.get("/estimates/{estimate_id}/beam-types", response_model=list[BeamTypeRead])
+def list_beam_types(
+    estimate_id: UUID,
+    kind: BeamKind | None = Query(None, description="grade_beam | exposed | drop"),
+    db: Session = Depends(get_db),
+) -> list[BeamTypeRead]:
+    if not db.get(Estimate, estimate_id):
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    stmt = select(EstimateBeamType).where(EstimateBeamType.estimate_id == estimate_id)
+    if kind is not None:
+        stmt = stmt.where(EstimateBeamType.kind == kind)
+    stmt = stmt.order_by(EstimateBeamType.sort_order, EstimateBeamType.label)
+    return [_to_read(db, r) for r in db.scalars(stmt).all()]
+
+
+@router.post(
+    "/estimates/{estimate_id}/beam-types",
+    response_model=BeamTypeRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_beam_type(
+    estimate_id: UUID, body: BeamTypeCreate, db: Session = Depends(get_db)
+) -> BeamTypeRead:
+    if not db.get(Estimate, estimate_id):
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    data = body.model_dump()
+    data["label"] = data["label"].strip()
+    # PT cables only apply to beams poured with the SOG.
+    if data["kind"] != "grade_beam":
+        data["pt_cables_count"] = None
+    row = EstimateBeamType(estimate_id=estimate_id, **data)
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail=f"A type named '{body.label}' already exists"
+        ) from None
+    db.refresh(row)
+    return _to_read(db, row)
+
+
+@router.patch("/beam-types/{type_id}", response_model=BeamTypeRead)
+def update_beam_type(
+    type_id: UUID, body: BeamTypeUpdate, db: Session = Depends(get_db)
+) -> BeamTypeRead:
+    row = db.get(EstimateBeamType, type_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Beam type not found")
+    data = body.model_dump(exclude_unset=True)
+    if "label" in data and data["label"] is not None:
+        data["label"] = data["label"].strip()
+    for k, v in data.items():
+        setattr(row, k, v)
+    if row.kind != "grade_beam":
+        row.pt_cables_count = None
+    row.updated_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A type with that name already exists") from None
+    _recalc_estimate(db, row.estimate_id)
+    db.refresh(row)
+    return _to_read(db, row)
+
+
+@router.delete("/beam-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_beam_type(
+    type_id: UUID,
+    force: bool = Query(
+        False, description="Delete even though pours still use it (removes those too)"
+    ),
+    db: Session = Depends(get_db),
+) -> None:
+    row = db.get(EstimateBeamType, type_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Beam type not found")
+    estimate_id = row.estimate_id
+    pours, lf = _usage(db, type_id)
+    if pours and not force:
+        # Deleting cascades to the usages, so say what would be lost.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{row.label}' is used by {pours} pour(s) totalling {lf} LF. "
+                "Remove it from those pours first, or pass force=true."
+            ),
+        )
+    db.delete(row)
+    db.commit()
+    _recalc_estimate(db, estimate_id)
+
+
+@router.get("/beam-types/{type_id}/usage", response_model=list[dict])
+def beam_type_usage(type_id: UUID, db: Session = Depends(get_db)) -> list[dict]:
+    """Which pours use this type, and for how much."""
+    if not db.get(EstimateBeamType, type_id):
+        raise HTTPException(status_code=404, detail="Beam type not found")
+    rows = db.execute(
+        text(
+            """
+            SELECT m.id::text AS mono_slab_id, m.description, gb.length_lf
+            FROM grade_beams gb
+            JOIN mono_slabs m ON m.id = gb.mono_slab_id
+            WHERE gb.beam_type_id = :t
+            ORDER BY m.sort_order, m.created_at
+            """
+        ),
+        {"t": str(type_id)},
+    ).mappings().all()
+    return [dict(r) for r in rows]
