@@ -53,6 +53,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] `system_settings` API + recalc; non-manual rates now track defaults
 - [x] Stirrup hook allowance 1.0 ft (`sql/023`)
 - [x] Frontend tooling: `node --check`, oxlint, Playwright smoke tests
+- [x] Grade beams as a per-estimate type library + per-pour lengths (`sql/025`)
+- [x] Beam schedule section on the estimate page (define/edit types, usage rollups)
 
 ---
 

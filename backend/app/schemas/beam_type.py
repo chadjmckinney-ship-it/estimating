@@ -64,8 +64,12 @@ class BeamTypeRead(BeamTypeBase):
 
     id: UUID
     estimate_id: UUID
-    # Where this type is used, rolled up across the estimate
+    # Where this type is used and what it contributes, across the estimate
     pour_count: int = 0
     total_lf: Decimal = Decimal("0")
+    total_concrete_cy: Decimal = Decimal("0")
+    total_rebar_lb: Decimal = Decimal("0")
+    total_poly_sf: Decimal = Decimal("0")
+    total_pt_cable_lf: Decimal = Decimal("0")
     created_at: datetime
     updated_at: datetime

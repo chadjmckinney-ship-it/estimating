@@ -29,19 +29,34 @@ from app.schemas.beam_type import (
 router = APIRouter(tags=["beam-types"])
 
 
-def _usage(db: Session, type_id: UUID) -> tuple[int, Decimal]:
+def _usage(db: Session, type_id: UUID) -> dict[str, object]:
+    """Where a type is used and what it contributes across the estimate."""
     row = db.execute(
         text(
-            "SELECT count(*)::int AS n, coalesce(sum(length_lf), 0) AS lf "
-            "FROM grade_beams WHERE beam_type_id = :t"
+            """
+            SELECT count(*)::int              AS n,
+                   coalesce(sum(length_lf), 0)        AS lf,
+                   coalesce(sum(calc_concrete_cy), 0) AS cy,
+                   coalesce(sum(calc_rebar_lb), 0)    AS rebar,
+                   coalesce(sum(calc_poly_sf), 0)     AS poly,
+                   coalesce(sum(calc_pt_cable_lf), 0) AS pt_lf
+            FROM grade_beams WHERE beam_type_id = :t
+            """
         ),
         {"t": str(type_id)},
     ).mappings().one()
-    return int(row["n"] or 0), Decimal(str(row["lf"] or 0))
+    return {
+        "pour_count": int(row["n"] or 0),
+        "total_lf": Decimal(str(row["lf"] or 0)),
+        "total_concrete_cy": Decimal(str(row["cy"] or 0)),
+        "total_rebar_lb": Decimal(str(row["rebar"] or 0)),
+        "total_poly_sf": Decimal(str(row["poly"] or 0)),
+        "total_pt_cable_lf": Decimal(str(row["pt_lf"] or 0)),
+    }
 
 
 def _to_read(db: Session, row: EstimateBeamType) -> BeamTypeRead:
-    pours, lf = _usage(db, row.id)
+    used = _usage(db, row.id)
     return BeamTypeRead(
         id=row.id,
         estimate_id=row.estimate_id,
@@ -63,8 +78,7 @@ def _to_read(db: Session, row: EstimateBeamType) -> BeamTypeRead:
         pt_cables_count=row.pt_cables_count,
         notes=row.notes,
         sort_order=row.sort_order,
-        pour_count=pours,
-        total_lf=lf,
+        **used,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -159,7 +173,8 @@ def delete_beam_type(
     if not row:
         raise HTTPException(status_code=404, detail="Beam type not found")
     estimate_id = row.estimate_id
-    pours, lf = _usage(db, type_id)
+    used = _usage(db, type_id)
+    pours, lf = used["pour_count"], used["total_lf"]
     if pours and not force:
         # Deleting cascades to the usages, so say what would be lost.
         raise HTTPException(

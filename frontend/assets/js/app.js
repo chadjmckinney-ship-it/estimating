@@ -630,10 +630,11 @@ async function renderEstimateDetail(root) {
   root.innerHTML = `<div class="loading">Loading estimate…</div>`;
   if (!state.mixes.length) state.mixes = await Api.listMixes({ active_only: true });
 
-  const [estimate, slabs, totals, forming, labor, equip] = await Promise.all([
+  const [estimate, slabs, totals, beamTypes, forming, labor, equip] = await Promise.all([
     Api.getEstimate(state.estimateId),
     Api.listMonoSlabs(state.estimateId),
     Api.monoSlabTotals(state.estimateId),
+    Api.listBeamTypes(state.estimateId).catch(() => null),
     Api.formingMaterials(state.estimateId).catch(() => null),
     Api.laborMaterials(state.estimateId).catch(() => null),
     Api.estimateEquipment(state.estimateId).catch(() => null),
@@ -654,6 +655,7 @@ async function renderEstimateDetail(root) {
       </div>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
         <button class="btn primary" id="btn-add-slab">+ Mono slab pour</button>
+        <button class="btn ghost" id="btn-jump-beams" type="button">Beam schedule</button>
         <button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>
         <button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
         <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>
@@ -797,6 +799,7 @@ async function renderEstimateDetail(root) {
       </p>
     </div>
 
+    ${renderBeamTypesCard(beamTypes)}
     ${renderFormingCard(forming)}
     ${renderLaborCard(labor)}
     ${renderEquipmentCard(equip)}
@@ -805,6 +808,38 @@ async function renderEstimateDetail(root) {
   $("#back-proj").onclick = () =>
     setRoute("project", { projectId: estimate.project_id });
   $("#btn-add-slab").onclick = () => openMonoSlabModal(estimate);
+  const jumpBeams = $("#btn-jump-beams");
+  if (jumpBeams) {
+    jumpBeams.onclick = () => {
+      const el = document.getElementById("beam-schedule");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+  }
+  const btnAddType = $("#btn-add-beam-type");
+  if (btnAddType) btnAddType.onclick = () => openBeamTypeModal(estimate);
+  $$(".btn-edit-type", root).forEach((btn) => {
+    btn.onclick = () => {
+      const t = (beamTypes || []).find((x) => x.id === btn.dataset.id);
+      if (t) openBeamTypeModal(estimate, t);
+    };
+  });
+  $$(".btn-del-type", root).forEach((btn) => {
+    btn.onclick = async () => {
+      const pours = Number(btn.dataset.pours) || 0;
+      const msg = pours
+        ? `Delete “${btn.dataset.label}”?\n\nIt is used by ${pours} pour(s). ` +
+          `Deleting removes it from all of them.`
+        : `Delete “${btn.dataset.label}”?`;
+      if (!confirm(msg)) return;
+      try {
+        await Api.deleteBeamType(btn.dataset.id, pours > 0);
+        toast("Beam type deleted");
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  });
   const jumpForming = $("#btn-jump-forming");
   if (jumpForming) {
     jumpForming.onclick = () => {
@@ -1037,6 +1072,265 @@ async function renderEstimateDetail(root) {
       }
     };
   });
+}
+
+/**
+ * The estimate's beam schedule — where sections are defined.
+ *
+ * Types are estimate-level (sql/025), so they get their own section here rather
+ * than being reachable only through a pour. Lengths still belong to the pour and
+ * are entered from its GBs / Exp / Drops buttons.
+ */
+function renderBeamTypesCard(types) {
+  if (!types) {
+    return `<div class="card" id="beam-schedule" style="margin-top:1rem">
+      <h3 style="margin:0 0 0.5rem">Beam schedule</h3>
+      <div class="empty">Could not load beam types.</div>
+    </div>`;
+  }
+
+  const money = (v) => (v == null ? "—" : num(v, 0));
+  const kinds = [
+    ["grade_beam", "Grade beams"],
+    ["exposed", "Exposed GBs"],
+    ["drop", "Drops"],
+  ];
+
+  const totalLf = types.reduce((a, t) => a + Number(t.total_lf || 0), 0);
+  const totalCy = types.reduce((a, t) => a + Number(t.total_concrete_cy || 0), 0);
+  const totalLb = types.reduce((a, t) => a + Number(t.total_rebar_lb || 0), 0);
+
+  function group(kind, title) {
+    const rows = types.filter((t) => t.kind === kind);
+    if (!rows.length) return "";
+    const showPt = kind === "grade_beam";
+    return `
+      <h4 style="margin:1rem 0 0.5rem">${esc(title)}</h4>
+      <div class="table-wrap"><table class="data">
+        <thead>
+          <tr>
+            <th>Type</th><th>Section</th><th>Top</th><th>Bottom</th><th>Mid</th>
+            <th>Stirrups</th>${showPt ? "<th>PT</th>" : ""}
+            <th>Used in</th><th>Total LF</th><th>CY</th><th>Rebar lb</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map((t) => {
+              const bars = (c, s) => (c && s ? `${c} - #${s}` : "—");
+              const unused = !Number(t.pour_count);
+              return `<tr data-beam-type="${esc(t.id)}" class="${unused ? "muted" : ""}">
+                <td><strong>${esc(t.label)}</strong>
+                  ${t.notes ? `<div class="muted">${esc(t.notes)}</div>` : ""}</td>
+                <td class="muted">${num(t.width_in, 0)}″ × ${num(t.height_in, 0)}″</td>
+                <td class="muted">${esc(bars(t.top_bars_count, t.top_bars_size))}</td>
+                <td class="muted">${esc(bars(t.bottom_bars_count, t.bottom_bars_size))}</td>
+                <td class="muted">${esc(bars(t.mid_bars_count, t.mid_bars_size))}</td>
+                <td class="muted">${
+                  t.stirrup_size && t.stirrup_spacing_in
+                    ? `#${t.stirrup_size} @ ${num(t.stirrup_spacing_in, 0)}″`
+                    : "—"
+                }</td>
+                ${showPt ? `<td class="num muted">${t.pt_cables_count ?? "—"}</td>` : ""}
+                <td class="num">${
+                  unused
+                    ? `<span title="Defined but not used by any pour">not used</span>`
+                    : `${t.pour_count} pour${t.pour_count === 1 ? "" : "s"}`
+                }</td>
+                <td class="num"><strong>${money(t.total_lf)}</strong></td>
+                <td class="num muted">${num(t.total_concrete_cy, 2)}</td>
+                <td class="num muted">${money(t.total_rebar_lb)}</td>
+                <td style="white-space:nowrap">
+                  <button type="button" class="btn ghost btn-edit-type" data-id="${esc(t.id)}">Edit</button>
+                  <button type="button" class="btn danger ghost btn-del-type"
+                    data-id="${esc(t.id)}" data-label="${esc(t.label)}"
+                    data-pours="${esc(t.pour_count)}">Del</button>
+                </td>
+              </tr>`;
+            })
+            .join("")}
+        </tbody>
+      </table></div>`;
+  }
+
+  return `
+    <div class="card" id="beam-schedule" style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:0.5rem">
+        <div>
+          <h3 style="margin:0">Beam schedule</h3>
+          <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
+            Sections defined once for this estimate, in <code>estimate_beam_types</code>.
+            Pours reference a type and supply only length — enter those with the
+            <strong>GBs</strong> / <strong>Exp</strong> / <strong>Drops</strong> buttons above.
+            <br />Editing a section here <strong>changes every pour that uses it</strong>.
+          </p>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <div class="card stat" style="min-width:7rem;margin:0">
+            <div class="label">Types</div>
+            <div class="value" style="font-size:1.1rem">${types.length}</div>
+            <div class="hint">${num(totalLf, 0)} LF total</div>
+          </div>
+          <div class="card stat" style="min-width:7rem;margin:0">
+            <div class="label">Beam CY</div>
+            <div class="value" style="font-size:1.1rem">${num(totalCy, 1)}</div>
+            <div class="hint">${num(totalLb, 0)} lb rebar</div>
+          </div>
+          <button type="button" class="btn primary" id="btn-add-beam-type">+ Add type</button>
+        </div>
+      </div>
+      ${
+        types.length
+          ? kinds.map(([k, title]) => group(k, title)).join("")
+          : `<div class="empty">No beam types yet. Add one, then enter its length on each pour.</div>`
+      }
+    </div>`;
+}
+
+/** Add or edit one section. Editing moves every pour using it. */
+function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam") {
+  const isEdit = !!existing;
+  const kind = existing?.kind || defaultKind;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const usedNote =
+    isEdit && Number(existing.pour_count)
+      ? `<div class="badge warn" style="margin-bottom:0.75rem">
+           Used by ${existing.pour_count} pour${existing.pour_count === 1 ? "" : "s"}
+           (${num(existing.total_lf, 0)} LF) — saving recalculates all of them.
+         </div>`
+      : "";
+  backdrop.innerHTML = `
+    <div class="modal" style="width:min(760px,100%)">
+      <h2>${isEdit ? "Edit beam type" : "New beam type"}</h2>
+      <p style="margin:-0.5rem 0 0.85rem;color:var(--text-muted);font-size:0.9rem">
+        Estimate: ${esc(estimate.name)} · the section is shared by every pour that uses it
+      </p>
+      ${usedNote}
+      <form id="bt-form" class="form-grid">
+        <div class="field">
+          <label>Label *</label>
+          <input name="label" required value="${esc(existing?.label || "")}"
+            placeholder="Beam 1 (type 1)" />
+        </div>
+        <div class="field">
+          <label>Kind</label>
+          <select name="kind">
+            <option value="grade_beam" ${kind === "grade_beam" ? "selected" : ""}>Grade beam</option>
+            <option value="exposed" ${kind === "exposed" ? "selected" : ""}>Exposed GB</option>
+            <option value="drop" ${kind === "drop" ? "selected" : ""}>Drop</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Width (in) *</label>
+          <input type="number" name="width_in" required min="0.001" step="0.1"
+            value="${esc(existing?.width_in ?? "")}" />
+        </div>
+        <div class="field">
+          <label>Height (in) *</label>
+          <input type="number" name="height_in" required min="0.001" step="0.1"
+            value="${esc(existing?.height_in ?? "")}" />
+        </div>
+        <div class="field full" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:0.75rem">
+          <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase">Bar schedule</div>
+        </div>
+        <div class="field">
+          <label>Top bars</label>
+          <div style="display:flex;gap:0.4rem">
+            <input type="number" name="top_bars_count" min="0" step="1" style="width:4rem"
+              value="${esc(existing?.top_bars_count ?? "")}" />
+            <select name="top_bars_size">${barSizeOptions(existing?.top_bars_size)}</select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Bottom bars</label>
+          <div style="display:flex;gap:0.4rem">
+            <input type="number" name="bottom_bars_count" min="0" step="1" style="width:4rem"
+              value="${esc(existing?.bottom_bars_count ?? "")}" />
+            <select name="bottom_bars_size">${barSizeOptions(existing?.bottom_bars_size)}</select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Mid bars</label>
+          <div style="display:flex;gap:0.4rem">
+            <input type="number" name="mid_bars_count" min="0" step="1" style="width:4rem"
+              value="${esc(existing?.mid_bars_count ?? "")}" />
+            <select name="mid_bars_size">${barSizeOptions(existing?.mid_bars_size)}</select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Stirrups</label>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            <select name="stirrup_size">${barSizeOptions(existing?.stirrup_size)}</select>
+            <span class="muted">@</span>
+            <input type="number" name="stirrup_spacing_in" min="0.1" step="0.5" style="width:4.5rem"
+              placeholder="in" value="${esc(existing?.stirrup_spacing_in ?? "")}" />
+          </div>
+        </div>
+        <div class="field" id="pt-field" style="${kind === "grade_beam" ? "" : "display:none"}">
+          <label>PT cables through section</label>
+          <input type="number" name="pt_cables_count" min="0" step="1"
+            placeholder="grade beams only"
+            value="${esc(existing?.pt_cables_count ?? "")}" />
+        </div>
+        <div class="field full">
+          <label>Notes</label>
+          <textarea name="notes">${esc(existing?.notes || "")}</textarea>
+        </div>
+        <div class="modal-actions" style="grid-column:1/-1">
+          <button type="button" class="btn ghost" id="cancel">Cancel</button>
+          <button type="submit" class="btn primary">${isEdit ? "Save section" : "Add type"}</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#cancel", backdrop).onclick = () => backdrop.remove();
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  // PT cables only apply to beams poured with the SOG.
+  $('select[name="kind"]', backdrop).onchange = (e) => {
+    $("#pt-field", backdrop).style.display =
+      e.target.value === "grade_beam" ? "" : "none";
+  };
+
+  $("#bt-form", backdrop).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const optNum = (k) => {
+      const v = fd.get(k);
+      return v === "" || v == null ? null : Number(v);
+    };
+    const body = {
+      label: fd.get("label"),
+      kind: fd.get("kind"),
+      width_in: Number(fd.get("width_in")),
+      height_in: Number(fd.get("height_in")),
+      top_bars_count: optNum("top_bars_count"),
+      top_bars_size: optNum("top_bars_size"),
+      bottom_bars_count: optNum("bottom_bars_count"),
+      bottom_bars_size: optNum("bottom_bars_size"),
+      mid_bars_count: optNum("mid_bars_count"),
+      mid_bars_size: optNum("mid_bars_size"),
+      stirrup_size: optNum("stirrup_size"),
+      stirrup_spacing_in: optNum("stirrup_spacing_in"),
+      pt_cables_count: fd.get("kind") === "grade_beam" ? optNum("pt_cables_count") : null,
+      notes: fd.get("notes") || null,
+    };
+    try {
+      if (isEdit) {
+        await Api.updateBeamType(existing.id, body);
+        toast("Section saved — pours using it were recalculated");
+      } else {
+        await Api.createBeamType(estimate.id, body);
+        toast("Beam type added");
+      }
+      backdrop.remove();
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
 }
 
 function renderFormingCard(forming) {

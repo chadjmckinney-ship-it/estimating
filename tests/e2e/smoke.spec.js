@@ -150,3 +150,32 @@ test("forming, labor and equipment cards render", async ({ page, request }) => {
   }
   expect(errors).toEqual([]);
 });
+
+test("estimate has a beam schedule section listing types", async ({
+  page,
+  request,
+}) => {
+  const errors = watchErrors(page);
+  const id = await estimateWithPours(request);
+  await page.goto(`/#estimate/${id}`);
+
+  const card = page.locator("#beam-schedule");
+  await expect(card).toBeVisible();
+  await expect(card).not.toContainText("Could not load");
+  // Types are estimate-level and shared — the warning must be stated.
+  await expect(card).toContainText("changes every pour that uses it");
+  // At least one type row, with its usage rolled up.
+  await expect(card.locator("tr[data-beam-type]").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "+ Add type" })).toBeVisible();
+
+  // The editor opens and warns when the type is in use (no save).
+  await card.locator("button.btn-edit-type").first().click();
+  const modal = page.locator(".modal-backdrop .modal");
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('input[name="label"]')).toBeVisible();
+  await expect(modal.locator('input[name="width_in"]')).toBeVisible();
+  await modal.getByRole("button", { name: "Cancel" }).click();
+  await expect(modal).toBeHidden();
+
+  expect(errors).toEqual([]);
+});
