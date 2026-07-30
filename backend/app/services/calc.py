@@ -304,6 +304,24 @@ def refresh_mono_slab_calcs(db: Session, slab: MonoSlab, estimate: Estimate | No
     return slab
 
 
+def refresh_estimate_slab_calcs(db: Session, estimate: Estimate) -> int:
+    """
+    Re-run pour calcs for every mono slab on an estimate; returns the count.
+
+    Needed because the calc_* columns are stored, not derived on read: changing
+    an estimate-level input (waste_concrete / waste_sand) leaves every pour at
+    the factors in force when it was last saved. Caller commits.
+    """
+    from sqlalchemy import select
+
+    slabs = list(
+        db.scalars(select(MonoSlab).where(MonoSlab.estimate_id == estimate.id)).all()
+    )
+    for slab in slabs:
+        refresh_mono_slab_calcs(db, slab, estimate)
+    return len(slabs)
+
+
 def beam_kind_breakdown(db: Session, mono_slab_id: Any) -> dict[str, dict[str, Any]]:
     """Per-kind CY/rebar/LF/poly for a pour (all kinds sum into calc_gb_* totals)."""
     rows = db.execute(

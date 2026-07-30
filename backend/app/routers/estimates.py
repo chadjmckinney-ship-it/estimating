@@ -14,6 +14,36 @@ from app.schemas.estimate import EstimateCreate, EstimateRead, EstimateUpdate
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
+# Estimate-level inputs that feed the stored pour calc_* columns.
+_POUR_CALC_FIELDS = frozenset({"waste_concrete", "waste_sand"})
+
+
+def _recalc_after_estimate_change(db: Session, row: Estimate, changed: set[str]) -> None:
+    """
+    Re-derive everything downstream of a changed estimate input.
+
+    The calc_* columns and the forming/labor/equipment lines are all stored, so
+    an estimate edit that isn't propagated leaves the UI showing new factors over
+    stale numbers. Only refreshes takeoffs that were already saved — opening an
+    estimate is what creates them, and this shouldn't do it as a side effect.
+    """
+    from app.models.estimate_equipment import EstimateEquipmentSummary
+    from app.models.estimate_forming import EstimateFormingSummary
+    from app.services.calc import refresh_estimate_slab_calcs
+    from app.services.estimate_equipment import refresh_and_store_equipment
+    from app.services.forming import refresh_and_store_forming
+
+    if changed & _POUR_CALC_FIELDS:
+        refresh_estimate_slab_calcs(db, row)
+        db.flush()
+        # Pumping is priced off pour CY, which just moved.
+        if db.get(EstimateEquipmentSummary, row.id) is not None:
+            refresh_and_store_equipment(db, row.id)
+
+    # form_percent scales the form lumber lines only.
+    if "form_percent" in changed and db.get(EstimateFormingSummary, row.id) is not None:
+        refresh_and_store_forming(db, row.id)
+
 
 def _to_read(db: Session, row: Estimate) -> EstimateRead:
     project = db.get(Project, row.project_id)
@@ -105,10 +135,13 @@ def update_estimate(
     if "estimator_id" in data and data["estimator_id"] is not None:
         if not db.get(Estimator, data["estimator_id"]):
             raise HTTPException(status_code=400, detail="estimator_id not found")
+    changed = {k for k, v in data.items() if getattr(row, k) != v}
     for k, v in data.items():
         setattr(row, k, v)
     row.updated_at = datetime.now(timezone.utc)
     try:
+        db.flush()
+        _recalc_after_estimate_change(db, row, changed)
         db.commit()
     except IntegrityError:
         db.rollback()

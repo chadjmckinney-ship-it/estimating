@@ -41,9 +41,11 @@ class EstimateUpdate(BaseModel):
     status: EstimateStatus | None = None
     estimator_id: UUID | None = None
     version: int | None = Field(None, ge=1)
-    waste_concrete: Decimal | None = None
-    waste_sand: Decimal | None = None
-    waste_rebar: Decimal | None = None
+    # Bounds must match EstimateBase/EstimateRead — a value that passes here but
+    # fails on read is persisted first, then 500s every GET of this estimate.
+    waste_concrete: Decimal | None = Field(None, ge=0, le=1)
+    waste_sand: Decimal | None = Field(None, ge=0, le=1)
+    waste_rebar: Decimal | None = Field(None, ge=0, le=1)
     form_percent: Decimal | None = Field(None, ge=0, le=2)
     notes: str | None = None
 
