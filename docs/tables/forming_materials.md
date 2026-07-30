@@ -37,7 +37,7 @@ Not stored on pours. Recalc writes the estimate tables via **Refresh from pours*
 |--------|--------|
 | `total_sf` | Σ `mono_slabs.square_footage` |
 | `perimeter_lf` | Σ `mono_slabs.perimeter_edge_lf` |
-| `drops_ff` | Σ `mono_slabs.drops_ff` |
+| `drops_ff` | Σ `grade_beams.length_lf` WHERE `kind='drop'` |
 | `mesh_sf` | Σ SF of pours with `wire_mesh` |
 | `total_rebar_lb` | Σ pour rebar (accessories) |
 | `form_percent` | system setting (Excel W65; LBJ used 50%) |

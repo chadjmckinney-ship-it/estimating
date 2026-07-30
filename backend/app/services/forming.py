@@ -62,7 +62,14 @@ def estimate_forming_drivers(db: Session, estimate_id: UUID) -> dict[str, Any]:
               count(*)::int AS pour_count,
               coalesce(sum(square_footage), 0) AS total_sf,
               coalesce(sum(perimeter_edge_lf), 0) AS perimeter_lf,
-              coalesce(sum(drops_ff), 0) AS drops_ff,
+              -- Drops are grade beams (kind='drop') since sql/022; the flat
+              -- mono_slabs.drops_ff column is gone.
+              coalesce((
+                  SELECT sum(gb.length_lf)
+                  FROM grade_beams gb
+                  JOIN mono_slabs dm ON dm.id = gb.mono_slab_id
+                  WHERE dm.estimate_id = :eid AND gb.kind = 'drop'
+              ), 0) AS drops_ff,
               coalesce(sum(calc_total_rebar_lb), 0) AS total_rebar_lb,
               coalesce(sum(calc_support_rebar_lb), 0) AS support_rebar_lb,
               coalesce(sum(CASE WHEN wire_mesh THEN square_footage ELSE 0 END), 0)

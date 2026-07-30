@@ -29,7 +29,6 @@ Design field list: [../mono.md](../mono.md)
 | `sand_thickness_in` | numeric(8,3) | YES | | Inches |
 | `perimeter_edge_lf` | numeric(14,3) | YES | | Linear feet |
 | `wire_mesh` | boolean | NO | `false` | Gage not linked yet |
-| `drops_ff` | numeric(14,3) | YES | | Total LF of drops |
 | `slab_bar_size` | smallint | YES | | Slab mat bar size #3–#11; NULL = no mat on this pour |
 | `slab_bar_spacing_in` | numeric(8,3) | YES | | Slab mat spacing in o.c., each way; NULL = no mat |
 | `support_rebar_lb_per_sf` | numeric(8,4) | YES | | Support steel only (chairs/dowels/misc) override; NULL = system default 0.1 |

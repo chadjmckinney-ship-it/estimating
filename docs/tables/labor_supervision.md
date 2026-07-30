@@ -30,7 +30,7 @@ Estimate detail → header **Labor & supervision** or card below Forming.
 | grading | GRADING / CABLES | total SF | $0.70 /SF |
 | place_finish | PLACE AND FINISH | total SF | $0.55 /SF |
 | wreck | WRECK AND CLEAN UP | total SF | $0.20 /SF |
-| drops | DROPS | drops_ff | $8 /FF |
+| drops | DROPS | Σ drop-beam LF | $8 /FF |
 | labor_add | LABOR ADD | manual $ | 0 |
 | excavation | EXCAVATION ADD | CY (manual) | $12 /CY |
 | hold_downs | HOLD DOWNS / FTGS | EA (manual) | $100 /EA |

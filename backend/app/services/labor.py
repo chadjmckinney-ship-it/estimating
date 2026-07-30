@@ -39,7 +39,13 @@ def labor_drivers(db: Session, estimate_id: UUID) -> dict[str, Any]:
             SELECT
               count(*)::int AS pour_count,
               coalesce(sum(square_footage), 0) AS total_sf,
-              coalesce(sum(drops_ff), 0) AS drops_ff,
+              -- Drops are grade beams (kind='drop') since sql/022.
+              coalesce((
+                  SELECT sum(gb.length_lf)
+                  FROM grade_beams gb
+                  JOIN mono_slabs dm ON dm.id = gb.mono_slab_id
+                  WHERE dm.estimate_id = :eid AND gb.kind = 'drop'
+              ), 0) AS drops_ff,
               coalesce(sum(calc_total_rebar_lb), 0) AS total_rebar_lb,
               coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
               coalesce(sum(calc_slab_concrete_cy), 0) AS total_slab_cy

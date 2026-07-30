@@ -39,7 +39,7 @@ class MonoSlab(Base):
     sand_thickness_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
     perimeter_edge_lf: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     wire_mesh: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    drops_ff: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    # Drops live in grade_beams (kind='drop') — see sql/022
     # Slab mat: #4 @ 18" o.c. each way. NULL = no mat priced on this pour.
     slab_bar_size: Mapped[int | None] = mapped_column(SmallInteger)
     slab_bar_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))

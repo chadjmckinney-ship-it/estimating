@@ -17,6 +17,7 @@ backups/
 
 # Machine-local tool settings
 .claude/settings.local.json
+.obsidian/
 
 # Editor / OS
 .vscode/

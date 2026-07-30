@@ -46,8 +46,11 @@ The long-term goal is to reduce key-person risk while preserving the 20-year dep
 | Sand Thickness (inches)  | decimal  | 2                                        | No       |
 | Perimeter Edge (LF)      | decimal  | 500                                      | No       |
 | Wire Mesh                | boolean  |                                          | No       |
-| Drops (FF)               | decimal  | Total linear feet of drops               | No       |
+| Slab Bar Size            | smallint | #3–#11 mat bar, e.g. 4                   | No       |
+| Slab Bar Spacing (in)    | decimal  | Each way, e.g. 18 → #4 @ 18" O.C.E.W.    | No       |
 | Notes                    | text     |                                          | No       |
+
+> Drops are **not** a slab field — enter them as grade beams with `kind='drop'` (retired in `sql/022`).
 
 ### Grade Beams / Exposed GBs / Drops (per pour)
 
@@ -57,7 +60,7 @@ Excel **04** pour columns **GRADE BEAMS**, **EXP GB**, and **Drops** share one b
 |--------|-------|--------|
 | `grade_beam` | GRADE BEAMS | Optional PT cables |
 | `exposed` | EXP GB | No PT |
-| `drop` | Drops | No PT; pour-level `drops_ff` remains a simple LF total if used |
+| `drop` | Drops | No PT. The only place drops are entered — the old pour-level `drops_ff` field was retired in sql/022 |
 
 | Field              | Type               | Notes                          |
 |--------------------|--------------------|--------------------------------|

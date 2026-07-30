@@ -1051,7 +1051,7 @@ function renderFormingCard(forming) {
           <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
             Stored in <code>estimate_forming_lines</code>.
             Perim <strong>${num(d.perimeter_lf, 0)} LF</strong>
-            · drops <strong>${num(d.drops_ff, 0)} FF</strong>
+            · drops <strong>${num(d.drops_ff, 0)} LF</strong> <span title="Sum of drop-kind grade beams on this estimate">(from drop beams)</span>
             · SF <strong>${num(d.total_sf, 0)}</strong>
             · last refresh <strong>${esc(refreshed)}</strong>
           </p>
@@ -1215,7 +1215,7 @@ function renderLaborCard(labor) {
             Excel <strong>04 LABOR / SUPERVISION</strong> — stored in
             <code>estimate_labor_lines</code>.
             SF <strong>${num(d.total_sf, 0)}</strong>
-            · drops <strong>${num(d.drops_ff, 0)} FF</strong>
+            · drops <strong>${num(d.drops_ff, 0)} LF</strong> <span title="Sum of drop-kind grade beams on this estimate">(from drop beams)</span>
             · rebar <strong>${num(d.total_rebar_tons, 2)} ton</strong>
             · super <strong>${num(d.super_weeks, 2)} wk / ${num(d.super_days, 1)} days</strong>
             · refreshed <strong>${esc(refreshed)}</strong>
@@ -1660,9 +1660,10 @@ function openMonoSlabModal(estimate, existing = null) {
             value="${existing?.perimeter_edge_lf ?? ""}" />
         </div>
         <div class="field">
-          <label>Drops (FF / LF)</label>
-          <input type="number" name="drops_ff" min="0" step="0.001"
-            value="${existing?.drops_ff ?? ""}" />
+          <label>Drops</label>
+          <div class="muted" style="font-size:0.8rem;padding:0.45rem 0">
+            Entered as beams — use the <strong>Drops</strong> button on this pour.
+          </div>
         </div>
         <div class="field">
           <label>Mix design</label>
@@ -1773,7 +1774,6 @@ function openMonoSlabModal(estimate, existing = null) {
       thickness_in: Number(fd.get("thickness_in")),
       sand_thickness_in: optNum("sand_thickness_in"),
       perimeter_edge_lf: optNum("perimeter_edge_lf"),
-      drops_ff: optNum("drops_ff"),
       mix_design_id: fd.get("mix_design_id") ? Number(fd.get("mix_design_id")) : null,
       post_tension: fd.get("post_tension") === "true",
       wire_mesh: fd.get("wire_mesh") === "true",
