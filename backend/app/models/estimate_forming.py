@@ -23,13 +23,13 @@ class EstimateFormingLine(Base):
     """Persisted forming / lumber line on an estimate."""
 
     __tablename__ = "estimate_forming_lines"
-    __table_args__ = (UniqueConstraint("estimate_id", "code", name="estimate_forming_lines_estimate_id_code_key"),)
+    __table_args__ = (UniqueConstraint("section_id", "code", name="estimate_forming_lines_section_code_key"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    estimate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_sections.id", ondelete="CASCADE"), nullable=False
     )
     code: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
@@ -45,6 +45,9 @@ class EstimateFormingLine(Base):
     ext_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # False for a genuine service sitting in the materials block — concrete
+    # haul-off is hauling, not a purchase (sql/036).
+    taxable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -58,8 +61,8 @@ class EstimateFormingSummary(Base):
 
     __tablename__ = "estimate_forming_summary"
 
-    estimate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), primary_key=True
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_sections.id", ondelete="CASCADE"), primary_key=True
     )
     pour_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     total_sf: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False, server_default=text("0"))

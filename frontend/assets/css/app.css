@@ -187,15 +187,41 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* A seven-figure job total used to run past the edge of its card and get
+   clipped — $1,335,790 read as $1,335,79. Scale the figure to the card it is
+   in rather than hide the last digit, because on this screen the last digit
+   is the number. */
+.card.stat {
+  container-type: inline-size;
+}
 .card.stat .value {
-  font-size: 1.75rem;
+  font-size: clamp(1.05rem, 9cqi, 1.75rem);
   font-weight: 700;
   margin-top: 0.25rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 .card.stat .hint {
   color: var(--text-muted);
   font-size: 0.8rem;
   margin-top: 0.2rem;
+}
+/* What the quantity above it costs. Deliberately NOT muted grey: it is the
+   second thing on the card anyone reads, and on a card whose big number is a
+   quantity it is the only money on screen. Kept a notch smaller than .value
+   so it never competes with the takeoff figure it belongs to. */
+.card.stat .money {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-top: 0.3rem;
+  overflow-wrap: anywhere;
+}
+
+/* Catalog reprice bar — highlighted once a price has changed this visit */
+.card.dirty {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 1px var(--warn) inset, var(--shadow);
 }
 
 /* Tables */
@@ -239,6 +265,92 @@ table.data .num {
 }
 table.data .muted {
   color: var(--text-muted);
+}
+
+/* Grid entry — a takeoff typed as a table.
+   Paving is sixteen columns across up to twenty-five areas, and the whole
+   point is to type down a column without reaching for the mouse. Cells are
+   tight, inputs fill them, and the first column stays put while the rest
+   scrolls sideways so you never lose track of which area you are on. */
+table.data.grid-entry th,
+table.data.grid-entry td {
+  padding: 0.2rem 0.3rem;
+}
+table.data.grid-entry th {
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+}
+table.data.grid-entry input,
+table.data.grid-entry select {
+  padding: 0.3rem 0.35rem;
+  font-size: 0.85rem;
+  width: 100%;
+  /* Wide enough for a real takeoff figure. At 4rem a 187,752 SF area read as
+     "1877" and the estimator could not see what they had typed. */
+  min-width: 5.5rem;
+  border-radius: 5px;
+}
+table.data.grid-entry input::-webkit-outer-spin-button,
+table.data.grid-entry input::-webkit-inner-spin-button {
+  /* The spinners eat a character of width and nobody clicks them. */
+  appearance: none;
+  margin: 0;
+}
+table.data.grid-entry input[type="number"] {
+  appearance: textfield;
+}
+table.data.grid-entry input[type="number"] {
+  font-family: var(--mono);
+  text-align: right;
+}
+table.data.grid-entry input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+}
+table.data.grid-entry td.name input {
+  min-width: 11rem;
+  text-align: left;
+}
+table.data.grid-entry input[data-f="square_footage"] {
+  min-width: 6.75rem;
+}
+table.data.grid-entry input[data-f="curb_lf"],
+table.data.grid-entry input[data-f="thick_edge_lf"],
+table.data.grid-entry input[data-f="demo_lf"] {
+  min-width: 6rem;
+}
+table.data.grid-entry td.derived {
+  font-family: var(--mono);
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+table.data.grid-entry tr.dirty td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+table.data.grid-entry tfoot td {
+  font-family: var(--mono);
+  text-align: right;
+  font-weight: 600;
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+}
+table.data.grid-entry tfoot td.label {
+  font-family: inherit;
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.grid-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 0;
+}
+.grid-bar .unsaved {
+  color: var(--accent);
+  font-size: 0.85rem;
 }
 
 /* Forms */
@@ -404,6 +516,52 @@ textarea {
   padding: 0.75rem 1rem;
   border-radius: 8px;
   margin-bottom: 1rem;
+}
+.warn-banner {
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid rgba(212, 160, 23, 0.45);
+  color: #e8c25a;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.warn-banner a,
+.error-banner a {
+  color: inherit;
+  text-decoration: underline;
+}
+/* The price sheet: a catalog-style table with two editable cells per row. */
+table.data.price-sheet td.group {
+  background: #1f2830;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+table.data.price-sheet input {
+  padding: 0.3rem 0.35rem;
+  font-size: 0.85rem;
+  border-radius: 5px;
+  width: 100%;
+}
+table.data.price-sheet input[type="number"] {
+  font-family: var(--mono);
+  text-align: right;
+  min-width: 6rem;
+  appearance: textfield;
+}
+table.data.price-sheet input[type="number"]::-webkit-outer-spin-button,
+table.data.price-sheet input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+table.data.price-sheet input.note {
+  min-width: 10rem;
+  font-size: 0.8rem;
+}
+table.data.price-sheet tr.edited td:first-child {
+  box-shadow: inset 3px 0 0 #e8c25a;
 }
 .toast {
   position: fixed;

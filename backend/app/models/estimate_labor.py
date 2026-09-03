@@ -22,14 +22,14 @@ from app.db import Base
 class EstimateLaborLine(Base):
     __tablename__ = "estimate_labor_lines"
     __table_args__ = (
-        UniqueConstraint("estimate_id", "code", name="estimate_labor_lines_estimate_id_code_key"),
+        UniqueConstraint("section_id", "code", name="estimate_labor_lines_section_code_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    estimate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_sections.id", ondelete="CASCADE"), nullable=False
     )
     group_name: Mapped[str] = mapped_column(Text, nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
@@ -56,8 +56,8 @@ class EstimateLaborLine(Base):
 class EstimateLaborSummary(Base):
     __tablename__ = "estimate_labor_summary"
 
-    estimate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), primary_key=True
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_sections.id", ondelete="CASCADE"), primary_key=True
     )
     pour_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     total_sf: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False, server_default=text("0"))

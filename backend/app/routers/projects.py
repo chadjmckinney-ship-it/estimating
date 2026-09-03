@@ -30,6 +30,7 @@ def _to_read(row: Project) -> ProjectRead:
         rev_date=row.rev_date,
         rev_price=row.rev_price,
         notes=row.notes,
+        tax_exempt=bool(row.tax_exempt),
         notion_message_id=row.notion_message_id,
         notion_page_id=row.notion_page_id,
         created_by=row.created_by,

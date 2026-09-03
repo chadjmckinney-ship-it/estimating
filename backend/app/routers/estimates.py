@@ -14,30 +14,17 @@ from app.schemas.estimate import EstimateCreate, EstimateRead, EstimateUpdate
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
-# Estimate-level inputs that feed the stored pour calc_* columns.
-# waste_rebar is here because it carries the slab mat's lap allowance.
-_POUR_CALC_FIELDS = frozenset({"waste_concrete", "waste_sand", "waste_rebar"})
-
-
-def _recalc_after_estimate_change(db: Session, row: Estimate, changed: set[str]) -> None:
-    """
-    Re-derive everything downstream of a changed estimate input.
-
-    The calc_* columns and the forming/labor/equipment lines are all stored, so
-    an estimate edit that isn't propagated leaves the UI showing new factors over
-    stale numbers. Only refreshes takeoffs that were already saved — opening an
-    estimate is what creates them, and this shouldn't do it as a side effect.
-    """
-    from app.services.recalc import recalc_estimate
-
-    pours = bool(changed & _POUR_CALC_FIELDS)
-    # A pour change ripples outward: rebar feeds forming accessories and labor
-    # tie steel, concrete CY feeds equipment pumping.
-    if pours:
-        recalc_estimate(db, row)
-    elif "form_percent" in changed:
-        # form_percent scales the form lumber lines only.
-        recalc_estimate(db, row, pours=False, labor=False, equipment=False)
+# Nothing on an estimate feeds a stored calculation any more.
+#
+# The assembly inputs that used to live here — the wastes, form%, the vapor
+# barrier and its tape — moved to estimate_sections (sql/033-034), and each is
+# now propagated by the section that owns it. What is left is job-level:
+# identity, status, and the markup DEFAULTS a new section is created with.
+#
+# Changing those defaults deliberately does NOT reprice existing sections. Each
+# carries the markup it is priced at, and quietly rewriting that would move a
+# bid nobody asked to move — the same reason the recalc sweep skips final and
+# archived estimates.
 
 
 def _to_read(db: Session, row: Estimate) -> EstimateRead:
@@ -50,15 +37,17 @@ def _to_read(db: Session, row: Estimate) -> EstimateRead:
         status=row.status,
         estimator_id=row.estimator_id,
         version=row.version,
-        waste_concrete=row.waste_concrete,
-        waste_sand=row.waste_sand,
-        waste_rebar=row.waste_rebar,
-        form_percent=row.form_percent,
         notes=row.notes,
+        margin_pct=row.margin_pct,
+        contingency_pct=row.contingency_pct,
         created_at=row.created_at,
         updated_at=row.updated_at,
         project_name=project.name if project else None,
         estimator_name=estimator.full_name if estimator else None,
+        calc_total_cost=row.calc_total_cost,
+        calc_total_sale=row.calc_total_sale,
+        calc_cost_per_sf=row.calc_cost_per_sf,
+        calc_sale_per_sf=row.calc_sale_per_sf,
     )
 
 
@@ -96,14 +85,20 @@ def create_estimate(body: EstimateCreate, db: Session = Depends(get_db)) -> Esti
         status=body.status.value,
         estimator_id=body.estimator_id,
         version=body.version,
-        waste_concrete=body.waste_concrete,
-        waste_sand=body.waste_sand,
-        waste_rebar=body.waste_rebar,
-        form_percent=body.form_percent,
         notes=body.notes,
+        margin_pct=body.margin_pct,
+        contingency_pct=body.contingency_pct,
     )
     db.add(row)
     try:
+        db.flush()
+        # A new estimate pulls the master list on the spot (sql/048), so there
+        # is never an unpriced estimate and the sheet is always the answer to
+        # "what did we bid this at". A rebid is a new estimate and pulls the
+        # list as it stands THAT day — decision 2.
+        from app.services.price_book import pull_prices
+
+        pull_prices(db, row.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -130,13 +125,11 @@ def update_estimate(
     if "estimator_id" in data and data["estimator_id"] is not None:
         if not db.get(Estimator, data["estimator_id"]):
             raise HTTPException(status_code=400, detail="estimator_id not found")
-    changed = {k for k, v in data.items() if getattr(row, k) != v}
     for k, v in data.items():
         setattr(row, k, v)
     row.updated_at = datetime.now(timezone.utc)
     try:
         db.flush()
-        _recalc_after_estimate_change(db, row, changed)
         db.commit()
     except IntegrityError:
         db.rollback()

@@ -1,23 +1,23 @@
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import (
-    Boolean,
-    Date,
-    DateTime,
-    ForeignKey,
-    Integer,
-    Numeric,
-    Text,
-    func,
-    text,
-)
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, Text, func, text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
 
 class MixDesign(Base):
+    """
+    The master list of mix prices.
+
+    `unit_cost` IS the price — one per mix, kept current as supplier numbers come
+    in. Chad, 2026-09-02: "a master list of rough mix prices that we get from
+    suppliers that we update as we get them, then as we start an estimate, it
+    pulls those numbers." A per-supplier dated history (`mix_prices`) was built
+    alongside this in sql/005, never populated, and dropped in sql/047.
+    """
+
     __tablename__ = "mix_designs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -41,10 +41,6 @@ class MixDesign(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    prices: Mapped[list["MixPrice"]] = relationship(
-        "MixPrice", back_populates="mix_design", lazy="selectin"
-    )
-
 
 class ConcreteSupplier(Base):
     __tablename__ = "concrete_suppliers"
@@ -61,31 +57,3 @@ class ConcreteSupplier(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
-
-    prices: Mapped[list["MixPrice"]] = relationship(
-        "MixPrice", back_populates="supplier", lazy="selectin"
-    )
-
-
-class MixPrice(Base):
-    __tablename__ = "mix_prices"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    mix_design_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("mix_designs.id", ondelete="CASCADE"), nullable=False
-    )
-    supplier_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("concrete_suppliers.id", ondelete="CASCADE"), nullable=False
-    )
-    unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
-    price_as_of: Mapped[date | None] = mapped_column(Date)
-    notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
-    )
-
-    mix_design: Mapped[MixDesign] = relationship("MixDesign", back_populates="prices")
-    supplier: Mapped[ConcreteSupplier] = relationship("ConcreteSupplier", back_populates="prices")

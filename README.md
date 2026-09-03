@@ -71,6 +71,34 @@ The smoke tests start the API on 8001 if it isn't already up, load real pages, a
 field the API stopped returning. They are **read-only**: they open dialogs but never
 click Save, Recalculate or Delete. Keep them that way, or a test run will edit real bids.
 
+### Backend tests
+
+Pytest against a **throwaway `estimating_test` database**, never the live one —
+`backend/tests/dbsetup.py` refuses any database whose name does not end in
+`_test`, and every test runs inside a transaction that is rolled back
+afterwards (service `commit()`s included, via savepoints).
+
+```bash
+cd ~/Estimate_Projects/backend
+../.venv/bin/pip install -r requirements-dev.txt
+../.venv/bin/pytest                 # builds estimating_test on first run
+REBUILD_TEST_DB=1 ../.venv/bin/pytest   # rebuild from sql/ first
+../.venv/bin/python tests/dbsetup.py    # rebuild only
+```
+
+| File | Covers |
+|------|--------|
+| `test_calc_functions.py` | Golden numbers for the nine locked SQL helpers |
+| `test_pour_calcs.py` | `refresh_mono_slab_calcs` — CY, steel, poly, PT, beam rollups |
+| `test_staleness.py` | "Edit X, assert Y follows" — the stored-not-derived traps |
+| `test_costing.py` | Pure allocation / markup helpers, no DB |
+
+`TEST_DATABASE_URL` overrides the target (default
+`postgresql+psycopg2:///estimating_test`).
+
+The test database is built by applying every `sql/*.sql` in filename order, so
+a green run also proves the migration chain still applies to an empty database.
+
 ## Database
 
 - **Name:** `estimating`

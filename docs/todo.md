@@ -3,7 +3,7 @@
 Working list for the estimating system.  
 Design: [mono.md](./mono.md) · DB notes: [notes.md](./notes.md)
 
-**Last updated:** 2026-07-30
+**Last updated:** 2026-08-30
 
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 
@@ -55,8 +55,24 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Frontend tooling: `node --check`, oxlint, Playwright smoke tests
 - [x] Grade beams as a per-estimate type library + per-pour lengths (`sql/025`)
 - [x] Beam schedule section on the estimate page (define/edit types, usage rollups)
+- [x] Backend test harness + calc/staleness tests (`cd backend && pytest`)
+- [x] Editable catalogs (materials, equipment, mix designs + supplier price grid)
+- [x] Bulk recalcs skip `final` / `archived` estimates
 
 ---
+
+## Live data problems
+
+- [ ] **Concrete is priced at $0/CY on every estimate.** All 16 mix designs have
+      `unit_cost` NULL *and* zero rows in `mix_prices`, so `_mix_unit_cost()`
+      returns 0 and `costing._direct_cost` adds nothing for concrete. On
+      `04-PT Slab on Grade` that is 2,161.75 CY costing nothing inside a
+      $370,854.93 total — at ~$150/CY the estimate is roughly $324k light. The
+      three suppliers (Argos, Martin Marietta, SRM) exist with no quotes against
+      them. Fix from the Mix designs page: enter a unit cost per mix, or the
+      per-supplier quotes, then Reprice open estimates.
+- [ ] Enter `pt_spacing_in` on the LBJ PT pours so cable LF stops reading 0
+      (see the PT decision below)
 
 ## Decisions to lock (before more schema)
 
@@ -95,7 +111,10 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] `cost_codes` table + link to materials / line items
 - [ ] Roles / permissions tables (or defer until auth exists)
 - [ ] Numbered migration discipline + optional Alembic later — **two `015_` files
-      exist**, and nothing records which migrations have been applied to a database
+      exist**, and nothing records which migrations have been applied to a database.
+      Every test run now rebuilds `estimating_test` by applying `001`–`026` in
+      filename order, so the chain is at least known to work on an empty database
+      (the two `015_` files are independent; forming-then-poly is the live order)
 - [ ] Automated `pg_dump` backups under `Estimate_Projects/backups/` — the repo
       backs up code only; the database exists on this laptop alone
 
@@ -105,11 +124,18 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 
 - [x] Frontend: `npm run verify` — `node --check`, oxlint, Playwright smoke tests
       (read-only against the live DB; fail on any console error)
-- [ ] **Backend calc tests** — the locked helpers and the takeoff services have no
-      tests at all. Three staleness bugs shipped in one session (estimate waste,
-      `system_settings`, beam edits) that an "edit X, assert Y follows" test would
-      have caught. Highest-value gap in the project.
-- [ ] Fixture/seed database so tests do not run against live bids
+- [x] Fixture/seed database so tests do not run against live bids —
+      `backend/tests/dbsetup.py` builds `estimating_test` from `sql/`, refuses any
+      database not ending in `_test`, and every test rolls back (savepoints, so
+      the services' own `commit()`s roll back too)
+- [~] **Backend calc tests** — 64 tests, `cd backend && pytest`. Covered: the nine
+      locked SQL helpers (golden numbers), `refresh_mono_slab_calcs` (CY, mat and
+      support steel, poly, PT, beam rollups, per-pour and per-estimate
+      overrides), and all three staleness bugs as regression tests — estimate
+      waste, `system_settings` PATCH, beam edits — plus `is_manual` survival and
+      `settings_scope`. **Still untested:** the forming and equipment line
+      formulas (only that they refresh, not what they compute), the routers, and
+      `costing.refresh_pour_costs`.
 - [ ] Golden-number test: one full estimate checked against the Excel workbook
 
 ---
@@ -138,11 +164,24 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 
 ### Catalogs / admin
 
-- [ ] Materials browser + edit unit costs (Admin)
-- [ ] Effective-dated rate history
-- [ ] Mix design admin
+- [x] Materials browser + edit unit costs — add / edit / deactivate, search and
+      category filter, show-inactive toggle (`POST` and `DELETE /api/materials`
+      added; the UI never called the existing `PATCH`)
+- [x] Mix design admin — add / edit / deactivate, plus the per-supplier $/CY grid
+      (add / edit / remove quotes; `DELETE /api/mix-prices/{id}` added). The modal
+      says which basis costing will use: the mix's own unit cost, else the
+      cheapest quote, else $0
+- [x] Equipment admin — add / edit / deactivate rental rates
+- [x] **Catalog prices never auto-reprice.** A price edit stores and stops there;
+      a "Reprice open estimates" button on each catalog page pushes it through.
+      `final` and `archived` estimates are frozen and reported as skipped, so a
+      completed job keeps the numbers it was bid with. Overrides:
+      `recalc-all?include_frozen=true`, or an estimate's own Recalculate button
+- [ ] Effective-dated rate history — `price_as_of` is captured per row but a price
+      edit still overwrites the old value rather than versioning it
 - [~] System settings **API** done (`GET/PATCH /api/system-settings`; a PATCH rewrites
-      affected estimates automatically). UI page still to build.
+      affected **open** estimates automatically — see the freeze above). UI page
+      still to build.
 
 ### Auth & multi-user
 
@@ -197,7 +236,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
    stirrup, waste factors, L-bar method. These change real numbers and everything
    downstream inherits them.
 2. **Enter `pt_spacing_in`** on the LBJ PT pours so cable LF stops reading 0.
-3. **Backend calc tests** before more features — see Testing.
+3. ~~Backend calc tests before more features~~ — harness and the high-value cases
+   are in (`cd backend && pytest`). Extend to forming/equipment line formulas
+   when those rules next change.
 4. **Fix the 10 placeholder drop sections** (12×12 guesses from `sql/022`).
 5. **Auth**, then tighten CORS — currently anyone on the LAN can edit, and any
    website can drive the API.

@@ -60,9 +60,36 @@ Fields: `name`, `gc`, `location`, `project_types[]`, `status`, `bid_due`, `bid_d
 
 | Method | Path | Action |
 |--------|------|--------|
-| GET | `/api/equipment` | List (`?category=earthwork`) |
+| GET | `/api/equipment` | List (`?category=earthwork`, `?active_only=false`) |
 | GET | `/api/equipment/meta/categories` | Categories |
 | POST/PATCH/DELETE | `/api/equipment`… | CRUD (DELETE = soft off) |
+
+## Materials
+
+| Method | Path | Action |
+|--------|------|--------|
+| GET | `/api/materials` | List (`?category=`, `?q=`, `?active_only=false`) |
+| GET | `/api/materials/meta/categories` | Categories |
+| POST/PATCH/DELETE | `/api/materials`… | CRUD (DELETE = soft off) |
+
+## Catalog prices and stored estimates
+
+Costing reads catalog prices (materials, mix designs, equipment) **at recalc
+time**, so a `PATCH` to any of them changes nothing already stored. Push prices
+through with:
+
+```bash
+curl -s -X POST localhost:8001/api/system-settings/recalc-all
+```
+
+That rewrites **open** estimates only — `draft` and `in_review`. Estimates at
+`final` or `archived` are frozen and reported in the response's `skipped` list,
+so a price change never moves a bid that has gone out. Two deliberate overrides:
+`?include_frozen=true` on `recalc-all`, or an individual
+`POST /api/estimates/{id}/recalc`, which always runs.
+
+The same rule governs `PATCH /api/system-settings/{key}` — it used to rewrite
+every estimate, archived ones included.
 
 ## Mono slabs
 
@@ -114,6 +141,29 @@ curl -s -X POST http://127.0.0.1:8001/api/projects \
     "estimator_ids": []
   }' | jq
 ```
+
+## Migrations
+
+`apply_sql.py` connects the same way the app does, so it works on Windows and
+Linux alike — no `psql` on PATH, no authentication to figure out. Each file runs
+in its own transaction and is recorded in `schema_migrations`.
+
+```bash
+python backend/apply_sql.py --status                     # what has and hasn't run
+python backend/apply_sql.py sql/027_sales_tax_and_uplifts.sql
+python backend/apply_sql.py --all                        # every unapplied file
+python backend/apply_sql.py --mark-applied --all         # record without running
+```
+
+On Windows, from the project root:
+
+```
+.venv-win\Scripts\python.exe backend\apply_sql.py --status
+```
+
+A database built before this script existed has nothing recorded. Backfill it
+once with `--mark-applied --all`, which records every file without running any of
+them; `--all` refuses to run against an unrecorded database for that reason.
 
 ## Config
 

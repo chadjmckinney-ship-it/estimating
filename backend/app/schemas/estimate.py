@@ -19,17 +19,21 @@ class EstimateBase(BaseModel):
     status: EstimateStatus = EstimateStatus.draft
     estimator_id: UUID | None = None
     version: int = Field(1, ge=1)
-    waste_concrete: Decimal | None = Field(None, ge=0, le=1, examples=[0.05])
-    waste_sand: Decimal | None = Field(None, ge=0, le=1)
-    waste_rebar: Decimal | None = Field(None, ge=0, le=1)
-    form_percent: Decimal | None = Field(
-        None,
+    notes: str | None = None
+    margin_pct: Decimal = Field(
+        Decimal("0.20"),
         ge=0,
         le=2,
-        examples=[0.50],
-        description="% of forming (0–1 typical). NULL = system default. Forms only: 2x4/2x6/2x10/ply/masonite.",
+        examples=[0.20],
+        description="Default margin for new sections (0.20 = 20%). The priced figure lives on each section.",
     )
-    notes: str | None = None
+    contingency_pct: Decimal = Field(
+        Decimal("0.03"),
+        ge=0,
+        le=2,
+        examples=[0.03],
+        description="Default contingency for new sections. The priced figure lives on each section.",
+    )
 
 
 class EstimateCreate(EstimateBase):
@@ -44,10 +48,10 @@ class EstimateUpdate(BaseModel):
     # Bounds must match EstimateBase/EstimateRead — a value that passes here but
     # fails on read is persisted first, then 500s every GET of this estimate.
     waste_concrete: Decimal | None = Field(None, ge=0, le=1)
-    waste_sand: Decimal | None = Field(None, ge=0, le=1)
-    waste_rebar: Decimal | None = Field(None, ge=0, le=1)
     form_percent: Decimal | None = Field(None, ge=0, le=2)
     notes: str | None = None
+    margin_pct: Decimal | None = Field(None, ge=0, le=2)
+    contingency_pct: Decimal | None = Field(None, ge=0, le=2)
 
 
 class EstimateRead(EstimateBase):
@@ -58,3 +62,7 @@ class EstimateRead(EstimateBase):
     updated_at: datetime
     project_name: str | None = None
     estimator_name: str | None = None
+    calc_total_cost: Decimal | None = None
+    calc_total_sale: Decimal | None = None
+    calc_cost_per_sf: Decimal | None = None
+    calc_sale_per_sf: Decimal | None = None

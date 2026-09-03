@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.beam_type import EstimateBeamType
-from app.models.estimate import Estimate
+from app.models.estimate_section import EstimateSection
 from app.models.grade_beam import GradeBeam
 from app.schemas.beam_type import (
     BeamKind,
@@ -59,11 +59,12 @@ def _to_read(db: Session, row: EstimateBeamType) -> BeamTypeRead:
     used = _usage(db, row.id)
     return BeamTypeRead(
         id=row.id,
-        estimate_id=row.estimate_id,
+        section_id=row.section_id,
         label=row.label,
         kind=row.kind,
         width_in=row.width_in,
         height_in=row.height_in,
+        form_face_in=row.form_face_in,
         top_bars_count=row.top_bars_count,
         top_bars_size=row.top_bars_size,
         bottom_bars_count=row.bottom_bars_count,
@@ -84,24 +85,29 @@ def _to_read(db: Session, row: EstimateBeamType) -> BeamTypeRead:
     )
 
 
-def _recalc_estimate(db: Session, estimate_id: UUID) -> None:
-    """A type edit moves every pour using it, so redo the whole estimate."""
+def _recalc_section(db: Session, section_id: UUID) -> None:
+    """A type edit moves every pour using it, so redo the whole section."""
+    from app.models.estimate import Estimate
     from app.services.recalc import recalc_estimate
 
-    estimate = db.get(Estimate, estimate_id)
+    section = db.get(EstimateSection, section_id)
+    if section is None:
+        return
+    # Redo the job: the section reprices, then the estimate rolls up.
+    estimate = db.get(Estimate, section.estimate_id)
     if estimate is not None:
         recalc_estimate(db, estimate)
 
 
-@router.get("/estimates/{estimate_id}/beam-types", response_model=list[BeamTypeRead])
+@router.get("/sections/{section_id}/beam-types", response_model=list[BeamTypeRead])
 def list_beam_types(
-    estimate_id: UUID,
+    section_id: UUID,
     kind: BeamKind | None = Query(None, description="grade_beam | exposed | drop"),
     db: Session = Depends(get_db),
 ) -> list[BeamTypeRead]:
-    if not db.get(Estimate, estimate_id):
-        raise HTTPException(status_code=404, detail="Estimate not found")
-    stmt = select(EstimateBeamType).where(EstimateBeamType.estimate_id == estimate_id)
+    if not db.get(EstimateSection, section_id):
+        raise HTTPException(status_code=404, detail="Section not found")
+    stmt = select(EstimateBeamType).where(EstimateBeamType.section_id == section_id)
     if kind is not None:
         stmt = stmt.where(EstimateBeamType.kind == kind)
     stmt = stmt.order_by(EstimateBeamType.sort_order, EstimateBeamType.label)
@@ -109,21 +115,21 @@ def list_beam_types(
 
 
 @router.post(
-    "/estimates/{estimate_id}/beam-types",
+    "/sections/{section_id}/beam-types",
     response_model=BeamTypeRead,
     status_code=status.HTTP_201_CREATED,
 )
 def create_beam_type(
-    estimate_id: UUID, body: BeamTypeCreate, db: Session = Depends(get_db)
+    section_id: UUID, body: BeamTypeCreate, db: Session = Depends(get_db)
 ) -> BeamTypeRead:
-    if not db.get(Estimate, estimate_id):
-        raise HTTPException(status_code=404, detail="Estimate not found")
+    if not db.get(EstimateSection, section_id):
+        raise HTTPException(status_code=404, detail="Section not found")
     data = body.model_dump()
     data["label"] = data["label"].strip()
     # PT cables only apply to beams poured with the SOG.
     if data["kind"] != "grade_beam":
         data["pt_cables_count"] = None
-    row = EstimateBeamType(estimate_id=estimate_id, **data)
+    row = EstimateBeamType(section_id=section_id, **data)
     db.add(row)
     try:
         db.commit()
@@ -156,7 +162,7 @@ def update_beam_type(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="A type with that name already exists") from None
-    _recalc_estimate(db, row.estimate_id)
+    _recalc_section(db, row.section_id)
     db.refresh(row)
     return _to_read(db, row)
 
@@ -172,7 +178,7 @@ def delete_beam_type(
     row = db.get(EstimateBeamType, type_id)
     if not row:
         raise HTTPException(status_code=404, detail="Beam type not found")
-    estimate_id = row.estimate_id
+    section_id = row.section_id
     used = _usage(db, type_id)
     pours, lf = used["pour_count"], used["total_lf"]
     if pours and not force:
@@ -186,7 +192,7 @@ def delete_beam_type(
         )
     db.delete(row)
     db.commit()
-    _recalc_estimate(db, estimate_id)
+    _recalc_section(db, section_id)
 
 
 @router.get("/beam-types/{type_id}/usage", response_model=list[dict])

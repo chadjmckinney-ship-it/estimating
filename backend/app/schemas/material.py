@@ -24,10 +24,28 @@ class MaterialRead(BaseModel):
     updated_at: datetime
 
 
+class MaterialCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    category: str = Field(..., min_length=1)
+    unit: str = Field(..., min_length=1, examples=["EA", "LF", "SF", "CY", "TON"])
+    code: str | None = None
+    unit_cost: Decimal | None = Field(None, ge=0)
+    unit_note: str | None = None
+    description: str | None = None
+    supplier_ref: str | None = None
+    price_as_of: date | None = None
+    sort_order: int = 0
+
+
 class MaterialUpdate(BaseModel):
-    unit_cost: Decimal | None = None
+    name: str | None = Field(None, min_length=1)
+    category: str | None = Field(None, min_length=1)
+    unit: str | None = Field(None, min_length=1)
+    code: str | None = None
+    unit_cost: Decimal | None = Field(None, ge=0)
     unit_note: str | None = None
     is_active: bool | None = None
     description: str | None = None
     supplier_ref: str | None = None
     price_as_of: date | None = None
+    sort_order: int | None = None

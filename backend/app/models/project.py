@@ -3,6 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -47,6 +48,10 @@ class Project(Base):
     bid_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     rev_date: Mapped[date | None] = mapped_column(Date)
     rev_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    # sql/027 — ROW paving is always exempt
+    tax_exempt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     notion_message_id: Mapped[str | None] = mapped_column(Text)
     notion_page_id: Mapped[str | None] = mapped_column(Text)
 

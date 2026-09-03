@@ -1,34 +1,86 @@
-# Python
-.venv/
+# Estimate_Projects
+#
+# What belongs in git: the code, the sql/ migrations, the docs, run scripts.
+# What does not: anything reproducible from those, anything with a credential
+# in it, and the client workbooks.
+
+# ---------------------------------------------------------------- python ---
 __pycache__/
 *.py[cod]
+*$py.class
+.venv/
+.venv-win/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Frontend dev tooling (dev-only; the app itself has no build step)
-node_modules/
-test-results/
-playwright-report/
-blob-report/
-.playwright/
-
-# Local config / secrets (DB URL etc.)
+# ------------------------------------------------------------ credentials ---
+# DATABASE_URL lives here. Never commit it — and if one has already been
+# committed, rotate the password rather than just deleting the file, because
+# git keeps every version.
 .env
 .env.*
+!.env.example
+*.pgpass
 
-# Database dumps / backups
-backups/
-*.dump
-*.sql.gz
-
-# Excel lock files (created while a workbook is open)
+# -------------------------------------------------------------- workbooks ---
+# Client estimates. These are commercially sensitive, they are large, and git
+# cannot diff them usefully — every save would store a whole new copy of a
+# multi-megabyte binary. Keep them on disk, out of history.
+workbooks/
+*.xlsm
+*.xlsx
+*.xls
 ~$*
 
-# Machine-local tool settings
-.claude/settings.local.json
-.claude/settings.local.json.tmp.*
-.obsidian/
+# -------------------------------------------------------- extracted data ---
+# import/ holds the client workbooks (already ignored above by extension) and
+# the CSVs pulled out of them — a job's real takeoff quantities, which are the
+# same commercially sensitive numbers in a format git WILL happily diff and
+# keep forever. The little dump/load scripts beside them are ours and stay,
+# so the import can be re-run against a workbook that is not in history.
+import/*.csv
 
-# Editor / OS
-.vscode/
-.idea/
-*.swp
+# ------------------------------------------------------------------ dumps ---
+*.dump
+*.sql.gz
+*.bak
+backups/
+
+# -------------------------------------------------------------------- node ---
+node_modules/
+package-lock.json.bak
+
+# ------------------------------------------------------------------ tests ---
+# Playwright's run artifacts — screenshots, traces, .last-run.json. Every one
+# is reproducible by running the tests again.
+test-results/
+playwright-report/
+
+# -------------------------------------------------------------------- os ---
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------------ tools ---
+.idea/
+.vscode/
+*.swp
+*~
+
+# --------------------------------------------------------------- scratch ---
+# A commit message written to a file so it can be reviewed before it is used
+# (`git commit -F COMMIT_MSG_DRAFT`). Never part of the tree.
+COMMIT_MSG_DRAFT
+
+# ----------------------------------------------------------------- notes ---
+# The folder doubles as an Obsidian vault. The vault's own config and the
+# daily notes are a workspace, not the project — they change every time it is
+# opened and mean nothing to anyone cloning this.
+.obsidian/
+Daily/

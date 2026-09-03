@@ -43,6 +43,7 @@ class ProjectBase(BaseModel):
     rev_date: date | None = None
     rev_price: Decimal | None = None
     notes: str | None = None
+    tax_exempt: bool = False
     notion_message_id: str | None = None
     notion_page_id: str | None = None
     created_by: UUID | None = None
@@ -70,6 +71,7 @@ class ProjectUpdate(BaseModel):
     rev_date: date | None = None
     rev_price: Decimal | None = None
     notes: str | None = None
+    tax_exempt: bool | None = None
     notion_message_id: str | None = None
     notion_page_id: str | None = None
     created_by: UUID | None = None
@@ -93,6 +95,7 @@ class ProjectRead(BaseModel):
     rev_date: date | None
     rev_price: Decimal | None
     notes: str | None
+    tax_exempt: bool
     notion_message_id: str | None
     notion_page_id: str | None
     created_by: UUID | None

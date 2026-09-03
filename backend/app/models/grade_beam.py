@@ -74,6 +74,7 @@ for _field in (
     "label",
     "width_in",
     "height_in",
+    "form_face_in",
     "top_bars_count",
     "top_bars_size",
     "bottom_bars_count",

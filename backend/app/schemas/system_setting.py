@@ -52,10 +52,20 @@ class EstimateRecalcResult(BaseModel):
     equipment: bool = False
 
 
+class SkippedEstimate(BaseModel):
+    estimate_id: str
+    name: str
+    status: str | None = None
+
+
 class RecalcReport(BaseModel):
     changed_keys: list[str] = Field(default_factory=list)
     scope: dict[str, bool] = Field(
         default_factory=dict, description="Which derivations were invalidated"
     )
     recalculated: list[EstimateRecalcResult] = Field(default_factory=list)
+    skipped: list[SkippedEstimate] = Field(
+        default_factory=list,
+        description="Frozen estimates (final / archived) left at their bid numbers",
+    )
     note: str | None = None

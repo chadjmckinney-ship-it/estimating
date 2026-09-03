@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,25 +40,12 @@ class MixDesignUpdate(BaseModel):
     is_active: bool | None = None
 
 
-class MixPriceRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    mix_design_id: int
-    supplier_id: int
-    supplier_name: str | None = None
-    unit_cost: Decimal
-    price_as_of: date | None
-    notes: str | None
-
-
 class MixDesignRead(MixDesignBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     created_at: datetime
     updated_at: datetime
-    prices: list[MixPriceRead] = Field(default_factory=list)
 
 
 class ConcreteSupplierBase(BaseModel):
@@ -87,17 +74,3 @@ class ConcreteSupplierRead(ConcreteSupplierBase):
     id: int
     created_at: datetime
     updated_at: datetime
-
-
-class MixPriceCreate(BaseModel):
-    mix_design_id: int
-    supplier_id: int
-    unit_cost: Decimal = Field(..., gt=0)
-    price_as_of: date | None = None
-    notes: str | None = None
-
-
-class MixPriceUpdate(BaseModel):
-    unit_cost: Decimal | None = Field(None, gt=0)
-    price_as_of: date | None = None
-    notes: str | None = None

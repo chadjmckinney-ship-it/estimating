@@ -24,12 +24,23 @@ class Estimate(Base):
         UUID(as_uuid=True), ForeignKey("estimators.id", ondelete="SET NULL")
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
-    waste_concrete: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
-    waste_sand: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
-    waste_rebar: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
-    # Excel W65 % of forming — only multiplies form lumber (2x4/2x6/2x10/ply/siding)
-    form_percent: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
     notes: Mapped[str | None] = mapped_column(Text)
+    # Wastes, form%, vapor barrier and tape describe an assembly, so they live on
+    # estimate_sections (sql/033-034), not here.
+    #
+    # Markup stays, but its meaning narrowed: these are the DEFAULTS a new
+    # section is created with. The markup a section is priced at is its own.
+    margin_pct: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4), nullable=False, server_default=text("0.20")
+    )
+    contingency_pct: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4), nullable=False, server_default=text("0.03")
+    )
+    calc_total_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    calc_total_tax: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    calc_total_sale: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    calc_cost_per_sf: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    calc_sale_per_sf: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

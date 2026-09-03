@@ -3,10 +3,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models.mix_design import ConcreteSupplier, MixDesign, MixPrice
+from app.models.mix_design import ConcreteSupplier, MixDesign
 from app.schemas.mix_design import (
     ConcreteSupplierCreate,
     ConcreteSupplierRead,
@@ -14,28 +14,12 @@ from app.schemas.mix_design import (
     MixDesignCreate,
     MixDesignRead,
     MixDesignUpdate,
-    MixPriceCreate,
-    MixPriceRead,
-    MixPriceUpdate,
 )
 
 router = APIRouter(tags=["mix-designs"])
 
 
 def _mix_to_read(row: MixDesign) -> MixDesignRead:
-    prices: list[MixPriceRead] = []
-    for p in row.prices or []:
-        prices.append(
-            MixPriceRead(
-                id=p.id,
-                mix_design_id=p.mix_design_id,
-                supplier_id=p.supplier_id,
-                supplier_name=p.supplier.name if p.supplier else None,
-                unit_cost=p.unit_cost,
-                price_as_of=p.price_as_of,
-                notes=p.notes,
-            )
-        )
     return MixDesignRead(
         id=row.id,
         code=row.code,
@@ -53,14 +37,11 @@ def _mix_to_read(row: MixDesign) -> MixDesignRead:
         is_active=row.is_active,
         created_at=row.created_at,
         updated_at=row.updated_at,
-        prices=prices,
     )
 
 
 def _mix_query(db: Session):
-    return select(MixDesign).options(
-        selectinload(MixDesign.prices).selectinload(MixPrice.supplier)
-    )
+    return select(MixDesign)
 
 
 # ---- Mix designs ----
@@ -188,93 +169,3 @@ def update_supplier(
         raise HTTPException(status_code=409, detail="Supplier name already exists") from None
     db.refresh(row)
     return row
-
-
-# ---- Prices ----
-
-@router.get("/mix-prices", response_model=list[MixPriceRead])
-def list_mix_prices(
-    mix_design_id: int | None = None,
-    supplier_id: int | None = None,
-    db: Session = Depends(get_db),
-) -> list[MixPriceRead]:
-    stmt = (
-        select(MixPrice)
-        .options(selectinload(MixPrice.supplier))
-        .order_by(MixPrice.mix_design_id, MixPrice.supplier_id)
-    )
-    if mix_design_id is not None:
-        stmt = stmt.where(MixPrice.mix_design_id == mix_design_id)
-    if supplier_id is not None:
-        stmt = stmt.where(MixPrice.supplier_id == supplier_id)
-    out: list[MixPriceRead] = []
-    for p in db.scalars(stmt).all():
-        out.append(
-            MixPriceRead(
-                id=p.id,
-                mix_design_id=p.mix_design_id,
-                supplier_id=p.supplier_id,
-                supplier_name=p.supplier.name if p.supplier else None,
-                unit_cost=p.unit_cost,
-                price_as_of=p.price_as_of,
-                notes=p.notes,
-            )
-        )
-    return out
-
-
-@router.post("/mix-prices", response_model=MixPriceRead, status_code=status.HTTP_201_CREATED)
-def create_mix_price(body: MixPriceCreate, db: Session = Depends(get_db)) -> MixPriceRead:
-    if not db.get(MixDesign, body.mix_design_id):
-        raise HTTPException(status_code=400, detail="mix_design_id not found")
-    supplier = db.get(ConcreteSupplier, body.supplier_id)
-    if not supplier:
-        raise HTTPException(status_code=400, detail="supplier_id not found")
-    row = MixPrice(**body.model_dump())
-    db.add(row)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="Price already exists for this mix/supplier/date",
-        ) from None
-    db.refresh(row)
-    return MixPriceRead(
-        id=row.id,
-        mix_design_id=row.mix_design_id,
-        supplier_id=row.supplier_id,
-        supplier_name=supplier.name,
-        unit_cost=row.unit_cost,
-        price_as_of=row.price_as_of,
-        notes=row.notes,
-    )
-
-
-@router.patch("/mix-prices/{price_id}", response_model=MixPriceRead)
-def update_mix_price(
-    price_id: int, body: MixPriceUpdate, db: Session = Depends(get_db)
-) -> MixPriceRead:
-    row = db.get(MixPrice, price_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Mix price not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(row, k, v)
-    row.updated_at = datetime.now(timezone.utc)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Conflict updating price") from None
-    db.refresh(row)
-    supplier = db.get(ConcreteSupplier, row.supplier_id)
-    return MixPriceRead(
-        id=row.id,
-        mix_design_id=row.mix_design_id,
-        supplier_id=row.supplier_id,
-        supplier_name=supplier.name if supplier else None,
-        unit_cost=row.unit_cost,
-        price_as_of=row.price_as_of,
-        notes=row.notes,
-    )

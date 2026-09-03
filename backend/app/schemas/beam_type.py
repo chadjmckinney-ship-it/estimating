@@ -5,8 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-BeamKind = Literal["grade_beam", "exposed", "drop"]
-BEAM_KINDS = ("grade_beam", "exposed", "drop")
+BeamKind = Literal["grade_beam", "exposed", "drop", "brick_ledge"]
+BEAM_KINDS = ("grade_beam", "exposed", "drop", "brick_ledge")
 
 
 class BeamTypeBase(BaseModel):
@@ -14,8 +14,16 @@ class BeamTypeBase(BaseModel):
 
     label: str = Field(..., min_length=1, max_length=120, examples=["Beam 1 (type 1)"])
     kind: BeamKind = "grade_beam"
-    width_in: Decimal = Field(..., gt=0, examples=[12])
-    height_in: Decimal = Field(..., gt=0, examples=[30])
+    # ge=0 rather than gt=0: a brick ledge that does not widen the beam is 0 x 0
+    # and exists only to be formed. The database still requires > 0 for every
+    # other kind (sql/028).
+    width_in: Decimal = Field(..., ge=0, examples=[12])
+    height_in: Decimal = Field(..., ge=0, examples=[30])
+    form_face_in: Decimal | None = Field(
+        None, ge=0,
+        description="Brick ledge: depth that gets ply-faced. Blank = the section height.",
+        examples=[8],
+    )
     top_bars_count: int | None = Field(None, ge=0, examples=[2])
     top_bars_size: int | None = Field(None, ge=3, le=11, examples=[5])
     bottom_bars_count: int | None = Field(None, ge=0)
@@ -41,8 +49,9 @@ class BeamTypeCreate(BeamTypeBase):
 class BeamTypeUpdate(BaseModel):
     label: str | None = Field(None, min_length=1, max_length=120)
     kind: BeamKind | None = None
-    width_in: Decimal | None = Field(None, gt=0)
-    height_in: Decimal | None = Field(None, gt=0)
+    width_in: Decimal | None = Field(None, ge=0)
+    height_in: Decimal | None = Field(None, ge=0)
+    form_face_in: Decimal | None = Field(None, ge=0)
     top_bars_count: int | None = Field(None, ge=0)
     top_bars_size: int | None = Field(None, ge=3, le=11)
     bottom_bars_count: int | None = Field(None, ge=0)
@@ -63,7 +72,7 @@ class BeamTypeRead(BeamTypeBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    estimate_id: UUID
+    section_id: UUID
     # Where this type is used and what it contributes, across the estimate
     pour_count: int = 0
     total_lf: Decimal = Decimal("0")

@@ -79,9 +79,10 @@ def _resync_parent_slab(db: Session, mono_slab_id: UUID) -> None:
         refresh_mono_slab_calcs(db, slab)
 
 
-def _resync_estimate_takeoffs(db: Session, mono_slab_id: UUID) -> None:
+def _resync_section_takeoffs(db: Session, mono_slab_id: UUID) -> None:
     """
-    Refresh the estimate's stored forming/labor/equipment after a beam change.
+    Refresh the section's stored forming/labor/equipment after a beam change,
+    then roll the job up. Flushes; does NOT commit — the caller owns that.
 
     Beams feed all three: drop-kind length is the drops driver behind the 2x4,
     bracing and ply lines and the labor DROPS line (sql/022), beam rebar feeds
@@ -89,30 +90,55 @@ def _resync_estimate_takeoffs(db: Session, mono_slab_id: UUID) -> None:
     pumping. Without this a beam edit silently leaves those lines on the
     previous quantities.
 
-    Call after commit — the pour calcs must already be written. Pours are not
-    recalculated here; _resync_parent_slab has already done the one that moved.
+    Pours are not recalculated here; _resync_parent_slab has already done the
+    one that moved.
+
+    ## Two things changed here on 2026-09-02, both of them bugs
+
+    This function used to read `slab.estimate_id` and hand the whole ESTIMATE to
+    `recalc_estimate`. Neither half survived sql/034, which moved pours and beam
+    types under a section:
+
+      * `MonoSlab.estimate_id` has not existed since that migration, so this
+        raised `AttributeError` and every grade-beam write returned 500. It ran
+        AFTER `db.commit()`, so the beam was written, the client got an error,
+        and the takeoffs never resynced — the worst of the three possible
+        orderings. No test covered these routes, so 346 of them passed over it.
+      * Even fixed in place it was the wrong SCOPE. A beam belongs to one pour,
+        which belongs to one section; repricing every other section of the job
+        because a drop moved is work nobody asked for, and on a five-section job
+        it is most of a recalc.
+
+    So: recalc the SECTION, then roll the estimate up — the section total is not
+    the job total, and `refresh_pour_costs` only writes the former.
     """
-    from app.models.estimate import Estimate
-    from app.services.recalc import recalc_estimate
+    from app.models.estimate_section import EstimateSection
+    from app.services.recalc import recalc_section
 
     slab = db.get(MonoSlab, mono_slab_id)
     if slab is None:
         return
-    estimate = db.get(Estimate, slab.estimate_id)
-    if estimate is None:
+    section = db.get(EstimateSection, slab.section_id)
+    if section is None:
         return
-    recalc_estimate(db, estimate, pours=False)
+    # The job roll-up rides along: `recalc_section` ends in `refresh_pour_costs`,
+    # which is the only writer of a section total and now re-adds the job from
+    # its sections there. This function rolled the estimate up explicitly for a
+    # few hours on 2026-09-02, before that became structural — see
+    # `costing._roll_up_parent`.
+    recalc_section(db, section, pours=False)
+    db.flush()
 
 
 def _type_for_slab(db: Session, slab: MonoSlab, beam_type_id: UUID) -> EstimateBeamType:
-    """A pour may only use types belonging to its own estimate."""
+    """A pour may only use types belonging to its own SECTION (sql/034)."""
     t = db.get(EstimateBeamType, beam_type_id)
     if t is None:
         raise HTTPException(status_code=400, detail="beam_type_id not found")
-    if t.estimate_id != slab.estimate_id:
+    if t.section_id != slab.section_id:
         raise HTTPException(
             status_code=400,
-            detail="beam_type_id belongs to a different estimate",
+            detail="beam_type_id belongs to a different section",
         )
     return t
 
@@ -177,8 +203,11 @@ def create_grade_beam(body: GradeBeamCreate, db: Session = Depends(get_db)) -> G
     refresh_grade_beam_calcs(db, row)
     db.flush()
     _resync_parent_slab(db, row.mono_slab_id)
+    # Resync BEFORE the commit, so the beam and the takeoffs it moves land in
+    # one transaction. The old order committed first and resynced after, which
+    # is how a 500 left a written beam beside stale forming and labor.
+    _resync_section_takeoffs(db, row.mono_slab_id)
     db.commit()
-    _resync_estimate_takeoffs(db, row.mono_slab_id)
     db.refresh(row)
     return _to_read(row)
 
@@ -201,8 +230,8 @@ def update_grade_beam(
     refresh_grade_beam_calcs(db, row)
     db.flush()
     _resync_parent_slab(db, row.mono_slab_id)
+    _resync_section_takeoffs(db, row.mono_slab_id)
     db.commit()
-    _resync_estimate_takeoffs(db, row.mono_slab_id)
     db.refresh(row)
     return _to_read(row)
 
@@ -216,8 +245,8 @@ def delete_grade_beam(beam_id: UUID, db: Session = Depends(get_db)) -> None:
     db.delete(row)
     db.flush()
     _resync_parent_slab(db, slab_id)
+    _resync_section_takeoffs(db, slab_id)
     db.commit()
-    _resync_estimate_takeoffs(db, slab_id)
 
 
 @router.put(
@@ -285,8 +314,8 @@ def replace_grade_beams(
 
     db.flush()
     refresh_mono_slab_calcs(db, slab)
+    _resync_section_takeoffs(db, slab_id)
     db.commit()
-    _resync_estimate_takeoffs(db, slab_id)
     for r in created:
         db.refresh(r)
     return [_to_read(r) for r in created]

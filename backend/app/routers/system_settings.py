@@ -24,6 +24,18 @@ from app.services.recalc import recalc_all_estimates, settings_scope
 router = APIRouter(prefix="/system-settings", tags=["system-settings"])
 
 
+def _note(out: dict[str, Any]) -> str:
+    n = len(out["recalculated"])
+    skipped = len(out["skipped"])
+    note = f"Rewrote {n} estimate(s)."
+    if skipped:
+        note += (
+            f" Left {skipped} final/archived estimate(s) at their bid numbers — "
+            "reprice one from its own Recalculate button if you need to."
+        )
+    return note
+
+
 def _row_to_read(row: Any) -> SystemSettingRead:
     return SystemSettingRead(
         key=row["key"],
@@ -38,12 +50,16 @@ def list_settings(
     prefix: str | None = Query(None, description="Filter by key prefix, e.g. labor_"),
     db: Session = Depends(get_db),
 ) -> list[SystemSettingRead]:
-    sql = """
-        SELECT key, value #>> '{}' AS text_value, description, updated_at
-        FROM system_settings
-        {where}
-        ORDER BY key
-    """.format(where="WHERE key LIKE :p" if prefix else "")
+    # No str.format here: the jsonb operator `#>> '{}'` is itself a format
+    # field, so formatting this string raises IndexError before it ever
+    # reaches the database. That is why this endpoint has never returned.
+    where = "WHERE key LIKE :p" if prefix else ""
+    sql = (
+        "SELECT key, value #>> '{}' AS text_value, description, updated_at "
+        "FROM system_settings "
+        f"{where} "
+        "ORDER BY key"
+    )
     params = {"p": f"{prefix}%"} if prefix else {}
     rows = db.execute(text(sql), params).mappings().all()
     return [_row_to_read(r) for r in rows]
@@ -109,12 +125,13 @@ def update_setting(
             note="Saved. This key feeds no stored calculation, so nothing needed rewriting.",
         )
 
-    results = recalc_all_estimates(db, **scope)
+    out = recalc_all_estimates(db, **scope)
     return RecalcReport(
         changed_keys=[key],
         scope=scope,
-        recalculated=results,
-        note=f"Saved and rewrote {len(results)} estimate(s).",
+        recalculated=out["recalculated"],
+        skipped=out["skipped"],
+        note=_note(out),
     )
 
 
@@ -124,14 +141,25 @@ def recalc_all(
     forming: bool = Query(True),
     labor: bool = Query(True),
     equipment: bool = Query(True),
+    include_frozen: bool = Query(
+        False,
+        description="Also reprice final / archived estimates. Off by default — a "
+        "bid that has gone out keeps the numbers it was bid with.",
+    ),
     db: Session = Depends(get_db),
 ) -> RecalcReport:
     """
-    Rewrite every estimate from current inputs.
+    Rewrite the open estimates from current inputs.
 
-    Run this after editing system_settings in psql — a direct UPDATE cannot
-    trigger anything on its own.
+    Run this after editing catalog prices or system_settings — a direct UPDATE,
+    and a catalog PATCH, cannot trigger anything on their own.
     """
     scope = {"pours": pours, "forming": forming, "labor": labor, "equipment": equipment}
-    results = recalc_all_estimates(db, **scope)
-    return RecalcReport(changed_keys=[], scope=scope, recalculated=results)
+    out = recalc_all_estimates(db, include_frozen=include_frozen, **scope)
+    return RecalcReport(
+        changed_keys=[],
+        scope=scope,
+        recalculated=out["recalculated"],
+        skipped=out["skipped"],
+        note=_note(out),
+    )

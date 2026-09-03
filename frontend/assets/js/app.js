@@ -7,6 +7,9 @@ const state = {
   route: "home",
   projectId: null,
   estimateId: null,
+  // The section the estimate page is currently editing (sql/033-034). Set when
+  // an estimate opens; the pour and beam modals read it.
+  sectionId: null,
   estimators: [],
   projectTypes: [],
   projectStatuses: [],
@@ -28,6 +31,18 @@ function money(n) {
   return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 
+function usd(n, digits = 0) {
+  if (n == null || n === "") return "—";
+  const v = Number(n);
+  if (Number.isNaN(v)) return "—";
+  return v.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
 function num(n, digits = 2) {
   if (n == null || n === "") return "—";
   const v = Number(n);
@@ -36,6 +51,60 @@ function num(n, digits = 2) {
     minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   });
+}
+
+// ------------------------------------------- the money on the stat cards ----
+// The cards at the top of a section have always shown the takeoff — 2,205 CY,
+// 21,945 lb, 158,109 SF of poly — with no price anywhere near it. These three
+// helpers put the dollars on them, off /sections/{id}/material-costs.
+//
+// The rule they all follow: a material with no priced line renders as NOTHING,
+// never as $0. A zero is a claim that the thing is free; silence is the honest
+// answer to "we could not price this", and the quantity is still on the card.
+
+/** key -> line, so a card can ask for its own dollars by name. */
+function matIndex(payload) {
+  const by = {};
+  for (const ln of (payload && payload.lines) || []) by[ln.key] = ln;
+  return by;
+}
+
+/** Rates run from $0.04/lb to $155/CY, so the decimals follow the number. */
+function rateUsd(v) {
+  return usd(v, Math.abs(Number(v)) < 10 ? 4 : 2);
+}
+
+/** "$295,496 · $134.00/CY" — the line's own total and the rate behind it. */
+function matCost(mat, key) {
+  const ln = mat[key];
+  if (!ln) return "";
+  // A NULL master price is unpriced, not free (sql/047). The dollars on this
+  // line are light by an unknown amount, so say that, not "$0".
+  if (ln.unpriced && ln.unpriced.length) {
+    return `<span class="badge warn">unpriced</span> ${esc(ln.unpriced.join(", "))}`;
+  }
+  const quoted = String(ln.source || "").startsWith("quote") ? " quoted" : "";
+  const rate =
+    ln.unit_cost == null ? "" : ` · ${rateUsd(ln.unit_cost)}/${ln.unit}`;
+  return `${usd(ln.cost, 0)}${quoted}${rate}`;
+}
+
+/**
+ * A COMPONENT of a priced line, at that line's rate — slab mat and support
+ * steel are both part of one rebar buy, and neither is quoted on its own.
+ * Priced here rather than on the server because it is arithmetic on a rate
+ * that is already on screen, not a second opinion about what steel costs.
+ */
+function matAt(mat, key, qty) {
+  const ln = mat[key];
+  const q = Number(qty);
+  if (!ln || ln.unit_cost == null || !q || Number.isNaN(q)) return "";
+  return `${usd(Number(ln.unit_cost) * q, 0)} at ${rateUsd(ln.unit_cost)}/${ln.unit}`;
+}
+
+/** The money line on a stat card — omitted entirely when there is none. */
+function moneyRow(s) {
+  return s ? `<div class="money">${s}</div>` : "";
 }
 
 /** SF per CY of concrete (includes slab + beams + waste). */
@@ -72,21 +141,36 @@ function esc(s) {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Modals hang off document.body, not #app, so changing page leaves them
+ * floating over the new one. Navigation closes them; render() must not, since
+ * some modals re-render the page behind themselves while staying open.
+ */
+function closeAllModals() {
+  $$(".modal-backdrop").forEach((el) => el.remove());
+}
+
 function setRoute(route, params = {}) {
+  closeAllModals();
   state.route = route;
   state.projectId = params.projectId || null;
   state.estimateId = params.estimateId || null;
+  state.sectionId = params.sectionId || null;
   $$(".nav button").forEach((b) => {
     const active =
       b.dataset.route === route ||
       (route === "project" && b.dataset.route === "projects") ||
-      (route === "estimate" && b.dataset.route === "projects");
+      (route === "estimate" && b.dataset.route === "projects") ||
+      (route === "section" && b.dataset.route === "projects") ||
+      (route === "prices" && b.dataset.route === "projects");
     b.classList.toggle("active", active);
   });
   render();
   let hash = `#${route}`;
   if (route === "project" && state.projectId) hash = `#project/${state.projectId}`;
   if (route === "estimate" && state.estimateId) hash = `#estimate/${state.estimateId}`;
+  if (route === "section" && state.sectionId) hash = `#section/${state.sectionId}`;
+  if (route === "prices" && state.estimateId) hash = `#prices/${state.estimateId}`;
   if (location.hash !== hash) history.replaceState(null, "", hash);
 }
 
@@ -98,7 +182,15 @@ function parseHash() {
   if (h.startsWith("estimate/")) {
     return { route: "estimate", projectId: null, estimateId: h.slice("estimate/".length) };
   }
-  return { route: h, projectId: null, estimateId: null };
+  // A section is deep-linkable in its own right — an estimator working paving
+  // should be able to bookmark it, not navigate through the job every time.
+  if (h.startsWith("section/")) {
+    return { route: "section", projectId: null, estimateId: null, sectionId: h.slice("section/".length) };
+  }
+  if (h.startsWith("prices/")) {
+    return { route: "prices", projectId: null, estimateId: h.slice("prices/".length), sectionId: null };
+  }
+  return { route: h, projectId: null, estimateId: null, sectionId: null };
 }
 
 async function checkHealth() {
@@ -398,19 +490,20 @@ async function renderProjectDetail(root) {
       ${
         estimates.length
           ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Estimator</th><th>Waste C/S/R</th><th>Updated</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Estimator</th>
+          <th class="num">Cost</th><th class="num">Sale</th><th>Updated</th><th></th></tr></thead>
         <tbody>
           ${estimates
             .map(
-              (e) => `<tr data-estimate-id="${esc(e.id)}">
+              (e) => `<tr class="clickable" data-estimate-id="${esc(e.id)}">
               <td><strong>${esc(e.name)}</strong></td>
               <td class="num">${e.version}</td>
               <td>${statusBadge(e.status)}</td>
               <td class="muted">${esc(e.estimator_name || "—")}</td>
-              <td class="muted num">${[e.waste_concrete, e.waste_sand, e.waste_rebar].map((x) => (x == null ? "—" : Number(x))).join(" / ")}</td>
+              <td class="num">${money(e.calc_total_cost)}</td>
+              <td class="num">${money(e.calc_total_sale)}</td>
               <td class="muted">${esc((e.updated_at || "").slice(0, 16).replace("T", " "))}</td>
-              <td>
-                <button type="button" class="btn ghost btn-open-est" data-id="${esc(e.id)}">Open</button>
+              <td style="white-space:nowrap">
                 <button type="button" class="btn ghost btn-edit-est" data-id="${esc(e.id)}">Edit</button>
               </td>
             </tr>`
@@ -420,7 +513,8 @@ async function renderProjectDetail(root) {
           : `<div class="empty">No estimates yet. Create a draft package for this job.</div>`
       }
       <p style="color:var(--text-muted);font-size:0.85rem;margin:0.75rem 0 0">
-        Open an estimate to enter Mono Slab pours and see locked calcs.
+        Open an estimate to add its sections — each assembly carries its own
+        rates, takeoff and markup.
       </p>
     </div>
   `;
@@ -428,12 +522,17 @@ async function renderProjectDetail(root) {
   $("#back").onclick = () => setRoute("projects");
   $("#edit-proj").onclick = () => openProjectModal(project);
   $("#new-est").onclick = () => openEstimateModal(project);
-  $$(".btn-open-est", root).forEach((btn) => {
-    btn.onclick = () =>
-      setRoute("estimate", { estimateId: btn.dataset.id, projectId: project.id });
+  // Row click opens, the same as the projects list and the sections table.
+  // This page used to be the only one that made you find a button.
+  $$("tr[data-estimate-id]", root).forEach((tr) => {
+    tr.onclick = (ev) => {
+      if (ev.target.closest("button")) return;
+      setRoute("estimate", { estimateId: tr.dataset.estimateId, projectId: project.id });
+    };
   });
   $$(".btn-edit-est", root).forEach((btn) => {
-    btn.onclick = () => {
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
       const est = estimates.find((e) => e.id === btn.dataset.id);
       if (est) openEstimateModal(project, est);
     };
@@ -493,6 +592,16 @@ function openEstimateModal(project, existing = null) {
           <input type="number" step="0.01" min="0" max="1" name="waste_rebar" placeholder="0"
             value="${existing?.waste_rebar != null ? esc(existing.waste_rebar) : ""}" />
         </div>
+        <div class="field">
+          <label>Margin (decimal)</label>
+          <input type="number" step="0.01" min="0" max="2" name="margin_pct" placeholder="0.20"
+            value="${existing?.margin_pct != null ? esc(existing.margin_pct) : "0.20"}" />
+        </div>
+        <div class="field">
+          <label>Contingency (decimal)</label>
+          <input type="number" step="0.01" min="0" max="2" name="contingency_pct" placeholder="0.03"
+            value="${existing?.contingency_pct != null ? esc(existing.contingency_pct) : "0.03"}" />
+        </div>
         <div class="field full">
           <label>Notes</label>
           <textarea name="notes">${esc(existing?.notes || "")}</textarea>
@@ -523,6 +632,8 @@ function openEstimateModal(project, existing = null) {
       waste_concrete: num("waste_concrete"),
       waste_sand: num("waste_sand"),
       waste_rebar: num("waste_rebar"),
+      margin_pct: num("margin_pct") ?? 0.2,
+      contingency_pct: num("contingency_pct") ?? 0.03,
       notes: fd.get("notes") || null,
     };
     try {
@@ -626,19 +737,64 @@ function openEstimatorModal() {
   };
 }
 
-async function renderEstimateDetail(root) {
-  root.innerHTML = `<div class="loading">Loading estimate…</div>`;
-  if (!state.mixes.length) state.mixes = await Api.listMixes({ active_only: true });
+const SECTION_LABELS = {
+  mono_slab: "Mono slab on grade",
+  paving: "Paving",
+  sidewalk: "Sidewalks",
+  piers: "Piers",
+  grade_beams: "Grade beams",
+  walls_footings: "Walls & footings",
+  columns: "Columns",
+  slabs: "Slabs",
+  cip_deck: "CIP elevated deck",
+  slab_on_deck: "Slab on deck",
+  panels: "Tilt panels",
+  miscellaneous: "Miscellaneous",
+};
 
-  const [estimate, slabs, totals, beamTypes, forming, labor, equip] = await Promise.all([
+function sectionLabel(kind) {
+  return SECTION_LABELS[kind] || kind;
+}
+
+// Assemblies that are taken off as a grid of areas rather than as a list of
+// pours: sixteen columns across up to twenty-five rows, typed straight down.
+// They also form off curb LF, carry no vapor barrier and no grade beams, so
+// the section page shows them a different set of everything (sql/036).
+const PAVING_KINDS = new Set(["paving", "sidewalk"]);
+
+// Assemblies taken off as a grid of pier GROUPS rather than pours. A pier has
+// no square footage, which is why costing allocates these by count (sql/037).
+const PIER_KINDS = new Set(["piers"]);
+// Walls take off as a wall-plus-footing run, measured in FORM FEET — the third
+// takeoff shape, after the pour and the pier group (sql/040).
+const WALL_KINDS = new Set(["walls_footings"]);
+// Columns are the fourth takeoff shape, and the only one with no geometry to
+// measure across: a pour has SF, a pier group has LF, a wall run has form feet,
+// and a column type has a SCHEDULE and a COUNT. Everything shared on the
+// section allocates by form contact SF — perimeter × height — because that is
+// the surface the crew actually handles (sql/045).
+const COLUMN_KINDS = new Set(["columns"]);
+
+async function renderEstimateSummary(root) {
+  root.innerHTML = `<div class="loading">Loading job…</div>`;
+  const [estimate, sections, sheet] = await Promise.all([
     Api.getEstimate(state.estimateId),
-    Api.listMonoSlabs(state.estimateId),
-    Api.monoSlabTotals(state.estimateId),
-    Api.listBeamTypes(state.estimateId).catch(() => null),
-    Api.formingMaterials(state.estimateId).catch(() => null),
-    Api.laborMaterials(state.estimateId).catch(() => null),
-    Api.estimateEquipment(state.estimateId).catch(() => null),
+    Api.listSections(state.estimateId),
+    // The sheet is what this job pays; the page only needs its headline —
+    // how many prices were edited here, and whether the master list has
+    // moved since the pull. An older build without sql/048 has no sheet.
+    Api.getPriceSheet(state.estimateId).catch(() => null),
   ]);
+  const drift = sheet ? sheet.drift : null;
+  const driftCount = drift ? drift.drift + drift.new.length : 0;
+
+  // usd(), not "$" + num(): num drops a trailing zero, so a section that sold
+  // for $1,587,161.60 read as $1,587,161.6 — which looks like a rounding error
+  // in a column of money.
+  const money = (x) => usd(x, 2);
+  const unpricedCount = sections.reduce((a, x) => a + ((x.calc_unpriced || []).length ? 1 : 0), 0);
+  const totalCost = sections.reduce((a, x) => a + Number(x.calc_total_cost || 0), 0);
+  const totalSale = sections.reduce((a, x) => a + Number(x.calc_total_sale || 0), 0);
 
   root.innerHTML = `
     <div class="page-header">
@@ -647,38 +803,1365 @@ async function renderEstimateDetail(root) {
         <h1 style="margin-top:0.5rem">${esc(estimate.name)}</h1>
         <p>${statusBadge(estimate.status)} · v${estimate.version}
           ${estimate.estimator_name ? " · " + esc(estimate.estimator_name) : ""}
-          · waste C/S/R:
-          ${[estimate.waste_concrete, estimate.waste_sand, estimate.waste_rebar]
-            .map((x) => (x == null ? "sys" : Number(x)))
-            .join(" / ")}
+          · new sections default to ${num(Number(estimate.margin_pct ?? 0.2) * 100, 0)}% margin
+          ${Number(estimate.contingency_pct) ? " + " + num(Number(estimate.contingency_pct) * 100, 0) + "% conting" : ""}
         </p>
       </div>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button class="btn primary" id="btn-add-slab">+ Mono slab pour</button>
-        <button class="btn ghost" id="btn-jump-beams" type="button">Beam schedule</button>
+        <button class="btn primary" id="btn-add-section">+ Section</button>
+        <button class="btn" id="btn-price-sheet" type="button"
+          title="What this job pays for each mix and material">Price sheet</button>
+        <button class="btn" id="btn-recalc-job" type="button"
+          title="Reprice every section from current inputs">Recalculate job</button>
+      </div>
+    </div>
+
+    ${
+      driftCount
+        ? `<div class="warn-banner">
+             <strong>The master list has moved since this job pulled its prices.</strong>
+             ${driftSummaryText(drift)} — this job still bids at the prices it pulled.
+             <a href="#prices/${estimate.id}">Open the price sheet</a> to see what changed and pull it if you want it.
+           </div>`
+        : ""
+    }
+
+    ${
+      unpricedCount
+        ? `<div class="error-banner" style="margin-bottom:1rem">
+             <strong>${unpricedCount === 1 ? "One section" : `${unpricedCount} sections`} on this job
+             ${unpricedCount === 1 ? "has" : "have"} items the master list could not price.</strong>
+             The job total is light by an unknown amount. Open the flagged section${unpricedCount === 1 ? "" : "s"} to see what is missing.
+           </div>`
+        : ""
+    }
+    <div class="grid stats">
+      <div class="card stat"><div class="label">Cost</div>
+        <div class="value">${usd(totalCost, 0)}</div>
+        <div class="hint">sum of ${sections.length} section${sections.length === 1 ? "" : "s"}${
+          unpricedCount ? ` · <span class="badge warn">${unpricedCount} unpriced</span>` : ""
+        }</div></div>
+      <div class="card stat"><div class="label">Sale</div>
+        <div class="value">${usd(totalSale, 0)}</div>
+        <div class="hint">each section at its own markup</div></div>
+      <div class="card stat"><div class="label">Sections</div>
+        <div class="value">${sections.length}</div>
+        <div class="hint">assemblies on this job</div></div>
+      ${
+        sheet
+          ? `<div class="card stat clickable" id="card-prices" style="cursor:pointer" title="Open the price sheet">
+        <div class="label">Prices</div>
+        <div class="value">${sheet.edited ? `${sheet.edited} edited` : "master list"}</div>
+        <div class="hint">${sheet.rows.length} on the sheet${
+          sheet.pulled_at ? ` · pulled ${fmtDay(sheet.pulled_at)}` : ""
+        }${driftCount ? ` · <span class="badge warn">${driftCount} moved</span>` : ""}</div></div>`
+          : ""
+      }
+    </div>
+
+    ${
+      sections.length
+        ? `<div class="table-wrap"><table class="data">
+      <thead><tr>
+        <th>Section</th><th>Type</th><th class="num">Quantity</th>
+        <th class="num">Markup</th><th>Tax</th>
+        <th class="num">Cost</th><th class="num">$/unit</th><th class="num">Sale</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${sections
+          .map(
+            (x) => `<tr data-section="${x.id}" class="clickable">
+            <td><strong>${esc(x.name)}</strong>${
+              (x.calc_unpriced || []).length
+                ? ` <span class="badge warn" title="${esc((x.calc_unpriced || []).join(", "))}">${(x.calc_unpriced || []).length} unpriced</span>`
+                : ""
+            }</td>
+            <td class="muted">${
+              x.name.trim().toLowerCase() === sectionLabel(x.kind).toLowerCase()
+                ? ""
+                : esc(sectionLabel(x.kind))
+            }</td>
+            <td class="num">${x.calc_quantity == null ? "—" : num(Number(x.calc_quantity), 0) + " " + esc(x.unit)}</td>
+            <td class="num">${num(Number(x.margin_pct || 0) * 100, 1)}%${
+              Number(x.contingency_pct) ? " + " + num(Number(x.contingency_pct) * 100, 1) + "%" : ""
+            }</td>
+            <td>${
+              x.tax_exempt === null
+                ? `<span class="muted" title="Inherits the project">${x.effective_tax_exempt ? "exempt" : "taxed"}</span>`
+                : x.tax_exempt
+                  ? `<span title="Set on this section">exempt ✎</span>`
+                  : `<span title="Set on this section">taxed ✎</span>`
+            }</td>
+            <td class="num">${money(x.calc_total_cost)}</td>
+            <td class="num muted">${x.calc_cost_per_unit == null ? "—" : "$" + num(Number(x.calc_cost_per_unit), 4)}</td>
+            <td class="num">${money(x.calc_total_sale)}</td>
+            <td style="white-space:nowrap">
+              <button type="button" class="btn ghost" data-del-section="${x.id}"
+                title="Delete this section and its work">Delete</button>
+            </td>
+          </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table></div>
+    <p class="muted" style="margin-top:0.5rem;font-size:0.85rem">
+      A job total has no $/SF of its own — sections are measured in EA, SF, FF and LS.
+    </p>`
+        : `<div class="card"><p>No sections yet. A section is one assembly of the job —
+           the mono slab, the paving, the piers — each with its own rates and markup.</p></div>`
+    }
+  `;
+
+  const back = $("#back-proj");
+  if (back) {
+    back.onclick = () => setRoute("project", { projectId: estimate.project_id });
+  }
+
+  $$("tr[data-section]").forEach((tr) => {
+    tr.style.cursor = "pointer";
+    tr.onclick = (ev) => {
+      if (ev.target.closest("[data-del-section]")) return;
+      setRoute("section", { sectionId: tr.dataset.section });
+    };
+  });
+
+  $$("[data-del-section]").forEach((btn) => {
+    btn.onclick = async (ev) => {
+      ev.stopPropagation();
+      const row = sections.find((x) => x.id === btn.dataset.delSection);
+      if (!confirm(`Delete section "${row.name}"? Its pours and takeoffs go with it.`)) return;
+      btn.disabled = true;
+      try {
+        // The API refuses a section that still has pours unless forced, so the
+        // second confirm is the app asking about real work, not a formality.
+        await Api.deleteSection(row.id);
+        toast("Section deleted");
+        render();
+      } catch (err) {
+        if (/still has pours/i.test(err.message)) {
+          if (confirm(`"${row.name}" still has pours. Delete them too?`)) {
+            await Api.deleteSection(row.id, true);
+            toast("Section and its pours deleted");
+            render();
+            return;
+          }
+        } else {
+          toast(err.message, "err");
+        }
+        btn.disabled = false;
+      }
+    };
+  });
+
+  const addBtn = $("#btn-add-section");
+  if (addBtn) addBtn.onclick = () => openSectionModal(estimate);
+
+  const goPrices = () => setRoute("prices", { estimateId: estimate.id });
+  const priceBtn = $("#btn-price-sheet");
+  if (priceBtn) priceBtn.onclick = goPrices;
+  const priceCard = $("#card-prices");
+  if (priceCard) priceCard.onclick = goPrices;
+
+  const recalcBtn = $("#btn-recalc-job");
+  if (recalcBtn) {
+    recalcBtn.onclick = async () => {
+      recalcBtn.disabled = true;
+      recalcBtn.textContent = "Recalculating…";
+      try {
+        await Api.recalcEstimate(estimate.id);
+        toast("Job repriced");
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        recalcBtn.disabled = false;
+        recalcBtn.textContent = "Recalculate job";
+      }
+    };
+  }
+}
+
+async function openSectionModal(estimate) {
+  let kinds = [];
+  try {
+    kinds = await Api.sectionKinds();
+  } catch {
+    kinds = Object.keys(SECTION_LABELS);
+  }
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Add section</h2>
+      <form id="section-form">
+        <div class="field">
+          <label>Type</label>
+          <select name="kind">
+            ${kinds.map((k) => `<option value="${k}">${esc(sectionLabel(k))}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Name</label>
+          <input name="name" required maxlength="200" placeholder="e.g. ROW paving" />
+        </div>
+        <div class="field">
+          <label>Margin % <span class="muted">(blank = job default)</span></label>
+          <input type="number" name="margin_pct" min="0" max="200" step="any"
+            placeholder="${num(Number(estimate.margin_pct ?? 0.2) * 100, 1)}" />
+        </div>
+        <div class="field">
+          <label>Sales tax</label>
+          <select name="tax_exempt">
+            <option value="">Follow the project</option>
+            <option value="true">Exempt (ROW paving, sidewalks)</option>
+            <option value="false">Taxable</option>
+          </select>
+          <p class="muted" style="font-size:0.8rem;margin:0.25rem 0 0">
+            Left on "follow the project" unless this section genuinely differs —
+            not every paving job is ROW.
+          </p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="section-cancel">Cancel</button>
+          <button type="submit" class="btn primary">Add</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const form = backdrop.querySelector("#section-form");
+  const kindSel = form.querySelector("[name=kind]");
+  const nameInput = form.querySelector("[name=name]");
+  const syncName = () => {
+    if (!nameInput.dataset.touched) nameInput.value = sectionLabel(kindSel.value);
+  };
+  kindSel.onchange = syncName;
+  nameInput.oninput = () => {
+    nameInput.dataset.touched = "1";
+  };
+  syncName();
+
+  backdrop.querySelector("#section-cancel").onclick = () => backdrop.remove();
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(form);
+    const body = { kind: fd.get("kind"), name: String(fd.get("name")).trim() };
+    const margin = fd.get("margin_pct");
+    if (margin !== "" && margin != null) body.margin_pct = Number(margin) / 100;
+    const exempt = fd.get("tax_exempt");
+    if (exempt === "true") body.tax_exempt = true;
+    else if (exempt === "false") body.tax_exempt = false;
+    try {
+      const created = await Api.createSection(estimate.id, body);
+      backdrop.remove();
+      toast("Section added");
+      setRoute("section", { sectionId: created.id });
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
+}
+
+/**
+ * The paving takeoff: a grid of areas.
+ *
+ * Sixteen columns, up to twenty-five rows, and one Save. A save per field
+ * would re-run this section's forming, labor and equipment on every keystroke,
+ * because all three key off the section totals — so nothing is written until
+ * Save, and the row shows an orange edge while it is unsaved.
+ */
+/**
+ * A takeoff typed as a table.
+ *
+ * Paving and piers are both entered as grids — sixteen columns across up to
+ * twenty-five rows — and the second one is why this is driven by a column spec
+ * rather than written twice. A spec entry is either an editable field:
+ *
+ *     { f: "curb_lf", label: "Curb LF", type: "number", step: "any" }
+ *     { f: "mix_design_id", label: "Mix", type: "select", options: mixes }
+ *     { f: "slip_form", label: "Slip", type: "check" }
+ *
+ * ...or a derived column, which reads from the saved row and is never posted:
+ *
+ *     { label: "CY", derived: (r) => num(r.calc_concrete_cy, 2) }
+ *
+ * Every editable cell uses step="any". A step of 0.5 once made 24" and 18" bar
+ * spacing fail validation, which cost an evening.
+ */
+function gridRowHtml(r, columns) {
+  const cell = (col) => {
+    if (col.derived) {
+      const title = col.title ? ` title="${esc(col.title(r))}"` : "";
+      return `<td class="derived"${title}>${r.id ? col.derived(r) : "—"}</td>`;
+    }
+    const v = r[col.f];
+    if (col.type === "check") {
+      return `<td style="text-align:center"><input type="checkbox" data-f="${col.f}"${
+        v ? " checked" : ""
+      } /></td>`;
+    }
+    if (col.type === "select") {
+      const opts =
+        `<option value=""${v ? "" : " selected"}>—</option>` +
+        (col.options || [])
+          .map(
+            (o) =>
+              `<option value="${esc(o.id)}"${
+                String(v) === String(o.id) ? " selected" : ""
+              }>${esc(o.label)}</option>`
+          )
+          .join("");
+      return `<td><select data-f="${col.f}">${opts}</select></td>`;
+    }
+    if (col.type === "number") {
+      // Number() on the way in: the API returns fixed-scale decimals, and
+      // "187752.000" in a narrow box reads as a number nobody typed.
+      const shown = v == null || v === "" ? "" : Number(v);
+      return `<td><input data-f="${col.f}" type="number" min="0" step="${
+        col.step || "any"
+      }" value="${esc(shown)}" /></td>`;
+    }
+    return `<td class="name"><input data-f="${col.f}" value="${esc(
+      v == null ? "" : v
+    )}" placeholder="${esc(col.placeholder || "")}" /></td>`;
+  };
+
+  return `<tr data-id="${r.id ? esc(r.id) : ""}">
+    ${columns.map(cell).join("")}
+    <td><button type="button" class="btn danger ghost btn-del-row" data-id="${
+      r.id ? esc(r.id) : ""
+    }">Del</button></td>
+  </tr>`;
+}
+
+function gridCardHtml({ id, title, blurb, columns, rows, addLabel, saveLabel }) {
+  const body = (rows.length ? rows : [{}]).map((r) => gridRowHtml(r, columns)).join("");
+  return `<div class="card" id="${id}">
+    <h3 style="margin:0 0 0.25rem">${esc(title)}</h3>
+    <p style="color:var(--text-muted);font-size:0.82rem;margin:0 0 0.75rem">${blurb}</p>
+    <div class="table-wrap"><table class="data grid-entry">
+      <thead><tr>${columns
+        .map((c) => `<th>${esc(c.label)}</th>`)
+        .join("")}<th></th></tr></thead>
+      <tbody id="${id}-body">${body}</tbody>
+    </table></div>
+    <div class="grid-bar">
+      <button type="button" class="btn" id="${id}-add">+ ${esc(addLabel)}</button>
+      <button type="button" class="btn primary" id="${id}-save">${esc(saveLabel)}</button>
+      <span class="unsaved" id="${id}-unsaved"></span>
+    </div>
+  </div>`;
+}
+
+/**
+ * Read a grid back out of the DOM and save it.
+ *
+ * Blank stays blank. A column the estimator has not measured is not a zero,
+ * and storing it as one would put a $0 curb on an area nobody has walked yet.
+ */
+function wireGrid(root, { id, columns, required, save, remove }) {
+  const bodyEl = $(`#${id}-body`, root);
+  if (!bodyEl) return;
+  const unsaved = $(`#${id}-unsaved`, root);
+  let dirty = false;
+
+  const markDirty = (tr) => {
+    dirty = true;
+    if (tr) tr.classList.add("dirty");
+    if (unsaved) unsaved.textContent = "Unsaved changes";
+  };
+  bodyEl.addEventListener("input", (e) => markDirty(e.target.closest("tr")));
+  bodyEl.addEventListener("change", (e) => markDirty(e.target.closest("tr")));
+
+  const addBtn = $(`#${id}-add`, root);
+  if (addBtn) {
+    addBtn.onclick = () => {
+      const tmp = document.createElement("tbody");
+      tmp.innerHTML = gridRowHtml({}, columns);
+      const tr = tmp.querySelector("tr");
+      bodyEl.appendChild(tr);
+      markDirty(tr);
+      const first = tr.querySelector("input");
+      if (first) first.focus();
+    };
+  }
+
+  bodyEl.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".btn-del-row");
+    if (!btn) return;
+    const tr = btn.closest("tr");
+    if (!btn.dataset.id) {
+      tr.remove(); // never saved — nothing to confirm
+      markDirty(null);
+      return;
+    }
+    if (!confirm("Delete this row?")) return;
+    try {
+      await remove(btn.dataset.id);
+      toast("Row deleted");
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  });
+
+  const saveBtn = $(`#${id}-save`, root);
+  if (!saveBtn) return;
+  // A save re-renders the page and throws this closure away. If anything
+  // reaches the old handler afterwards it would re-send rows that no longer
+  // carry ids and create everything twice — which is what happened the first
+  // time this was driven by a script. Disabling the button is not enough,
+  // because the button it disables is the detached one; the latch is.
+  let saved = false;
+  saveBtn.onclick = async () => {
+    if (saved) return;
+    const rows = [];
+    for (const tr of bodyEl.querySelectorAll("tr")) {
+      const row = {};
+      tr.querySelectorAll("[data-f]").forEach((el) => {
+        const f = el.dataset.f;
+        if (el.type === "checkbox") {
+          row[f] = el.checked;
+          return;
+        }
+        const raw = el.value.trim();
+        row[f] = raw === "" ? null : el.type === "number" ? Number(raw) : raw;
+      });
+      const empty = required.every((f) => row[f] == null) && !row.description && !row.label;
+      if (empty) continue;
+      if (tr.dataset.id) row.id = tr.dataset.id;
+      rows.push(row);
+    }
+    if (!rows.length) {
+      toast(`Nothing to save — enter at least ${required.join(" and ")}`, "err");
+      return;
+    }
+    saved = true;
+    saveBtn.disabled = true;
+    try {
+      const res = await save(rows);
+      toast(
+        `Saved ${res.created} new and ${res.updated} existing row${
+          res.created + res.updated === 1 ? "" : "s"
+        }`
+      );
+      dirty = false;
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+      saved = false;
+      saveBtn.disabled = false;
+    }
+  };
+
+  window.addEventListener("beforeunload", (e) => {
+    if (!dirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+}
+
+/** The paving takeoff: areas across, driven by curb LF. */
+function pavingColumns(mixes) {
+  return [
+    { f: "description", label: "Area", placeholder: "Area name" },
+    { f: "square_footage", label: "SF", type: "number", step: "1" },
+    { f: "thickness_in", label: 'Thk"', type: "number" },
+    { f: "curb_lf", label: "Curb LF", type: "number" },
+    { f: "thick_edge_lf", label: "Thick edge LF", type: "number" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "sand_thickness_in", label: 'Sand"', type: "number" },
+    { f: "slab_bar_size", label: "Bar #", type: "number", step: "1" },
+    { f: "slab_bar_spacing_in", label: 'Spacing"', type: "number" },
+    { f: "mesh_gauge", label: "Mesh ga", type: "number", step: "1" },
+    { f: "demo_lf", label: "Demo LF", type: "number" },
+    { f: "paving_add_per_sf", label: "Add $/SF", type: "number", step: "0.01" },
+    { f: "slip_form", label: "Slip", type: "check" },
+    { f: "traffic_control", label: "Traffic", type: "check" },
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: (r) =>
+        `slab ${num(r.calc_slab_concrete_cy, 2)} + curb & edge ${num(
+          r.calc_edge_concrete_cy,
+          2
+        )}`,
+    },
+    { label: "Steel lb", derived: (r) => num(r.calc_total_rebar_lb, 0) },
+    { label: "Cost", derived: (r) => usd(r.calc_cost, 0) },
+  ];
+}
+
+/** The piers takeoff: one row is a GROUP of identical shafts. */
+function pierColumns(mixes) {
+  return [
+    { f: "label", label: "Group", placeholder: "G" },
+    { f: "qty", label: "Piers", type: "number", step: "1" },
+    { f: "diameter_in", label: 'Dia"', type: "number" },
+    { f: "base_depth_ft", label: "Base ft", type: "number" },
+    { f: "rock_penetration_ft", label: "Rock ft", type: "number" },
+    { f: "bell_size_in", label: 'Bell"', type: "number" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "vert_bars_count", label: "Vert n", type: "number", step: "1" },
+    { f: "vert_bars_size", label: "Vert #", type: "number", step: "1" },
+    { f: "tie_size", label: "Tie #", type: "number", step: "1" },
+    { f: "tie_spacing_in", label: 'Tie sp"', type: "number" },
+    { f: "band_tie_count", label: "Band n", type: "number", step: "1" },
+    { f: "band_spacing_in", label: 'Band sp"', type: "number" },
+    { f: "dowels_count", label: "Dowel n", type: "number", step: "1" },
+    { f: "dowels_size", label: "Dowel #", type: "number", step: "1" },
+    { f: "dowels_length_ft", label: "Dowel ft", type: "number" },
+    {
+      label: "Depth",
+      derived: (r) => num(r.calc_total_depth_ft, 2),
+      title: (r) => `base + rock · ${num(r.calc_total_lf, 0)} LF in this group`,
+    },
+    { label: "CY", derived: (r) => num(r.calc_concrete_cy, 2) },
+    {
+      label: "Steel lb",
+      derived: (r) => num(r.calc_total_rebar_lb, 0),
+      title: (r) =>
+        `vertical ${num(r.calc_vert_rebar_lb, 0)} + ties ${num(
+          r.calc_tie_rebar_lb,
+          0
+        )} (${num(r.calc_tie_count, 1)} per pier) + dowels ${num(
+          r.calc_dowel_rebar_lb,
+          0
+        )}`,
+    },
+    {
+      label: "Drilling",
+      derived: (r) =>
+        r.calc_drill_lf_rate == null
+          ? `<span class="badge warn">no rate</span>`
+          : usd(r.calc_drill_cost, 0),
+      title: (r) =>
+        r.calc_drill_lf_rate == null
+          ? `No drilling rate for ${num(r.diameter_in, 0)}" — add one to the rate table`
+          : `${usd(r.calc_drill_lf_rate, 2)}/LF × ${num(r.calc_total_lf, 0)} LF`,
+    },
+    { label: "Cost / ea", derived: (r) => usd(r.calc_cost_per_unit, 0) },
+  ];
+}
+
+/**
+ * Column types (sql/045). One row is a TYPE and a COUNT, not one column.
+ *
+ * Three vertical sets across, because the schedule carries three. Sets 2 and 3
+ * are blank on every LBJ type and stay blank on most jobs — they are here so a
+ * bundled schedule ("8 #8 + 4 #6") does not have to be averaged into one size
+ * by hand before it can be typed.
+ *
+ * FORM SF is the column worth reading twice. It is contact area — perimeter ×
+ * height — and it is also the allocation basis for everything shared on the
+ * section, so a wrong length or width moves far more than the plywood.
+ */
+function columnColumns(mixes) {
+  return [
+    { f: "label", label: "Type", placeholder: "C1" },
+    { f: "qty", label: "Qty", type: "number", step: "1" },
+    { f: "height_ft", label: "Height ft", type: "number" },
+    { f: "length_in", label: 'L"', type: "number" },
+    { f: "width_in", label: 'W"', type: "number" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "vert1_count", label: "V1 n", type: "number", step: "1" },
+    { f: "vert1_size", label: "V1 #", type: "number", step: "1" },
+    { f: "vert2_count", label: "V2 n", type: "number", step: "1" },
+    { f: "vert2_size", label: "V2 #", type: "number", step: "1" },
+    { f: "vert3_count", label: "V3 n", type: "number", step: "1" },
+    { f: "vert3_size", label: "V3 #", type: "number", step: "1" },
+    { f: "tie_size", label: "Tie #", type: "number", step: "1" },
+    { f: "tie_spacing_in", label: 'Tie sp"', type: "number" },
+    { f: "dowel_count", label: "Dowel n", type: "number", step: "1" },
+    { f: "dowel_size", label: "Dowel #", type: "number", step: "1" },
+    { f: "dowel_length_ft", label: "Dowel ft", type: "number" },
+    {
+      label: "Form SF",
+      derived: (r) => num(r.calc_form_sf, 1),
+      title: (r) =>
+        `(${num(r.length_in, 0)}" + ${num(r.width_in, 0)}") × 2 / 12 × ` +
+        `${num(r.height_ft, 0)} ft × ${num(r.qty, 0)} — contact area, and the ` +
+        `basis this section allocates shared cost by`,
+    },
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: () =>
+        "L × W × height / 3888, with waste. Not rounded up to the whole yard — " +
+        "the batch ticket rounds, the bid does not.",
+    },
+    {
+      label: "Steel lb",
+      derived: (r) => num(r.calc_total_rebar_lb, 0),
+      title: (r) =>
+        `vertical ${num(r.calc_vert_rebar_lb, 0)} + ties ${num(
+          r.calc_tie_rebar_lb,
+          0
+        )} + dowels ${num(r.calc_dowel_rebar_lb, 0)} — waste on every bar`,
+    },
+    {
+      label: "Chamfer LF",
+      derived: (r) => num(r.calc_chamfer_lf, 0),
+      title: (r) => `4 corners × ${num(r.height_ft, 0)} ft × ${num(r.qty, 0)} columns`,
+    },
+    {
+      label: "Cost / ea",
+      derived: (r) => usd(r.calc_cost_per_unit, 0),
+      title: (r) =>
+        `sale ${usd(r.calc_sale_per_unit, 0)}/column · ${usd(r.calc_cost, 0)} for ` +
+        `the type`,
+    },
+  ];
+}
+
+/**
+ * The drilling quote.
+ *
+ * Drilling is the largest single line on a pier job, and in the field it is a
+ * hard number from the sub, not an estimate. The rate table is what prices it
+ * until that number arrives. This card is where the number arrives.
+ *
+ * The stale banner is the whole reason the card is more than one input: a lump
+ * sum priced against one takeoff, sitting over a bigger one, is a wrong bid
+ * with nothing on screen to notice — the exact failure this system keeps
+ * producing.
+ */
+/**
+ * Wall runs (sql/040). One row is a wall type AND the footing under it.
+ *
+ * The derived columns worth reading: FORM FT is contact area on ONE face (the
+ * sheet computes both and halves), and FTG SF is the footing's plan area,
+ * which is what footing labor is priced per. The two are different numbers
+ * doing different jobs and it is easy to reach for the wrong one.
+ */
+function wallColumns(mixes) {
+  return [
+    { f: "label", label: "Type", placeholder: "W1" },
+    { f: "length_ft", label: "Length ft", type: "number" },
+    { f: "wall_thick_in", label: 'Thick"', type: "number" },
+    { f: "wall_height_in", label: 'Height"', type: "number" },
+    { f: "backfill", label: "Backfill", type: "checkbox" },
+    { f: "mix_design_id", label: "Wall mix", type: "select", options: mixOptions(mixes) },
+    { f: "horiz_spacing_in", label: 'Horz sp"', type: "number" },
+    { f: "horiz_size", label: "Horz #", type: "number", step: "1" },
+    { f: "horiz_mats", label: "Horz faces", type: "number", step: "1" },
+    { f: "vert_spacing_in", label: 'Vert sp"', type: "number" },
+    { f: "vert_size", label: "Vert #", type: "number", step: "1" },
+    { f: "vert_mats", label: "Vert faces", type: "number", step: "1" },
+    { f: "ftg_width_in", label: 'Ftg W"', type: "number" },
+    { f: "ftg_thick_in", label: 'Ftg T"', type: "number" },
+    { f: "ftg_spacing_in", label: 'Ftg sp"', type: "number" },
+    { f: "ftg_size", label: "Ftg #", type: "number", step: "1" },
+    { f: "ftg_mats", label: "Ftg mats", type: "number", step: "1" },
+    {
+      label: "Form ft",
+      derived: (r) => num(r.calc_form_ff, 1),
+      title: () =>
+        "Contact area on ONE face — the sheet computes both faces and halves them. " +
+        "Every $/FF rate on this assembly is priced against that convention.",
+    },
+    {
+      label: "Ftg SF",
+      derived: (r) => num(r.calc_footing_sf, 1),
+      title: () => "Footing plan area — what footing labor is priced per, not form feet",
+    },
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: (r) =>
+        `wall ${num(r.calc_wall_concrete_cy, 2)} + footing ${num(
+          r.calc_footing_concrete_cy,
+          2
+        )} — the footing takes the section's footing mix`,
+    },
+    {
+      label: "Steel lb",
+      derived: (r) => num(r.calc_total_rebar_lb, 0),
+      title: (r) =>
+        `horizontal ${num(r.calc_horiz_rebar_lb, 0)} + vertical ${num(
+          r.calc_vert_rebar_lb,
+          0
+        )} + footing ${num(r.calc_footing_rebar_lb, 0)} (both directions) + laps ${num(
+          r.calc_lap_rebar_lb,
+          0
+        )}`,
+    },
+    {
+      label: "Earth CY",
+      derived: (r) => num(r.calc_excavate_cy, 0),
+      title: (r) =>
+        `excavate ${num(r.calc_excavate_cy, 0)} · backfill ${num(
+          r.calc_backfill_cy,
+          0
+        )} · sand ${num(r.calc_sand_cy, 0)} · drain ${num(r.calc_drain_lf, 0)} LF`,
+    },
+    {
+      label: "Wall $/FF",
+      derived: (r) => usd(r.calc_wall_cost_per_ff, 2),
+      title: (r) =>
+        `cost ${usd(r.calc_wall_cost, 0)} over ${num(r.calc_form_ff, 0)} form ft · ` +
+        `sale ${usd(r.calc_wall_sale_per_ff, 2)}/FF`,
+    },
+    {
+      label: "Wall sale/FF",
+      derived: (r) => usd(r.calc_wall_sale_per_ff, 2),
+      title: () => "Wall cost per form foot × (1 + margin + contingency)",
+    },
+    {
+      label: "Wall total",
+      derived: (r) => usd(r.calc_wall_cost, 0),
+      title: (r) => `sale ${usd(r.calc_wall_sale, 0)}`,
+    },
+    {
+      label: "Ftg $/SF",
+      derived: (r) => usd(r.calc_footing_cost_per_sf, 2),
+      title: (r) =>
+        `cost ${usd(r.calc_footing_cost, 0)} over ${num(r.calc_footing_sf, 0)} SF of ` +
+        `footing plan area · sale ${usd(r.calc_footing_sale_per_sf, 2)}/SF`,
+    },
+    {
+      label: "Ftg sale/SF",
+      derived: (r) => usd(r.calc_footing_sale_per_sf, 2),
+      title: () => "Footing cost per SF of plan area × (1 + margin + contingency)",
+    },
+    {
+      label: "Ftg total",
+      derived: (r) => usd(r.calc_footing_sale, 0),
+      title: (r) =>
+        `sale — cost ${usd(r.calc_footing_cost, 0)}. Wall + footing always sum ` +
+        `to the row, so a difference is in the schedule, not the split.`,
+    },
+  ];
+}
+
+/**
+ * Quotes on a section (sql/039).
+ *
+ * A real supplier number replacing one the app computed. Three kinds so far —
+ * drilling, rebar, PT — and the card is the same for all of them because the
+ * two things an estimator needs to see are the same: what it replaced, and
+ * whether it can still be trusted.
+ *
+ * The stale banner only ever appears on a LUMP. A unit price follows the
+ * takeoff by construction, and warning about it would train people to ignore
+ * the banner that matters.
+ *
+ * Quotes are material only: a rebar quote does not stop TIE STEEL billing.
+ * The card says so, because that is the assumption most likely to be wrong in
+ * someone's head.
+ */
+// Units a quote can be priced in, DEFAULT FIRST — the first entry is what an
+// unquoted card starts on.
+//
+// LS used to lead every list, and on 2026-09-01 that put "$0.65" into the mono
+// slab as a sixty-five dollar-cent lump sum for 21,945 lb of steel. The app
+// took it, spread it, stamped a baseline against the takeoff and showed a green
+// "quoted" badge; the section quietly lost $14,252.58 and read as current. A
+// fabricator quotes steel per pound far more often than as a package, so per
+// pound is what the form should be sitting on when you start typing.
+const QUOTE_UNITS = {
+  drilling: ["LS"],
+  rebar: ["LB", "TON", "CWT", "LS"],
+  pt: ["SF", "LS"],
+};
+
+const QUOTE_META = {
+  drilling: {
+    label: "Drilling",
+    blurb:
+      "The driller's price for the holes. Replaces the $/LF rate table, spread across the pier groups.",
+    fallback: "the $/LF rate table is pricing this by diameter",
+  },
+  rebar: {
+    label: "Rebar",
+    blurb:
+      "The fabricator's price for the steel. <strong>Material only</strong> — TIE STEEL labor still bills.",
+    fallback: "the catalog rate is pricing the steel",
+  },
+  pt: {
+    label: "Post-tension",
+    blurb:
+      "The PT sub's price for the package. Lands only on pours that are actually post-tensioned.",
+    fallback: "the catalog $/SF is pricing the PT",
+  },
+};
+
+function quoteUnitLabel(unit) {
+  return unit === "LS" ? "lump sum" : `per ${unit.toLowerCase()}`;
+}
+
+/**
+ * A quote's money, at a scale that survives the mistake it is meant to expose.
+ *
+ * `usd(0.65, 0)` renders "$1", which turns the sixty-five-cent lump — the exact
+ * error this comparison exists to catch — into a plausible-looking dollar. Cents
+ * matter precisely when the number is absurdly small.
+ */
+function quoteUsd(v) {
+  const n = Math.abs(Number(v) || 0);
+  return usd(v, n > 0 && n < 100 ? 2 : 0);
+}
+
+/**
+ * The ratio, in words when a decimal would read as zero.
+ *
+ * 0.65 against $13,167 is 0.00005x, which `num(r, 2)` renders as "0×" — true,
+ * useless, and it makes the banner look like it is guessing.
+ */
+function ratioText(r) {
+  const n = Number(r);
+  if (!isFinite(n)) return "";
+  if (n < 0.01) return "under 1% of catalog";
+  if (n >= 100) return `${num(n, 0)}× catalog`;
+  return `${num(n, 2)}×`;
+}
+
+function quoteCardHtml(section, kind, quote) {
+  const meta = QUOTE_META[kind] || { label: kind, blurb: "", fallback: "computed" };
+  const q = quote || null;
+  const stale = !!(q && q.stale);
+  const isLump = !q || q.unit === "LS";
+  // Quote against catalog. `catalog_verdict` is null when there was no honest
+  // comparison to draw — no takeoff, or no catalog price behind it — and that
+  // is NOT the same as passing, so it renders as "could not check" rather than
+  // silently as fine.
+  const verdict = q ? q.catalog_verdict : null;
+  const offBand = verdict === "far_below" || verdict === "far_above";
+
+  return `
+  <div class="card quote-card" data-quote-kind="${kind}" style="margin-bottom:1rem">
+    <h3 style="margin:0 0 0.35rem">
+      ${esc(meta.label)}
+      ${
+        q
+          ? `<span class="badge ${stale || offBand ? "warn" : "ok"}">quoted</span>`
+          : `<span class="badge">computed</span>`
+      }
+      ${
+        offBand
+          ? `<span class="badge warn">${
+              verdict === "far_below" ? "far below catalog" : "far above catalog"
+            }</span>`
+          : ""
+      }
+    </h3>
+    <p style="margin:0 0 0.85rem;color:var(--text-muted);font-size:0.85rem">${
+      q ? meta.blurb : `No quote yet — ${meta.fallback}. Enter one to replace it.`
+    }</p>
+
+    ${
+      stale
+        ? `<div class="error-banner">
+             <strong>This quote is out of date.</strong>
+             ${
+               q.baseline_qty == null
+                 ? `It has no recorded takeoff to check against, so there is no way to tell
+                    what it was priced for. Re-save it to stamp it against the current
+                    ${num(q.current_qty, 0)} ${esc(q.baseline_unit || "")}.`
+                 : `It was priced against <strong>${num(q.baseline_qty, 0)} ${esc(
+                     q.baseline_unit || ""
+                   )}</strong> and the takeoff is now
+                    <strong>${num(q.current_qty, 0)} ${esc(q.baseline_unit || "")}</strong>
+                    (${Number(q.current_qty) > Number(q.baseline_qty) ? "+" : ""}${num(
+                     Number(q.current_qty) - Number(q.baseline_qty),
+                     0
+                   )}).
+                    The lump has not moved — go back to the supplier, or clear it and let
+                    the computed price stand.`
+             }
+           </div>`
+        : ""
+    }
+
+    ${
+      offBand
+        ? `<div class="error-banner">
+             <strong>This quote is ${
+               verdict === "far_below" ? "far below" : "far above"
+             } what the catalog would charge.</strong>
+             It charges <strong>${quoteUsd(q.quoted_total)}</strong> for the package
+             where the catalog says <strong>${quoteUsd(q.catalog_total)}</strong> —
+             <strong>${ratioText(q.catalog_ratio)}</strong>.
+             ${
+               verdict === "far_below"
+                 ? `That is the shape of a decimal-point or unit mistake: a $/lb
+                    rate typed as a lump, or $/ton entered as $/lb. If the price
+                    is real, it is a good buy and this notice is only a notice.`
+                 : `That is the shape of a lump typed into a rate box. Check the
+                    <strong>Priced per</strong> field against the supplier's paper.`
+             }
+           </div>`
+        : ""
+    }
+
+    ${
+      q && q.catalog_total != null
+        ? `<p style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+             Quoted <strong>${quoteUsd(q.quoted_total)}</strong>
+             · catalog <strong>${quoteUsd(q.catalog_total)}</strong>
+             · <strong>${ratioText(q.catalog_ratio)}</strong>
+             ${
+               // Only when the ratio rendered as a number — "under 1% of
+               // catalog (100% under)" says the same thing twice.
+               Number(q.catalog_ratio) < 0.01 || Number(q.catalog_ratio) >= 100
+                 ? ""
+                 : Number(q.catalog_ratio) < 1
+                 ? `(${num((1 - Number(q.catalog_ratio)) * 100, 0)}% under)`
+                 : Number(q.catalog_ratio) > 1
+                 ? `(${num((Number(q.catalog_ratio) - 1) * 100, 0)}% over)`
+                 : ""
+             }
+           </p>`
+        : q
+        ? `<p style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem"
+              title="No takeoff to compare against, or the catalog carries no price for it. Not the same as agreeing with the quote.">
+             Quoted <strong>${quoteUsd(q.quoted_total ?? q.amount)}</strong>
+             · <em>no catalog price to compare against</em>
+           </p>`
+        : ""
+    }
+
+    <div class="form-grid" style="margin-bottom:0.75rem">
+      <div class="field">
+        <label>Amount</label>
+        <input class="q-amount" type="number" step="0.0001" min="0"
+               placeholder="computed" value="${q ? q.amount : ""}" />
+        <small style="color:var(--text-muted)">Empty or 0 hands it back to the computed price.</small>
+      </div>
+      <div class="field">
+        <label>Priced per</label>
+        <select class="q-unit">
+          ${(QUOTE_UNITS[kind] || ["LS"])
+            .map(
+              (u, i) =>
+                `<option value="${u}"${
+                  q ? (q.unit === u ? " selected" : "") : i === 0 ? " selected" : ""
+                }>${u} — ${quoteUnitLabel(u)}</option>`
+            )
+            .join("")}
+        </select>
+        <small style="color:var(--text-muted)">Only a lump can go stale. A lump is the
+          <em>whole package</em>, not a rate — check this before you save.</small>
+      </div>
+      <div class="field full">
+        <label>Who quoted it, and what it covers</label>
+        <input class="q-note" type="text" maxlength="1000"
+               placeholder="e.g. Acme 8/28 — material delivered, excludes rock"
+               value="${esc((q && q.note) || "")}" />
+        <small style="color:var(--text-muted)">The exclusions are the part that costs money later.</small>
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn q-save" type="button">Save quote</button>
+      </div>
+    </div>
+
+    ${
+      q && !isLump
+        ? `<p style="margin:0;color:var(--text-muted);font-size:0.85rem">
+             Follows the takeoff — ${num(q.current_qty, 0)} ${esc(
+             q.baseline_unit || ""
+           )} at ${usd(q.amount, 4)}/${esc(q.unit)}. Nothing to go stale.
+           </p>`
+        : ""
+    }
+  </div>`;
+}
+
+function quoteCardsHtml(section) {
+  const kinds = section.quote_kinds || [];
+  if (!kinds.length) return "";
+  const byKind = Object.fromEntries((section.quotes || []).map((q) => [q.kind, q]));
+  return kinds.map((k) => quoteCardHtml(section, k, byKind[k])).join("");
+}
+
+function mixOptions(mixes) {
+  return (mixes || []).map((m) => ({
+    id: m.id,
+    label: m.code || m.description || m.id,
+  }));
+}
+
+/**
+ * The banner a section shows when the master list could not price something
+ * on it (sql/047).
+ *
+ * Until 2026-09-02 a NULL catalog price multiplied through as zero and vanished
+ * into the total — a fresh install bid $324k of concrete at nothing and every
+ * card looked fine. Chad: "I dont like concrete prices starting @ $0." The
+ * arithmetic still has to multiply by zero; this is where it stops being quiet
+ * about it. Rendered ABOVE the stat cards so the total is never read without
+ * its qualifier.
+ */
+function unpricedBannerHtml(section) {
+  const items = section.calc_unpriced || [];
+  if (!items.length) return "";
+  const untyped = items.some((x) => /not typed/.test(x));
+  const unpriced = items.filter((x) => !/not typed/.test(x));
+  return `<div class="error-banner" style="margin-bottom:1rem">
+    <strong>${items.length === 1 ? "One thing on this section is costed at nothing." : `${items.length} things on this section are costed at nothing.`}</strong>
+    The totals below are <strong>light by an unknown amount</strong>:
+    <ul style="margin:0.5rem 0 0 1.2rem">
+      ${items.map((x) => `<li>${esc(x)}</li>`).join("")}
+    </ul>
+    <span style="display:block;margin-top:0.5rem">${
+      unpriced.length
+        ? `Price ${unpriced.length === 1 ? "it" : "them"} on this job's
+      <a href="#prices/${section.estimate_id}">price sheet</a> — or on the master list, then pull${untyped ? "; " : " — and "}`
+        : ""
+    }${
+      untyped
+        ? `type the superintendent days on the <strong>Labor</strong> tab below — the rental ladder follows them — and `
+        : ""
+    }<strong>Recalculate</strong>.</span>
+  </div>`;
+}
+
+async function renderSectionDetail(root) {
+  root.innerHTML = `<div class="loading">Loading section…</div>`;
+  if (!state.mixes.length) state.mixes = await Api.listMixes({ active_only: true });
+
+  // One assembly of a job (sql/033-034). Everything on this page — pours, beam
+  // types, forming, labor, equipment, markup, the vapor barrier — belongs to
+  // the section, not to the estimate above it.
+  const section = await Api.getSection(state.sectionId);
+  const estimate = await Api.getEstimate(section.estimate_id);
+  state.estimateId = estimate.id;
+
+  // Paving is a different assembly, not a mono slab with some fields blank:
+  // it forms off curb LF, lays no vapor barrier, has no grade beams, and is
+  // taken off as a grid of areas rather than a list of pours (sql/036).
+  const isPaving = PAVING_KINDS.has(section.kind);
+  const isPiers = PIER_KINDS.has(section.kind);
+  const isWalls = WALL_KINDS.has(section.kind);
+  const isColumns = COLUMN_KINDS.has(section.kind);
+  // Piers, walls and columns keep their takeoffs in their own tables, not in
+  // pours.
+  const notPours = isPiers || isWalls || isColumns;
+  const isGrid = isPaving || isPiers || isWalls || isColumns;
+
+  const [
+    slabs, totals, beamTypes, forming, labor, equip,
+    pierRows, pierT, wallRows, wallT, colRows, colT, mats,
+  ] = await Promise.all([
+    notPours ? Promise.resolve([]) : Api.listMonoSlabs(section.id),
+    notPours ? Promise.resolve(null) : Api.monoSlabTotals(section.id),
+    isGrid ? Promise.resolve(null) : Api.listBeamTypes(section.id).catch(() => null),
+    Api.formingMaterials(section.id).catch(() => null),
+    Api.laborMaterials(section.id).catch(() => null),
+    Api.estimateEquipment(section.id).catch(() => null),
+    isPiers ? Api.listPierGroups(section.id) : Promise.resolve([]),
+    isPiers ? Api.pierTotals(section.id) : Promise.resolve(null),
+    isWalls ? Api.listWallRuns(section.id) : Promise.resolve([]),
+    isWalls ? Api.wallTotals(section.id) : Promise.resolve(null),
+    isColumns ? Api.listColumnTypes(section.id) : Promise.resolve([]),
+    isColumns ? Api.columnTotals(section.id) : Promise.resolve(null),
+    // Never fatal to the page: a section with no breakdown still shows its
+    // quantities, it just shows them without the money.
+    Api.sectionMaterialCosts(section.id).catch(() => null),
+  ]);
+
+  // key -> the line, so a card can ask for its own dollars by name.
+  const mat = matIndex(mats);
+
+  // The Margin % / Conting % boxes below are seeded from the SECTION, which is
+  // also what Apply writes to. They used to be filled from estimate.margin_pct
+  // — the default a NEW section is created with — while the button PATCHed the
+  // section. Two consequences, and the second is the bad one: a section at 18%
+  // displayed the job's 15% and sprang back to 15 after every successful save,
+  // so the margin looked unchangeable; and pressing Apply without touching the
+  // box silently overwrote the section's real markup with the job default.
+  //
+  // That note used to live in an HTML comment inside the template literal
+  // below, with `estimate.margin_pct` in backticks. This file is loaded as
+  // type="module", and a backtick inside a template literal ENDS IT — the
+  // whole page died with "SyntaxError: Unexpected identifier 'estimate'" and
+  // nothing rendered but "Loading…". Prose about the code goes in a JS comment
+  // out here. Nothing inside a template literal may contain a backtick or a
+  // ${ that is not a real interpolation.
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <button class="btn ghost" id="back-estimate">← ${esc(estimate.name)}</button>
+        <h1 style="margin-top:0.5rem">${esc(section.name)}</h1>
+        <p>${statusBadge(estimate.status)}${
+          section.name.trim().toLowerCase() === sectionLabel(section.kind).toLowerCase()
+            ? ""
+            : " · " + esc(sectionLabel(section.kind))
+        }
+          · measured in ${esc(section.unit)}
+          · ${section.tax_exempt === null
+              ? (section.effective_tax_exempt ? "tax exempt (project)" : "taxed (project)")
+              : (section.tax_exempt ? "<strong>tax exempt</strong> (set here)" : "<strong>taxed</strong> (set here)")}
+          · waste C/S/R:
+          ${[
+            ["waste_concrete", "effective_waste_concrete"],
+            ["waste_sand", "effective_waste_sand"],
+            ["waste_rebar", "effective_waste_rebar"],
+          ]
+            .map(([own, eff]) => {
+              // An unset factor is no longer necessarily the company's: since
+              // sql/036 an assembly can carry its own. Show what was used, and
+              // say where it came from.
+              const used = section[eff] != null ? Number(section[eff]) : null;
+              if (section[own] != null) return `<strong>${Number(section[own])}</strong>`;
+              return used == null
+                ? "sys"
+                : `<span title="not set on this section — inherited">${used}</span>`;
+            })
+            .join(" / ")}
+          · margin ${num(Number(section.margin_pct ?? 0.2) * 100, 1)}%
+          · conting ${num(Number(section.contingency_pct ?? 0) * 100, 1)}%
+        </p>
+        <p style="margin:0.4rem 0 0;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;font-size:0.85rem">
+          <label class="muted" for="est-margin-pct">Margin %</label>
+          <input type="number" id="est-margin-pct" min="0" max="200" step="0.5" style="width:4.5rem"
+            value="${esc(Math.round(Number(section.margin_pct ?? estimate.margin_pct ?? 0.2) * 1000) / 10)}" />
+          <label class="muted" for="est-conting-pct">Conting %</label>
+          <input type="number" id="est-conting-pct" min="0" max="200" step="0.5" style="width:4.5rem"
+            value="${esc(Math.round(Number(section.contingency_pct ?? estimate.contingency_pct ?? 0) * 1000) / 10)}" />
+          <button type="button" class="btn" id="btn-apply-markup">Apply markup</button>
+          <span class="muted" style="color:var(--text-muted);font-size:0.8rem">this section only${
+            section.margin_pct != null &&
+            estimate.margin_pct != null &&
+            Number(section.margin_pct) !== Number(estimate.margin_pct)
+              ? ` · job default is ${num(Number(estimate.margin_pct) * 100, 1)}%`
+              : ""
+          }</span>
+        </p>
+        ${
+          isGrid
+            ? `<p style="margin:0.4rem 0 0;color:var(--text-muted);font-size:0.82rem">
+                 No vapor barrier on this assembly — ${
+                   isPiers
+                     ? "a pier is a hole"
+                     : isWalls
+                     ? "nothing goes under a wall"
+                     : isColumns
+                     ? "a column stands on something already poured"
+                     : "the paving sheet has no poly line"
+                 },
+                 so no wrap SF is computed and none is priced.
+               </p>`
+            : `<p style="margin:0.4rem 0 0;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;font-size:0.85rem">
+          <label class="muted" for="est-vapor">Vapor barrier</label>
+          <select id="est-vapor" style="min-width:17rem"></select>
+          <span class="muted" id="est-vapor-rate" style="color:var(--text-muted);font-size:0.8rem"></span>
+        </p>
+        <p style="margin:0.4rem 0 0;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;font-size:0.85rem">
+          <label class="muted" for="est-tape">Seam tape</label>
+          <select id="est-tape" style="min-width:17rem"></select>
+          <label class="muted" for="est-tape-ratio">rolls per barrier roll</label>
+          <input type="number" id="est-tape-ratio" min="0" step="0.25" style="width:4.5rem" />
+          <span class="muted" id="est-tape-note" style="color:var(--text-muted);font-size:0.8rem"></span>
+        </p>`
+        }
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        ${
+          isGrid
+            ? `<button class="btn ghost" id="btn-jump-areas" type="button">${
+                isPiers
+                  ? "Pier groups"
+                  : isWalls
+                  ? "Wall runs"
+                  : isColumns
+                  ? "Column types"
+                  : "Paving areas"
+              }</button>`
+            : `<button class="btn primary" id="btn-add-slab">+ Mono slab pour</button>
+        <button class="btn ghost" id="btn-jump-beams" type="button">Beam schedule</button>`
+        }
         <button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>
         <button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
         <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>
         <button class="btn" id="btn-recalc-estimate" type="button"
           title="Rewrite pours and stored takeoffs from current inputs — use after changing company defaults">Recalculate</button>
-        <button class="btn danger" id="btn-del-estimate">Delete estimate</button>
+        <button class="btn danger" id="btn-del-estimate">Delete section</button>
       </div>
     </div>
 
-    <div class="grid stats">
+    ${unpricedBannerHtml(section)}
+
+    ${
+      isColumns
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Columns</div><div class="value">${colT.column_count}</div><div class="hint">${colT.type_count} type${colT.type_count === 1 ? "" : "s"} on the schedule</div></div>
+      <div class="card stat"><div class="label">Form SF</div><div class="value">${num(colT.total_form_sf, 0)}</div><div class="hint">contact area · <strong>perimeter × height</strong>, and what every shared cost here is spread by</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(colT.total_concrete_cy, 2)}</div><div class="hint">not rounded up — the batch ticket rounds, the bid does not</div>${moneyRow(
+        matCost(mat, "concrete")
+      )}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(colT.total_rebar_lb, 0)}</div><div class="hint">lb · vert ${num(colT.total_vert_rebar_lb, 0)} + ties ${num(colT.total_tie_rebar_lb, 0)} + dowels ${num(colT.total_dowel_rebar_lb, 0)} · waste on <em>every</em> bar</div>${moneyRow(
+        matCost(mat, "rebar")
+      )}</div>
+      <div class="card stat"><div class="label">Chamfer</div><div class="value">${num(colT.total_chamfer_lf, 0)}</div><div class="hint">LF · four corners × height × <strong>quantity</strong></div></div>
+      <div class="card stat"><div class="label">Cost / form SF</div><div class="value">${usd(colT.cost_per_form_sf, 2)}</div><div class="hint">the number to compare across jobs</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? colT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? colT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / column</div><div class="value">${usd(section.calc_sale_per_unit ?? colT.total_sale_per_unit, 0)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? colT.total_cost_per_unit, 0)}/column</div></div>
+    </div>`
+        : isWalls
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Wall runs</div><div class="value">${wallT.run_count}</div><div class="hint">${num(wallT.total_length_ft, 0)} LF of wall</div></div>
+      <div class="card stat"><div class="label">Form feet</div><div class="value">${num(wallT.total_form_ff, 0)}</div><div class="hint">one face — the sheet halves both</div></div>
+      <div class="card stat"><div class="label">Footing SF</div><div class="value">${num(wallT.total_footing_sf, 0)}</div><div class="hint">plan area, what footing labor rides</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(wallT.total_concrete_cy, 2)}</div><div class="hint">wall ${num(wallT.total_wall_concrete_cy, 1)} + footing ${num(wallT.total_footing_concrete_cy, 1)}</div>${moneyRow(
+        [matCost(mat, "wall_concrete"), matCost(mat, "footing_concrete")]
+          .filter(Boolean)
+          .join(" + ")
+      )}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(wallT.total_rebar_lb, 0)}</div><div class="hint">lb · horz ${num(wallT.total_horiz_rebar_lb, 0)} + vert ${num(wallT.total_vert_rebar_lb, 0)} + ftg ${num(wallT.total_footing_rebar_lb, 0)}</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Earthwork</div><div class="value">${num(wallT.total_excavate_cy, 0)}</div><div class="hint">CY dug · ${num(wallT.total_backfill_cy, 0)} backfilled · ${num(wallT.total_sand_cy, 0)} sand</div>${moneyRow(
+        matCost(mat, "sand") ? matCost(mat, "sand") + " sand" : ""
+      )}</div>
+      <div class="card stat"><div class="label">French drain</div><div class="value">${num(wallT.total_drain_lf, 0)}</div><div class="hint">LF · material and labor both</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? wallT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? wallT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Wall / FF</div><div class="value">${usd(wallT.wall_sale_per_ff, 2)}</div><div class="hint">cost ${usd(wallT.wall_cost_per_ff, 2)}/FF · ${usd(wallT.total_wall_sale, 0)} total</div></div>
+      <div class="card stat"><div class="label">Footing / SF</div><div class="value">${usd(wallT.footing_sale_per_sf, 2)}</div><div class="hint">cost ${usd(wallT.footing_cost_per_sf, 2)}/SF · ${usd(wallT.total_footing_sale, 0)} total</div></div>
+    </div>`
+        : isPiers
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Piers</div><div class="value">${pierT.pier_count}</div><div class="hint">${pierT.group_count} group${pierT.group_count === 1 ? "" : "s"}</div></div>
+      <div class="card stat"><div class="label">Drilled LF</div><div class="value">${num(pierT.total_lf, 0)}</div>${moneyRow(matCost(mat, "drilling"))}</div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(pierT.total_concrete_cy, 2)}</div><div class="hint">shaft ${num(pierT.total_shaft_concrete_cy, 1)}${Number(pierT.total_bell_concrete_cy) ? " + bells " + num(pierT.total_bell_concrete_cy, 1) : ""}</div>${moneyRow(matCost(mat, "concrete"))}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(pierT.total_rebar_lb, 0)}</div><div class="hint">lb · vert ${num(pierT.total_vert_rebar_lb, 0)} + ties ${num(pierT.total_tie_rebar_lb, 0)} + dowels ${num(pierT.total_dowel_rebar_lb, 0)}</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Ties</div><div class="value">${num(pierT.total_tie_count, 0)}</div><div class="hint">hoops, incl. the confinement band</div></div>
+      <div class="card stat"><div class="label">Drilling</div><div class="value">${usd(pierT.total_drill_cost, 0)}</div><div class="hint">${
+        pierT.drill_quote_stale
+          ? `<span class="badge warn">quote is stale</span>`
+          : pierT.drill_source === "quote"
+          ? "quoted lump sum"
+          : pierT.groups_without_drill_rate
+          ? `<span class="badge warn">${pierT.groups_without_drill_rate} group(s) have no rate</span>`
+          : "from the $/LF rate table, by diameter"
+      }</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? pierT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? pierT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / pier</div><div class="value">${usd(section.calc_sale_per_unit ?? pierT.total_sale_per_unit, 0)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? pierT.total_cost_per_unit, 0)}/pier</div></div>
+    </div>`
+        : isPaving
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Areas</div><div class="value">${totals.slab_count}</div></div>
+      <div class="card stat"><div class="label">Total SF</div><div class="value">${num(totals.total_sf, 0)}</div></div>
+      <div class="card stat"><div class="label">Curb LF</div><div class="value">${num(totals.total_curb_lf, 0)}</div><div class="hint">what the forming package is driven by</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(totals.total_concrete_cy, 2)}</div><div class="hint">slab ${num(totals.total_slab_concrete_cy, 1)} + curb &amp; edge ${num(totals.total_edge_concrete_cy, 1)}</div>${moneyRow(matCost(mat, "concrete"))}</div>
+      <div class="card stat"><div class="label">SF / CY</div><div class="value">${num(sfPerCy(totals.total_sf, totals.total_concrete_cy), 1)}</div></div>
+      <div class="card stat"><div class="label">Sand CY</div><div class="value">${num(totals.total_sand_cy, 2)}</div>${moneyRow(matCost(mat, "sand"))}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(totals.total_rebar_lb, 0)}</div><div class="hint">lb · mat only, no support steel</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Joints</div><div class="value">${num(
+        forming && forming.drivers ? forming.drivers.construction_joint_lf : 0,
+        0
+      )}</div><div class="hint">LF construction · ${num(
+        forming && forming.drivers ? forming.drivers.control_joint_lf : 0,
+        0
+      )} control</div></div>
+      <div class="card stat"><div class="label">Demo LF</div><div class="value">${num(totals.total_demo_lf, 0)}</div><div class="hint">slip formed ${num(totals.total_slip_form_sf, 0)} SF</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? totals.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? totals.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? totals.total_sale_per_sf, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? totals.total_cost_per_sf, 2)}/SF</div></div>
+    </div>`
+        : `<div class="grid stats">
       <div class="card stat"><div class="label">Pours</div><div class="value">${totals.slab_count}</div></div>
       <div class="card stat"><div class="label">Total SF</div><div class="value">${num(totals.total_sf, 0)}</div></div>
-      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(totals.total_concrete_cy, 2)}</div><div class="hint">slab ${num(totals.total_slab_concrete_cy, 1)} + beams ${num(totals.total_gb_concrete_cy, 1)} (GB+Exp+Drop)</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(totals.total_concrete_cy, 2)}</div><div class="hint">slab ${num(totals.total_slab_concrete_cy, 1)} + beams ${num(totals.total_gb_concrete_cy, 1)} (GB+Exp+Drop)</div>${moneyRow(matCost(mat, "concrete"))}</div>
       <div class="card stat"><div class="label">SF / CY</div><div class="value">${num(sfPerCy(totals.total_sf, totals.total_concrete_cy), 1)}</div><div class="hint">total SF ÷ CY (slab + beams)</div></div>
-      <div class="card stat"><div class="label">Sand CY</div><div class="value">${num(totals.total_sand_cy, 2)}</div></div>
-      <div class="card stat"><div class="label">Slab mat</div><div class="value">${num(totals.total_slab_bar_lb, 0)}</div><div class="hint">lb · ${num(totals.total_slab_bar_lf, 0)} LF each way</div></div>
-      <div class="card stat"><div class="label">Support rebar</div><div class="value">${num(totals.total_support_rebar_lb, 0)}</div><div class="hint">lb · chairs/dowels only</div></div>
+      <div class="card stat"><div class="label">Sand CY</div><div class="value">${num(totals.total_sand_cy, 2)}</div>${moneyRow(matCost(mat, "sand"))}</div>
+      <div class="card stat"><div class="label">Slab mat</div><div class="value">${num(totals.total_slab_bar_lb, 0)}</div><div class="hint">lb · ${num(totals.total_slab_bar_lf, 0)} LF each way</div>${moneyRow(
+        matAt(mat, "rebar", totals.total_slab_bar_lb)
+      )}</div>
+      <div class="card stat"><div class="label">Support rebar</div><div class="value">${num(totals.total_support_rebar_lb, 0)}</div><div class="hint">lb · chairs/dowels only</div>${moneyRow(
+        matAt(mat, "rebar", totals.total_support_rebar_lb)
+      )}</div>
       <div class="card stat"><div class="label">PT cable LF</div><div class="value">${num(totals.total_pt_cable_lf, 0)}</div><div class="hint">slab + GB PT</div></div>
-      <div class="card stat"><div class="label">PT weight</div><div class="value">${num(totals.total_pt_cable_lb, 0)}</div><div class="hint">lb (rate method)</div></div>
-      <div class="card stat"><div class="label">Total rebar</div><div class="value">${num(totals.total_rebar_lb, 0)}</div><div class="hint">lb · ${num(Number(totals.total_rebar_lb) / 2000, 2)} tons (mat + support + beams)</div></div>
-      <div class="card stat"><div class="label">Poly / Stego</div><div class="value">${num(totals.total_poly_sf, 0)}</div><div class="hint">SF · pour ${num(totals.total_poly_slab_sf, 0)} + beams ${num(totals.total_poly_gb_sf, 0)} + waste</div></div>
-    </div>
+      <div class="card stat"><div class="label">PT weight</div><div class="value">${num(totals.total_pt_cable_lb, 0)}</div><div class="hint">lb (rate method)</div>${moneyRow(
+        matCost(mat, "pt")
+      )}</div>
+      <div class="card stat"><div class="label">Total rebar</div><div class="value">${num(totals.total_rebar_lb, 0)}</div><div class="hint">lb · ${num(Number(totals.total_rebar_lb) / 2000, 2)} tons (mat + support + beams)</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Poly / Stego</div><div class="value">${num(totals.total_poly_sf, 0)}</div><div class="hint">SF · pour ${num(totals.total_poly_slab_sf, 0)} + beams ${num(totals.total_poly_gb_sf, 0)} + waste</div>${moneyRow(
+        [matCost(mat, "poly"), matCost(mat, "tape") ? matCost(mat, "tape") + " tape" : ""]
+          .filter(Boolean)
+          .join(" + ")
+      )}</div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? totals.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? totals.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? totals.total_sale_per_sf, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? totals.total_cost_per_sf, 2)}/SF</div></div>
+    </div>`
+    }
 
+    ${quoteCardsHtml(section)}
+
+    ${
+      isColumns
+        ? gridCardHtml({
+            id: "column-types",
+            title: "Column types",
+            blurb:
+              "One row is a <strong>column type and how many of it</strong> — the " +
+              "schedule, not a location. <strong>Form SF</strong> is " +
+              "<code>(L + W) × 2 / 12 × height</code>: real contact area, and the " +
+              "basis every shared cost on this section is allocated by. Three " +
+              "vertical sets are available because the schedule carries three; a " +
+              "set with no count or no size contributes nothing rather than a " +
+              "zero-weight bar. Rebar waste applies to <em>every</em> bar here, " +
+              "including the verticals. Supervision is driven by the total column " +
+              "COUNT, so changing a quantity on one row reprices every other row.",
+            columns: columnColumns(state.mixes),
+            rows: colRows,
+            addLabel: "Column type",
+            saveLabel: "Save column types",
+          })
+        : isWalls
+        ? gridCardHtml({
+            id: "wall-runs",
+            title: "Wall runs",
+            blurb:
+              "One row is a <strong>wall type and the footing under it</strong> — they " +
+              "share a length, and the footing's width drives the trench the wall sits " +
+              "in. <strong>Faces</strong> is how many curtains of steel: 2 is both " +
+              "faces. <strong>Form ft</strong> is contact area on <em>one</em> face, " +
+              "which is the convention every $/FF rate here is priced against. " +
+              "<strong>Backfill</strong> turns on sand, excavation swell and the " +
+              "french drain — leave it off for an interior wall. " +
+              "The wall and the footing are costed <strong>separately</strong>, each on " +
+              "its own driver, so a bad schedule shows up in one rate and not the " +
+              "other. They always sum to the row.",
+            columns: wallColumns(state.mixes),
+            rows: wallRows,
+            addLabel: "Wall type",
+            saveLabel: "Save wall runs",
+          })
+        : isPiers
+        ? gridCardHtml({
+            id: "pier-groups",
+            title: "Pier groups",
+            blurb:
+              "One row is a <strong>group of identical piers</strong>, not one pier — " +
+              "enter how many and the schedule they share. Depth is base + rock. " +
+              "<strong>Band n / sp</strong> is the confinement at the top, as the " +
+              "drawing calls it out: a count at a spacing, e.g. 3 #3 at 3\". " +
+              "Verticals are cut to length, so there is no lap to carry.",
+            columns: pierColumns(state.mixes),
+            rows: pierRows,
+            addLabel: "Group",
+            saveLabel: "Save groups",
+          })
+        : isPaving
+        ? gridCardHtml({
+            id: "paving-areas",
+            title: "Paving areas",
+            blurb:
+              "Type down a column and press <strong>Save areas</strong> once. Curb LF " +
+              "is the important one — paving forms off the curb, not off a perimeter, " +
+              "so every lumber line in the package below is driven by that column. " +
+              "Concrete picks up <code>curb / 108</code> and " +
+              "<code>thick edge × 1.5 × 0.18 / 27</code> on top of " +
+              "<code>SF × thk / 324</code>.",
+            columns: pavingColumns(state.mixes),
+            rows: slabs,
+            addLabel: "Area",
+            saveLabel: "Save areas",
+          })
+        : `
     <div class="card">
       <h3 style="margin:0 0 0.75rem">Mono slab pours</h3>
       ${
@@ -698,6 +2181,10 @@ async function renderEstimateDetail(root) {
             <th>Slab mat</th>
             <th>Total rebar</th>
             <th>Poly SF</th>
+            <th>Cost</th>
+            <th>Sale</th>
+            <th>Cost/SF</th>
+            <th>Sale/SF</th>
             <th></th>
           </tr>
         </thead>
@@ -708,8 +2195,14 @@ async function renderEstimateDetail(root) {
               const g = bb.grade_beam || {};
               const e = bb.exposed || {};
               const d = bb.drop || {};
-              const pourSfPerCy = sfPerCy(s.square_footage, s.calc_concrete_cy);
+              const pourSfPerCy = s.calc_sf_per_cy != null
+                ? Number(s.calc_sf_per_cy)
+                : sfPerCy(s.square_footage, s.calc_concrete_cy);
               const slabOnlySfPerCy = sfPerCy(s.square_footage, s.calc_slab_concrete_cy);
+              const costTitle =
+                `direct ${usd(s.calc_direct_cost, 0)}` +
+                ` + allocated ${usd(s.calc_allocated_cost, 0)}` +
+                ` = ${usd(s.calc_cost, 0)}`;
               const cyTitle =
                 `slab ${num(s.calc_slab_concrete_cy, 2)}` +
                 ` + GB ${num(g.concrete_cy, 2)}` +
@@ -775,6 +2268,10 @@ async function renderEstimateDetail(root) {
               </td>
               <td class="num" title="${esc(rebarTitle)}">${num(s.calc_total_rebar_lb, 0)}</td>
               <td class="num" title="${esc(polyTitle)}">${num(s.calc_poly_sf, 0)}</td>
+              <td class="num" title="${esc(costTitle)}"><strong>${usd(s.calc_cost, 0)}</strong></td>
+              <td class="num">${usd(s.calc_sale, 0)}</td>
+              <td class="num">${usd(s.calc_cost_per_sf, 2)}</td>
+              <td class="num">${usd(s.calc_sale_per_sf, 2)}</td>
               <td style="white-space:nowrap">
                 <button type="button" class="btn ghost btn-edit-slab" data-id="${esc(s.id)}">Edit</button>
                 <button type="button" class="btn primary ghost btn-gb" data-id="${esc(s.id)}" data-kind="grade_beam" title="Grade beams — concrete & rebar into pour">GBs</button>
@@ -797,17 +2294,76 @@ async function renderEstimateDetail(root) {
         <code>((2×H″) / 12) × L</code> (two sides only) for GBs, Exp, and Drops, × (1+waste_poly default 10%).
         Hover Poly / CY / mat / rebar for breakdown.
       </p>
-    </div>
+    </div>`}
 
-    ${renderBeamTypesCard(beamTypes)}
+    ${isGrid ? "" : renderBeamTypesCard(beamTypes)}
     ${renderFormingCard(forming)}
     ${renderLaborCard(labor)}
     ${renderEquipmentCard(equip)}
   `;
 
-  $("#back-proj").onclick = () =>
-    setRoute("project", { projectId: estimate.project_id });
-  $("#btn-add-slab").onclick = () => openMonoSlabModal(estimate);
+  // Up from a section is the job, not the project — the job is where the other
+  // sections are.
+  $("#back-estimate").onclick = () =>
+    setRoute("estimate", { estimateId: estimate.id });
+  const btnAddSlab = $("#btn-add-slab");
+  if (btnAddSlab) btnAddSlab.onclick = () => openMonoSlabModal(section);
+
+  if (isGrid) {
+    if (isColumns) {
+      // `height_ft` alone is what the bulk endpoint requires of a new row — a
+      // column with no height is not a column — but a row with a height and no
+      // quantity is a schedule entry nobody is building, so both are asked for
+      // here before anything is sent.
+      wireGrid(root, {
+        id: "column-types",
+        columns: columnColumns(state.mixes),
+        required: ["qty", "height_ft"],
+        save: (rows) => Api.bulkSaveColumnTypes(section.id, rows),
+        remove: (id) => Api.deleteColumnType(id),
+      });
+    } else if (isWalls) {
+      wireGrid(root, {
+        id: "wall-runs",
+        columns: wallColumns(state.mixes),
+        required: ["length_ft", "wall_height_in"],
+        save: (rows) => Api.bulkSaveWallRuns(section.id, rows),
+        remove: (id) => Api.deleteWallRun(id),
+      });
+    } else if (isPiers) {
+      wireGrid(root, {
+        id: "pier-groups",
+        columns: pierColumns(state.mixes),
+        required: ["qty", "diameter_in"],
+        save: (rows) => Api.bulkSavePierGroups(section.id, rows),
+        remove: (id) => Api.deletePierGroup(id),
+      });
+    } else {
+      wireGrid(root, {
+        id: "paving-areas",
+        columns: pavingColumns(state.mixes),
+        required: ["square_footage", "thickness_in"],
+        save: (rows) => Api.bulkSaveMonoSlabs(section.id, rows),
+        remove: (id) => Api.deleteMonoSlab(id),
+      });
+    }
+    const jumpAreas = $("#btn-jump-areas");
+    if (jumpAreas) {
+      jumpAreas.onclick = () => {
+        const el = document.getElementById(
+          isPiers
+            ? "pier-groups"
+            : isWalls
+            ? "wall-runs"
+            : isColumns
+            ? "column-types"
+            : "paving-areas"
+        );
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+    }
+  }
+
   const jumpBeams = $("#btn-jump-beams");
   if (jumpBeams) {
     jumpBeams.onclick = () => {
@@ -816,11 +2372,11 @@ async function renderEstimateDetail(root) {
     };
   }
   const btnAddType = $("#btn-add-beam-type");
-  if (btnAddType) btnAddType.onclick = () => openBeamTypeModal(estimate);
+  if (btnAddType) btnAddType.onclick = () => openBeamTypeModal(section);
   $$(".btn-edit-type", root).forEach((btn) => {
     btn.onclick = () => {
       const t = (beamTypes || []).find((x) => x.id === btn.dataset.id);
-      if (t) openBeamTypeModal(estimate, t);
+      if (t) openBeamTypeModal(section, t);
     };
   });
   $$(".btn-del-type", root).forEach((btn) => {
@@ -866,7 +2422,7 @@ async function renderEstimateDetail(root) {
     btnRefreshForming.onclick = async () => {
       btnRefreshForming.disabled = true;
       try {
-        await Api.refreshFormingMaterials(estimate.id);
+        await Api.refreshFormingMaterials(section.id);
         toast("Forming materials refreshed from pours");
         render();
       } catch (err) {
@@ -887,7 +2443,7 @@ async function renderEstimateDetail(root) {
       const form_percent = pct / 100; // UI shows 50 → store 0.50
       btnApplyFormPct.disabled = true;
       try {
-        await Api.setFormPercent(estimate.id, form_percent);
+        await Api.setFormPercent(section.id, form_percent);
         toast(`Form % set to ${pct}% — 2×4/2×6/2×10/ply/masonite updated`);
         render();
       } catch (err) {
@@ -901,7 +2457,7 @@ async function renderEstimateDetail(root) {
     btnRefreshLabor.onclick = async () => {
       btnRefreshLabor.disabled = true;
       try {
-        await Api.refreshLabor(estimate.id);
+        await Api.refreshLabor(section.id);
         toast("Labor & supervision refreshed from pours");
         render();
       } catch (err) {
@@ -936,7 +2492,7 @@ async function renderEstimateDetail(root) {
       }
       btn.disabled = true;
       try {
-        await Api.patchLaborLine(estimate.id, code, body);
+        await Api.patchLaborLine(section.id, code, body);
         toast(`Saved ${code}`);
         render();
       } catch (err) {
@@ -950,7 +2506,7 @@ async function renderEstimateDetail(root) {
       const code = cb.dataset.code;
       if (!code) return;
       try {
-        await Api.patchLaborLine(estimate.id, code, {
+        await Api.patchLaborLine(section.id, code, {
           enabled: cb.checked,
           mark_manual: false,
         });
@@ -966,7 +2522,7 @@ async function renderEstimateDetail(root) {
     btnRefreshEquip.onclick = async () => {
       btnRefreshEquip.disabled = true;
       try {
-        await Api.refreshEstimateEquipment(estimate.id);
+        await Api.refreshEstimateEquipment(section.id);
         toast("Equipment refreshed from super days / pour CY");
         render();
       } catch (err) {
@@ -989,7 +2545,7 @@ async function renderEstimateDetail(root) {
       }
       btn.disabled = true;
       try {
-        await Api.patchEstimateEquipmentLine(estimate.id, code, {
+        await Api.patchEstimateEquipmentLine(section.id, code, {
           enabled,
           rate,
           days_qty: days,
@@ -1008,7 +2564,7 @@ async function renderEstimateDetail(root) {
       const code = cb.dataset.code;
       if (!code) return;
       try {
-        await Api.patchEstimateEquipmentLine(estimate.id, code, {
+        await Api.patchEstimateEquipmentLine(section.id, code, {
           enabled: cb.checked,
           mark_manual: false,
         });
@@ -1019,14 +2575,218 @@ async function renderEstimateDetail(root) {
       }
     };
   });
+  const btnMarkup = $("#btn-apply-markup");
+  if (btnMarkup) {
+    btnMarkup.onclick = async () => {
+      const m = Number($("#est-margin-pct")?.value);
+      const c = Number($("#est-conting-pct")?.value);
+      if (Number.isNaN(m) || m < 0 || m > 200 || Number.isNaN(c) || c < 0 || c > 200) {
+        toast("Margin and contingency must be 0–200%", "err");
+        return;
+      }
+      btnMarkup.disabled = true;
+      try {
+        // Markup is priced on the section (sql/033). The estimate's figures
+        // are only the default a new section starts at.
+        await Api.updateSection(section.id, {
+          margin_pct: m / 100,
+          contingency_pct: c / 100,
+        });
+        toast(`Markup set to ${m}% + ${c}% contingency`);
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btnMarkup.disabled = false;
+      }
+    };
+  }
+  // Quotes (sql/039). One wiring for every card, because the cards are the same
+  // shape — saving stamps the baseline for a lump and re-costs the section, so
+  // the page is re-rendered off the result rather than patched in place.
+  document.querySelectorAll(".quote-card").forEach((card) => {
+    const kind = card.dataset.quoteKind;
+    const btn = card.querySelector(".q-save");
+    if (!btn) return;
+    btn.onclick = async () => {
+      const raw = String(card.querySelector(".q-amount")?.value ?? "").trim();
+      const amount = raw === "" ? 0 : Number(raw);
+      if (Number.isNaN(amount) || amount < 0) {
+        toast("A quote has to be a positive number, or empty", "err");
+        return;
+      }
+      const unit = card.querySelector(".q-unit")?.value || "LS";
+      btn.disabled = true;
+      try {
+        await Api.putSectionQuote(section.id, kind, {
+          amount,
+          unit,
+          note: String(card.querySelector(".q-note")?.value ?? "").trim() || null,
+        });
+        toast(
+          amount === 0
+            ? `${QUOTE_META[kind]?.label || kind} quote cleared — back to the computed price`
+            : unit === "LS"
+            ? `${QUOTE_META[kind]?.label || kind} quoted at ${usd(amount, 0)}`
+            : `${QUOTE_META[kind]?.label || kind} quoted at ${usd(amount, 4)}/${unit}`
+        );
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btn.disabled = false;
+      }
+    };
+  });
+  // Vapor barrier picker — the product is named on the estimate (sql/030) rather
+  // than matched by name. Rolls price by the coverage in their own name.
+  const vaporSel = $("#est-vapor");
+  if (vaporSel) {
+    const coverageSf = (name) => {
+      const m = String(name).match(/(\d+(?:\.\d+)?)\s*['"]?\s*[x\u00d7]\s*(\d+(?:\.\d+)?)/i);
+      return m ? Number(m[1]) * Number(m[2]) : null;
+    };
+    const perSf = (r) => {
+      if (String(r.unit || "").toUpperCase() === "SF") return Number(r.unit_cost);
+      const c = coverageSf(r.name);
+      return c && r.unit_cost != null ? Number(r.unit_cost) / c : null;
+    };
+    const showRate = (rolls) => {
+      const r = rolls.find((x) => String(x.id) === vaporSel.value);
+      const p = r ? perSf(r) : null;
+      const el = $("#est-vapor-rate");
+      if (!el) return;
+      // Nobody chose, and the company has no default either: the section is
+      // wrapped in whatever a name search found. Say so — that search is
+      // how a bid was once priced on black site poly (sql/030).
+      const fallback = !r && totals && totals.vapor_barrier_source === "fallback";
+      el.textContent = fallback
+        ? totals.vapor_barrier
+          ? `no company default set — using ${totals.vapor_barrier}. Choose a roll here, or set the default in Settings.`
+          : "no company default set and nothing found — poly is UNPRICED on this section"
+        : !r
+          ? `using the company default${totals && totals.vapor_barrier ? ` — ${totals.vapor_barrier}` : ""}`
+          : p == null
+            ? "no roll size in the name — this would price at $0"
+            : `$${p.toFixed(4)} / SF`;
+      el.style.color = fallback ? "#e8c25a" : "";
+    };
+    Api.listMaterials({ category: "vapor_barrier", active_only: true })
+      .then((rolls) => {
+        const cur = section.vapor_barrier_material_id;
+        vaporSel.innerHTML =
+          `<option value="">— company default —</option>` +
+          rolls
+            .map((r) => {
+              const p = perSf(r);
+              const tag = p == null ? " (no roll size)" : ` — $${p.toFixed(4)}/SF`;
+              const sel = String(cur) === String(r.id) ? " selected" : "";
+              return `<option value="${r.id}"${sel}>${esc(r.name)}${tag}</option>`;
+            })
+            .join("");
+        showRate(rolls);
+        vaporSel.onchange = async () => {
+          vaporSel.disabled = true;
+          try {
+            // The PATCH re-costs the pours itself — no quantity changed, so
+            // there is nothing to re-take-off.
+            await Api.setVaporBarrier(section.id, vaporSel.value ? Number(vaporSel.value) : null);
+            toast("Vapor barrier set — estimate repriced");
+            render();
+          } catch (err) {
+            toast(err.message, "err");
+            vaporSel.disabled = false;
+          }
+        };
+      })
+      .catch((err) => {
+        vaporSel.innerHTML = `<option value="">— could not load —</option>`;
+        toast("Vapor barrier list: " + err.message, "err");
+      });
+  }
+
+  // Seam tape — bought per roll of wrap, not per SF of slab (sql/031). The
+  // product is named on the estimate like the barrier; the ratio is a company
+  // setting, so changing it moves every open estimate on the next recalc.
+  const tapeSel = $("#est-tape");
+  const tapeRatio = $("#est-tape-ratio");
+  if (tapeSel) {
+    const note = (msg) => {
+      const el = $("#est-tape-note");
+      if (el) el.textContent = msg;
+    };
+    const describe = (tapes) => {
+      const t = tapes.find((x) => String(x.id) === tapeSel.value);
+      const ratio = Number(tapeRatio?.value || 0);
+      if (!t) return note("no tape priced");
+      if (!(ratio > 0)) return note("ratio is 0 — no tape is priced");
+      const each = Number(t.unit_cost);
+      note(`${ratio} × $${each.toFixed(2)} per barrier roll`);
+    };
+    Promise.all([
+      Api.listMaterials({ q: "tape", active_only: true }),
+      Api.listSettings("vapor_tape_"),
+    ])
+      .then(([tapes, settings]) => {
+        const ratioSetting = settings.find(
+          (s) => s.key === "vapor_tape_rolls_per_barrier_roll",
+        );
+        if (tapeRatio) tapeRatio.value = ratioSetting ? Number(ratioSetting.value) : 0;
+
+        const cur = section.vapor_tape_material_id;
+        tapeSel.innerHTML =
+          `<option value="">— company default —</option>` +
+          tapes
+            .map((t) => {
+              const price = t.unit_cost == null ? " (no price)" : ` — $${Number(t.unit_cost).toFixed(2)}/${esc(t.unit || "EA")}`;
+              const sel = String(cur) === String(t.id) ? " selected" : "";
+              return `<option value="${t.id}"${sel}>${esc(t.name)}${price}</option>`;
+            })
+            .join("");
+        describe(tapes);
+
+        tapeSel.onchange = async () => {
+          tapeSel.disabled = true;
+          try {
+            await Api.setVaporTape(section.id, tapeSel.value ? Number(tapeSel.value) : null);
+            toast("Seam tape set — estimate repriced");
+            render();
+          } catch (err) {
+            toast(err.message, "err");
+            tapeSel.disabled = false;
+          }
+        };
+
+        if (tapeRatio) {
+          tapeRatio.onchange = async () => {
+            tapeRatio.disabled = true;
+            try {
+              await Api.updateSetting(
+                "vapor_tape_rolls_per_barrier_roll",
+                String(Number(tapeRatio.value) || 0),
+              );
+              await Api.recalcSection(section.id);
+              toast("Tape ratio saved — this section repriced");
+              render();
+            } catch (err) {
+              toast(err.message, "err");
+              tapeRatio.disabled = false;
+            }
+          };
+        }
+      })
+      .catch((err) => {
+        tapeSel.innerHTML = `<option value="">— could not load —</option>`;
+        toast("Seam tape list: " + err.message, "err");
+      });
+  }
+
   const btnRecalc = $("#btn-recalc-estimate");
   if (btnRecalc) {
     btnRecalc.onclick = async () => {
       btnRecalc.disabled = true;
       btnRecalc.textContent = "Recalculating…";
       try {
-        await Api.recalcEstimate(estimate.id);
-        toast("Recalculated from current inputs");
+        await Api.recalcSection(section.id);
+        toast("Section recalculated from current inputs");
         render();
       } catch (err) {
         toast(err.message, "err");
@@ -1037,13 +2797,14 @@ async function renderEstimateDetail(root) {
   }
   $("#btn-del-estimate").onclick = async () => {
     const msg =
-      `Delete estimate “${estimate.name}”?\n\n` +
-      `This permanently removes all mono slab pours and grade beams on it.`;
+      `Delete section “${section.name}”?\n\n` +
+      `This permanently removes its pours, beam types and takeoffs. ` +
+      `The rest of the job is untouched.`;
     if (!confirm(msg)) return;
     try {
-      await Api.deleteEstimate(estimate.id);
-      toast("Estimate deleted");
-      setRoute("project", { projectId: estimate.project_id });
+      await Api.deleteSection(section.id, true);
+      toast("Section deleted");
+      setRoute("estimate", { estimateId: estimate.id });
     } catch (err) {
       toast(err.message, "err");
     }
@@ -1051,7 +2812,7 @@ async function renderEstimateDetail(root) {
   $$(".btn-edit-slab", root).forEach((btn) => {
     btn.onclick = () => {
       const slab = slabs.find((s) => s.id === btn.dataset.id);
-      openMonoSlabModal(estimate, slab);
+      openMonoSlabModal(section, slab);
     };
   });
   $$(".btn-gb", root).forEach((btn) => {
@@ -1094,6 +2855,7 @@ function renderBeamTypesCard(types) {
     ["grade_beam", "Grade beams"],
     ["exposed", "Exposed GBs"],
     ["drop", "Drops"],
+    ["brick_ledge", "Brick ledge"],
   ];
 
   const totalLf = types.reduce((a, t) => a + Number(t.total_lf || 0), 0);
@@ -1166,12 +2928,12 @@ function renderBeamTypesCard(types) {
           </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Types</div>
             <div class="value" style="font-size:1.1rem">${types.length}</div>
             <div class="hint">${num(totalLf, 0)} LF total</div>
           </div>
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Beam CY</div>
             <div class="value" style="font-size:1.1rem">${num(totalCy, 1)}</div>
             <div class="hint">${num(totalLb, 0)} lb rebar</div>
@@ -1188,7 +2950,7 @@ function renderBeamTypesCard(types) {
 }
 
 /** Add or edit one section. Editing moves every pour using it. */
-function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam") {
+function openBeamTypeModal(section, existing = null, defaultKind = "grade_beam") {
   const isEdit = !!existing;
   const kind = existing?.kind || defaultKind;
   const backdrop = document.createElement("div");
@@ -1204,7 +2966,7 @@ function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam"
     <div class="modal" style="width:min(760px,100%)">
       <h2>${isEdit ? "Edit beam type" : "New beam type"}</h2>
       <p style="margin:-0.5rem 0 0.85rem;color:var(--text-muted);font-size:0.9rem">
-        Estimate: ${esc(estimate.name)} · the section is shared by every pour that uses it
+        ${esc(section.name)} · this beam type is shared by every pour in the section that uses it
       </p>
       ${usedNote}
       <form id="bt-form" class="form-grid">
@@ -1219,17 +2981,30 @@ function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam"
             <option value="grade_beam" ${kind === "grade_beam" ? "selected" : ""}>Grade beam</option>
             <option value="exposed" ${kind === "exposed" ? "selected" : ""}>Exposed GB</option>
             <option value="drop" ${kind === "drop" ? "selected" : ""}>Drop</option>
+            <option value="brick_ledge" ${kind === "brick_ledge" ? "selected" : ""}>Brick ledge</option>
           </select>
         </div>
         <div class="field">
           <label>Width (in) *</label>
-          <input type="number" name="width_in" required min="0.001" step="0.1"
+          <input type="number" name="width_in" required min="0" step="0.1"
             value="${esc(existing?.width_in ?? "")}" />
+          <span class="muted" id="wh-hint" style="color:var(--text-muted);font-size:0.78rem;${kind === "brick_ledge" ? "" : "display:none"}">
+            The added width x full depth — 0 x 0 if the ledge adds no concrete
+          </span>
         </div>
         <div class="field">
           <label>Height (in) *</label>
-          <input type="number" name="height_in" required min="0.001" step="0.1"
+          <input type="number" name="height_in" required min="0" step="0.1"
             value="${esc(existing?.height_in ?? "")}" />
+        </div>
+        <div class="field" id="face-field" style="${kind === "brick_ledge" ? "" : "display:none"}">
+          <label>Form face depth (in)</label>
+          <input type="number" name="form_face_in" min="0" step="0.5"
+            placeholder="blank = height"
+            value="${esc(existing?.form_face_in ?? "")}" />
+          <span class="muted" style="color:var(--text-muted);font-size:0.78rem">
+            The formed void at the top of the beam — 10&quot; on a typical 6&quot; x 10&quot; ledge
+          </span>
         </div>
         <div class="field full" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:0.75rem">
           <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase">Bar schedule</div>
@@ -1263,7 +3038,9 @@ function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam"
           <div style="display:flex;gap:0.4rem;align-items:center">
             <select name="stirrup_size">${barSizeOptions(existing?.stirrup_size)}</select>
             <span class="muted">@</span>
-            <input type="number" name="stirrup_spacing_in" min="0.1" step="0.5" style="width:4.5rem"
+            <!-- step="any": min 0.1 with step 0.5 made every whole inch invalid
+                 (0.1, 0.6 … 23.6, 24.1), so 24" o.c. was rejected. -->
+            <input type="number" name="stirrup_spacing_in" min="0.1" step="any" style="width:4.5rem"
               placeholder="in" value="${esc(existing?.stirrup_spacing_in ?? "")}" />
           </div>
         </div>
@@ -1290,8 +3067,13 @@ function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam"
   });
   // PT cables only apply to beams poured with the SOG.
   $('select[name="kind"]', backdrop).onchange = (e) => {
-    $("#pt-field", backdrop).style.display =
-      e.target.value === "grade_beam" ? "" : "none";
+    const k = e.target.value;
+    $("#pt-field", backdrop).style.display = k === "grade_beam" ? "" : "none";
+    // A ledge is the only kind that can be 0 x 0, and the only one that is formed
+    // to a depth different from its concrete depth.
+    $("#face-field", backdrop).style.display = k === "brick_ledge" ? "" : "none";
+    const hint = $("#wh-hint", backdrop);
+    if (hint) hint.style.display = k === "brick_ledge" ? "" : "none";
   };
 
   $("#bt-form", backdrop).onsubmit = async (e) => {
@@ -1314,6 +3096,7 @@ function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam"
       mid_bars_size: optNum("mid_bars_size"),
       stirrup_size: optNum("stirrup_size"),
       stirrup_spacing_in: optNum("stirrup_spacing_in"),
+      form_face_in: fd.get("kind") === "brick_ledge" ? optNum("form_face_in") : null,
       pt_cables_count: fd.get("kind") === "grade_beam" ? optNum("pt_cables_count") : null,
       notes: fd.get("notes") || null,
     };
@@ -1322,7 +3105,7 @@ function openBeamTypeModal(estimate, existing = null, defaultKind = "grade_beam"
         await Api.updateBeamType(existing.id, body);
         toast("Section saved — pours using it were recalculated");
       } else {
-        await Api.createBeamType(estimate.id, body);
+        await Api.createBeamType(section.id, body);
         toast("Beam type added");
       }
       backdrop.remove();
@@ -1362,12 +3145,41 @@ function renderFormingCard(forming) {
           <h3 style="margin:0">Forming materials</h3>
           <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
             Stored in <code>estimate_forming_lines</code>.
-            Perim <strong>${num(d.perimeter_lf, 0)} LF</strong>
-            · drops <strong>${num(d.drops_ff, 0)} LF</strong> <span title="Sum of drop-kind grade beams on this estimate">(from drop beams)</span>
-            · SF <strong>${num(d.total_sf, 0)}</strong>
+            ${
+              PIER_KINDS.has(d.kind)
+                ? `<strong>${num(d.pier_count, 0)} piers</strong> ·
+                   <strong>${num(d.total_lf, 0)} LF</strong> drilled
+                   <span title="Not one lumber line on this sheet runs off a perimeter">(counts and steel, no perimeter)</span>`
+                : COLUMN_KINDS.has(d.kind)
+                ? `<strong>${num(d.column_count, 0)} columns</strong> ·
+                   <strong>${num(d.form_sf, 0)} SF</strong> of form contact
+                   <span title="All four faces. A column is wrapped; a wall is formed on the face you can reach — which is why the $/SF rates here look small beside the wall sheet's $/FF.">(wrapped, not one face)</span>
+                   · chamfer <strong>${num(d.chamfer_lf, 0)} LF</strong>`
+                : WALL_KINDS.has(d.kind)
+                ? `<strong>${num(d.wall_lf, 0)} LF</strong> of wall ·
+                   <strong>${num(d.form_ff, 0)} FF</strong>
+                   <span title="One face — every $/FF rate on this assembly is priced against that convention">(one face)</span>
+                   · footing <strong>${num(d.footing_sf, 0)} SF</strong>`
+                : PAVING_KINDS.has(d.kind)
+                ? `Curb <strong>${num(d.curb_lf, 0)} LF</strong>
+                   <span title="Every lumber line on the paving sheet reads the curb column, not a perimeter">(what the lumber runs on)</span>
+                   · joints <strong>${num(d.construction_joint_lf, 0)}</strong> /
+                     <strong>${num(d.control_joint_lf, 0)} LF</strong>`
+                : `Perim <strong>${num(d.perimeter_lf, 0)} LF</strong>
+                   · drops <strong>${num(d.drops_ff, 0)} LF</strong> <span title="Sum of drop-kind grade beams on this estimate">(from drop beams)</span>`
+            }
+            ${
+              PIER_KINDS.has(d.kind) ||
+              COLUMN_KINDS.has(d.kind) ||
+              WALL_KINDS.has(d.kind)
+                ? ""
+                : `· SF <strong>${num(d.total_sf, 0)}</strong>`
+            }
             · last refresh <strong>${esc(refreshed)}</strong>
           </p>
-          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.65rem">
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.65rem${
+            PIER_KINDS.has(d.kind) ? ";display:none" : ""
+          }">
             <label for="form-percent-input" style="font-size:0.85rem;color:var(--text-muted)">
               % of forms
             </label>
@@ -1387,7 +3199,7 @@ function renderFormingCard(forming) {
           </div>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <div class="card stat" style="min-width:8rem;margin:0">
+          <div class="card stat" style="min-width:11rem;margin:0">
             <div class="label">Forming mat’l</div>
             <div class="value" style="font-size:1.25rem">${money(forming.total_ext_cost)}</div>
           </div>
@@ -1419,11 +3231,14 @@ function renderFormingCard(forming) {
                   : ""}
                 ${ln.notes ? `<div class="muted">${esc(ln.notes)}</div>` : ""}
                 ${ln.is_manual ? `<div class="badge">manual</div>` : ""}
+                ${ln.missing_price
+                  ? ` <span class="badge warn" title="A real quantity with no catalog price behind it. This line adds $0 to the total — the total is light by whatever it should cost.">unpriced</span>`
+                  : ""}
               </td>
               <td class="num"><strong>${num(ln.qty, Number(ln.qty) >= 20 || Number(ln.qty) === 0 ? 0 : 2)}</strong></td>
               <td class="muted">${esc(ln.unit)}</td>
-              <td class="num muted">${ln.unit_cost != null ? num(ln.unit_cost, 2) : "—"}</td>
-              <td class="num">${ln.ext_cost != null ? money(ln.ext_cost) : "—"}</td>
+              <td class="num muted">${ln.unit_cost != null ? num(ln.unit_cost, 2) : ln.missing_price ? `<span class="badge warn">none</span>` : "—"}</td>
+              <td class="num">${ln.ext_cost != null ? money(ln.ext_cost) : ln.missing_price ? `<span class="badge warn">$0 — unpriced</span>` : "—"}</td>
               <td class="muted" style="font-size:0.78rem">${esc(ln.formula || "")}</td>
             </tr>`
             )
@@ -1458,6 +3273,25 @@ function renderLaborCard(labor) {
   const refreshed = labor.refreshed_at
     ? new Date(labor.refreshed_at).toLocaleString()
     : "—";
+  // Paving is its own sheet with its own line set and its own supervision
+  // ladder — 25,000 SF a week against the slab sheet's 16,000 (sql/035-036).
+  const isPav = PAVING_KINDS.has(d.kind);
+  const isPie = PIER_KINDS.has(d.kind);
+  // Columns are the only assembly whose duration comes from a COUNT rather
+  // than an area or a typed number of days: 20 columns a week on a five-day
+  // week. Reporting it as SF/week would be a number nobody set.
+  const isCol = COLUMN_KINDS.has(d.kind);
+  // Walls read "04 LABOR / SUPERVISION — SF 0 · drops 0 LF" until 2026-09-01,
+  // because there was no walls branch and it fell through to the mono-slab
+  // wording. A zero next to a label that does not apply is worse than no
+  // label: it reads as a takeoff that came back empty.
+  const isWal = WALL_KINDS.has(d.kind);
+  const superSfPerWeek =
+    d.super_weeks && Number(d.super_weeks) > 0
+      ? Number(d.total_sf) / Number(d.super_weeks)
+      : isPav
+        ? 25000
+        : 16000;
 
   function groupTable(group, title) {
     const lines = (labor.lines || []).filter((ln) => ln.group_name === group);
@@ -1524,38 +3358,112 @@ function renderLaborCard(labor) {
         <div>
           <h3 style="margin:0">Labor &amp; supervision</h3>
           <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
-            Excel <strong>04 LABOR / SUPERVISION</strong> — stored in
+            Excel <strong>${
+              isPie
+                ? "01-PIERS LABOR"
+                : isCol
+                ? "07-COLUMNS LABOR"
+                : isWal
+                ? "06-WALLS LABOR"
+                : isPav
+                ? "10-PAVING LABOR"
+                : "04 LABOR / SUPERVISION"
+            }</strong> — stored in
             <code>estimate_labor_lines</code>.
-            SF <strong>${num(d.total_sf, 0)}</strong>
-            · drops <strong>${num(d.drops_ff, 0)} LF</strong> <span title="Sum of drop-kind grade beams on this estimate">(from drop beams)</span>
+            ${
+              isPie
+                ? `<strong>${num(d.pier_count, 0)} piers</strong> · <strong>${num(d.total_lf, 0)} LF</strong>`
+                : isCol
+                ? `<strong>${num(d.column_count, 0)} columns</strong> · form <strong>${num(d.form_sf, 0)} SF</strong>`
+                : isWal
+                ? `<strong>${num(d.wall_lf, 0)} LF</strong> of wall · <strong>${num(d.form_ff, 0)} FF</strong> · footing <strong>${num(d.footing_sf, 0)} SF</strong>`
+                : `SF <strong>${num(d.total_sf, 0)}</strong>`
+            }
+            ${
+              isPie || isCol || isWal
+                ? ""
+                : isPav
+                ? `· curb <strong>${num(d.curb_lf, 0)} LF</strong>`
+                : `· drops <strong>${num(d.drops_ff, 0)} LF</strong> <span title="Sum of drop-kind grade beams on this estimate">(from drop beams)</span>`
+            }
             · rebar <strong>${num(d.total_rebar_tons, 2)} ton</strong>
             · super <strong>${num(d.super_weeks, 2)} wk / ${num(d.super_days, 1)} days</strong>
             · refreshed <strong>${esc(refreshed)}</strong>
           </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Labor</div>
             <div class="value" style="font-size:1.1rem">${money(labor.total_labor_cost)}</div>
           </div>
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Supervision</div>
             <div class="value" style="font-size:1.1rem">${money(labor.total_supervision_cost)}</div>
           </div>
-          <div class="card stat" style="min-width:7rem;margin:0">
-            <div class="label">Total / SF</div>
+          <div class="card stat" style="min-width:10rem;margin:0">
+            <div class="label">${isPie || isCol || isWal ? "Total" : "Total / SF"}</div>
             <div class="value" style="font-size:1.1rem">${money(labor.total_cost)}</div>
-            <div class="hint">${labor.cost_per_sf != null ? num(labor.cost_per_sf, 2) + " $/SF" : "—"}</div>
+            <div class="hint">${
+              isPie
+                ? (d.pier_count ? usd(Number(labor.total_cost) / Number(d.pier_count), 0) + " / pier" : "—")
+                : isCol
+                ? (d.column_count ? usd(Number(labor.total_cost) / Number(d.column_count), 0) + " / column" : "—")
+                : isWal
+                ? (Number(d.form_ff) ? usd(Number(labor.total_cost) / Number(d.form_ff), 2) + " / form ft" : "—")
+                : labor.cost_per_sf != null
+                ? num(labor.cost_per_sf, 2) + " $/SF"
+                : "—"
+            }</div>
           </div>
           <button type="button" class="btn" id="btn-refresh-labor">Refresh from pours</button>
         </div>
       </div>
-      ${groupTable("labor", "Slab labor")}
+      ${groupTable("labor", isPie ? "Pier labor" : isPav ? "Paving labor" : "Slab labor")}
       ${groupTable("supervision", "Supervision")}
       <p style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0">
         Toggle <strong>On</strong> and edit <strong>rate</strong>, then <strong>Save</strong>.
-        Slab labor <strong>qty is from pours</strong> (not editable) — use <strong>Refresh from pours</strong> after SF/drops/rebar change.
-        Supervision qty (e.g. foreman days) can be edited. Super days = SF ÷ 16,000 weeks × 7.
+        ${isPie ? "Pier" : isCol ? "Column" : isWal ? "Wall" : isPav ? "Paving" : "Slab"} labor
+        <strong>qty is from ${
+          isPie
+            ? "the groups"
+            : isCol
+            ? "the schedule"
+            : isWal
+            ? "the runs"
+            : isPav
+            ? "areas"
+            : "pours"
+        }</strong>
+        (not editable) — use <strong>Refresh from pours</strong> after
+        ${
+          isPie
+            ? "piers / depth / rebar"
+            : isCol
+            ? "quantity / size / rebar"
+            : isWal
+            ? "length / height / rebar"
+            : isPav
+            ? "SF / curb / rebar"
+            : "SF/drops/rebar"
+        } change.
+        ${
+          isPie || isWal
+            ? "<strong>Supervision days are entered, not derived</strong> — there is no " +
+              "area to divide. Change the superintendent days and the equipment ladder " +
+              "moves with them."
+            : isCol
+            ? `<strong>Super days come from the column COUNT</strong>, not an area:
+               ${num(d.column_count, 0)} ÷ ${num(d.sf_per_week, 0)} a week
+               × ${num(d.days_per_week, 0)}-day week = ${num(d.super_days, 1)} days.
+               A column crew is not on site seven days running, and 68 columns is a
+               duration whatever their size. Changing a quantity on ONE type moves
+               the superintendent, the foreman and the whole rental ladder for every
+               other type.`
+            : `Supervision qty (e.g. foreman days) can be edited. Super days = SF ÷ ${num(
+                superSfPerWeek,
+                0
+              )} weeks × 7.`
+        }
       </p>
     </div>`;
 }
@@ -1622,6 +3530,11 @@ function renderEquipmentCard(equip) {
               <td>
                 <input type="number" class="equip-rate" data-code="${esc(ln.code)}"
                   min="0" step="0.01" value="${esc(ln.rate)}" style="width:5rem" />
+                ${ln.missing_price
+                  ? `<div><span class="badge warn" title="Not on this job's price sheet and no assembly rate — this number is a placeholder from the code, not a price anyone set. Price the machine on the price sheet, or in the catalog and pull.">placeholder rate</span></div>`
+                  : ln.price_source === "rate"
+                  ? `<div class="muted" style="font-size:0.72rem" title="From assembly_rates, not the equipment catalog">assembly rate</div>`
+                  : ""}
               </td>
               <td class="muted">${esc(ln.unit)}</td>
               <td class="num"><strong>${money(ln.ext_cost)}</strong></td>
@@ -1641,7 +3554,17 @@ function renderEquipmentCard(equip) {
         <div>
           <h3 style="margin:0">Equipment</h3>
           <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
-            Excel <strong>04 EQUIPMENT</strong> — stored in <code>estimate_equipment_lines</code>.
+            Excel <strong>${
+              PIER_KINDS.has(d.kind)
+                ? "01-PIERS EQUIPMENT"
+                : COLUMN_KINDS.has(d.kind)
+                ? "07-COLUMNS EQUIPMENT"
+                : WALL_KINDS.has(d.kind)
+                ? "06-WALLS EQUIPMENT"
+                : PAVING_KINDS.has(d.kind)
+                ? "10-PAVING EQUIPMENT"
+                : "04 EQUIPMENT"
+            }</strong> — stored in <code>estimate_equipment_lines</code>.
             Super days <strong>${num(d.super_days, 1)}</strong>
             → equip days <strong>${num(d.equip_days, 0)}</strong> (ladder)
             · pour CY <strong>${num(d.total_concrete_cy, 1)}</strong>
@@ -1649,15 +3572,15 @@ function renderEquipmentCard(equip) {
           </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Fleet</div>
             <div class="value" style="font-size:1.1rem">${money(equip.total_equipment_cost)}</div>
           </div>
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Contract</div>
             <div class="value" style="font-size:1.1rem">${money(equip.total_contract_cost)}</div>
           </div>
-          <div class="card stat" style="min-width:7rem;margin:0">
+          <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Total</div>
             <div class="value" style="font-size:1.1rem">${money(equip.total_cost)}</div>
             <div class="hint">${equip.cost_per_sf != null ? num(equip.cost_per_sf, 2) + " $/SF" : "—"}</div>
@@ -1698,6 +3621,13 @@ const BEAM_KIND_META = {
     short: "Drops",
     labelPrefix: "Drop Type",
     hint: "Excel Drops — same CY/rebar as GBs into this pour. Extra forming & labor priced later.",
+    showPt: false,
+  },
+  brick_ledge: {
+    title: "Brick ledge",
+    short: "Ledge",
+    labelPrefix: "Ledge",
+    hint: "Priced as the thickening it is — concrete, rebar and poly like any beam. What it adds is forming (a 2x6 along the length, ply over the face depth) and its own labor line. Use 0 x 0 for a ledge that is only formed.",
     showPt: false,
   },
 };
@@ -1781,7 +3711,7 @@ async function openGradeBeamsModal(slab, kind = "grade_beam") {
   let usages = [];
   try {
     [types, usages] = await Promise.all([
-      Api.listBeamTypes(slab.estimate_id, kind),
+      Api.listBeamTypes(slab.section_id, kind),
       Api.listGradeBeams(slab.id, kind),
     ]);
   } catch (err) {
@@ -1929,10 +3859,10 @@ async function openGradeBeamsModal(slab, kind = "grade_beam") {
         delete body.pour_count;
         delete body.total_lf;
         if (r.id) await Api.updateBeamType(r.id, body);
-        else await Api.createBeamType(slab.estimate_id, body);
+        else await Api.createBeamType(slab.section_id, body);
       }
       toast("Schedule saved — pours using these types were recalculated");
-      types = await Api.listBeamTypes(slab.estimate_id, kind);
+      types = await Api.listBeamTypes(slab.section_id, kind);
       usages = await Api.listGradeBeams(slab.id, kind);
       lengthByType.clear();
       usages.forEach((u) => lengthByType.set(u.beam_type_id, u.length_lf));
@@ -1971,7 +3901,7 @@ async function openGradeBeamsModal(slab, kind = "grade_beam") {
   });
 }
 
-function openMonoSlabModal(estimate, existing = null) {
+function openMonoSlabModal(section, existing = null) {
   const isEdit = !!existing;
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
@@ -1986,7 +3916,7 @@ function openMonoSlabModal(estimate, existing = null) {
     <div class="modal" style="width:min(720px,100%)">
       <h2>${isEdit ? "Edit mono slab" : "New mono slab pour"}</h2>
       <p style="margin:-0.5rem 0 1rem;color:var(--text-muted);font-size:0.9rem">
-        Estimate: ${esc(estimate.name)} · calcs refresh on save
+        Section: ${esc(section.name)} · calcs refresh on save
       </p>
       <form id="slab-form" class="form-grid">
         <div class="field">
@@ -2052,7 +3982,8 @@ function openMonoSlabModal(estimate, existing = null) {
         </div>
         <div class="field">
           <label>Slab bar spacing (in o.c.)</label>
-          <input type="number" name="slab_bar_spacing_in" min="0.1" step="0.5"
+          <!-- step="any" — same trap as stirrup spacing: 18" was invalid. -->
+          <input type="number" name="slab_bar_spacing_in" min="0.1" step="any"
             placeholder="e.g. 18 — each way"
             title="Each way. LF = 2 × SF × 12 / spacing"
             value="${existing?.slab_bar_spacing_in != null ? esc(existing.slab_bar_spacing_in) : ""}" />
@@ -2142,7 +4073,7 @@ function openMonoSlabModal(estimate, existing = null) {
         await Api.updateMonoSlab(existing.id, body);
         toast("Pour updated · calcs refreshed");
       } else {
-        await Api.createMonoSlab({ ...body, estimate_id: estimate.id });
+        await Api.createMonoSlab({ ...body, section_id: section.id });
         toast("Pour added · calcs refreshed");
       }
       backdrop.remove();
@@ -2153,62 +4084,348 @@ function openMonoSlabModal(estimate, existing = null) {
   };
 }
 
+// ---------- Catalogs (materials, equipment, mix designs) ----------
+//
+// Saving a price here does not touch stored estimates: costing reads catalog
+// prices at recalc time, so a change lands on the next recalc. The reprice bar
+// below is how you push it through — and it deliberately leaves final and
+// archived estimates at the numbers they were bid with.
+
+/** Set once a catalog price changes, so the reprice bar can say so. */
+let catalogDirty = false;
+
+async function reprice(btn, statusEl) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Repricing…";
+  try {
+    const report = await Api.recalcAllEstimates();
+    const n = report.recalculated?.length ?? 0;
+    const skipped = report.skipped ?? [];
+    catalogDirty = false;
+    statusEl.textContent = skipped.length
+      ? `Repriced ${n} open estimate${n === 1 ? "" : "s"} · left ${skipped.length} final/archived alone`
+      : `Repriced ${n} open estimate${n === 1 ? "" : "s"}`;
+    toast(`Repriced ${n} estimate${n === 1 ? "" : "s"}`);
+    $("#reprice-bar")?.classList.remove("dirty");
+  } catch (err) {
+    toast(err.message, "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+function repriceBarHtml() {
+  return `
+    <div id="reprice-bar" class="card ${catalogDirty ? "dirty" : ""}"
+         style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem">
+      <div style="flex:1;min-width:16rem">
+        <strong>Prices don't reach estimates on their own.</strong>
+        <div class="muted" style="color:var(--text-muted);font-size:0.85rem">
+          Repricing rewrites open estimates (draft, in review). Final and archived
+          ones keep the numbers they were bid with.
+        </div>
+      </div>
+      <span id="reprice-status" class="muted"
+            style="color:var(--text-muted);font-size:0.85rem"></span>
+      <button class="btn primary" id="reprice-btn">Reprice open estimates</button>
+    </div>`;
+}
+
+function wireRepriceBar(root) {
+  const btn = $("#reprice-btn", root);
+  if (!btn) return;
+  btn.onclick = () => reprice(btn, $("#reprice-status", root));
+}
+
+function markCatalogDirty() {
+  catalogDirty = true;
+  $("#reprice-bar")?.classList.add("dirty");
+  const s = $("#reprice-status");
+  if (s) s.textContent = "Open estimates are out of date";
+}
+
+/**
+ * A modal form built from a field spec. Returns the values as an object, with
+ * blanks as null and numbers as numbers, so it can go straight to the API.
+ */
+function openRowModal({ title, subtitle = "", fields, values = {}, saveLabel = "Save", onSave }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const fieldHtml = (f) => {
+    const v = values[f.name];
+    const cls = `field${f.full ? " full" : ""}`;
+    const style = f.full ? ' style="grid-column:1/-1"' : "";
+    let input;
+    if (f.type === "select") {
+      input = `<select name="${f.name}">${f.options
+        .map(
+          (o) =>
+            `<option value="${esc(o.value)}" ${String(v ?? "") === String(o.value) ? "selected" : ""}>${esc(o.label)}</option>`
+        )
+        .join("")}</select>`;
+    } else if (f.type === "textarea") {
+      input = `<textarea name="${f.name}">${esc(v ?? "")}</textarea>`;
+    } else if (f.type === "checkbox") {
+      input = `<label style="display:flex;gap:0.4rem;align-items:center;font-weight:400">
+        <input type="checkbox" name="${f.name}" ${v ? "checked" : ""} /> ${esc(f.checkboxLabel || "")}
+      </label>`;
+    } else {
+      const attrs = [
+        `type="${f.type || "text"}"`,
+        `name="${f.name}"`,
+        f.required ? "required" : "",
+        f.step ? `step="${f.step}"` : "",
+        f.min != null ? `min="${f.min}"` : "",
+        f.placeholder ? `placeholder="${esc(f.placeholder)}"` : "",
+        `value="${esc(v ?? "")}"`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      input = `<input ${attrs} />`;
+    }
+    const hint = f.hint
+      ? `<span class="muted" style="color:var(--text-muted);font-size:0.78rem">${esc(f.hint)}</span>`
+      : "";
+    return `<div class="${cls}"${style}>
+      ${f.type === "checkbox" ? "" : `<label>${esc(f.label)}${f.required ? " *" : ""}</label>`}
+      ${input}${hint}
+    </div>`;
+  };
+
+  backdrop.innerHTML = `
+    <div class="modal" style="width:min(720px,100%)">
+      <h2>${esc(title)}</h2>
+      ${
+        subtitle
+          ? `<p style="margin:-0.5rem 0 0.85rem;color:var(--text-muted);font-size:0.9rem">${esc(subtitle)}</p>`
+          : ""
+      }
+      <form id="row-form" class="form-grid">
+        ${fields.map(fieldHtml).join("")}
+        <div class="modal-actions" style="grid-column:1/-1">
+          <button type="button" class="btn ghost" id="cancel">Cancel</button>
+          <button type="submit" class="btn primary">${esc(saveLabel)}</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const close = () => {
+    backdrop.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  function onKey(e) {
+    if (e.key === "Escape") close();
+  }
+  document.addEventListener("keydown", onKey);
+  $("#cancel", backdrop).onclick = close;
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) close();
+  });
+
+  $("#row-form", backdrop).onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const fd = new FormData(form);
+    const body = {};
+    for (const f of fields) {
+      if (f.type === "checkbox") {
+        body[f.name] = form.elements[f.name].checked;
+        continue;
+      }
+      const raw = fd.get(f.name);
+      const s = typeof raw === "string" ? raw.trim() : raw;
+      if (s === "" || s == null) {
+        body[f.name] = null;
+      } else if (f.type === "number") {
+        body[f.name] = Number(s);
+      } else {
+        body[f.name] = s;
+      }
+    }
+    const submit = $('button[type="submit"]', form);
+    submit.disabled = true;
+    try {
+      await onSave(body);
+      close();
+    } catch (err) {
+      toast(err.message, "err");
+      submit.disabled = false;
+    }
+  };
+}
+
 async function renderMixes(root) {
   root.innerHTML = `<div class="loading">Loading mix designs…</div>`;
-  const mixes = await Api.listMixes({ active_only: true });
+  let showInactive = false;
+
+  const mixFields = () => [
+    { name: "code", label: "Code", required: true, placeholder: "3000SC" },
+    { name: "name", label: "Name", required: true, placeholder: "3000 PSI SC" },
+    { name: "strength_psi", label: "PSI", type: "number", step: "50", min: 0 },
+    { name: "unit_cost", label: "Unit cost ($/CY)", type: "number", step: "0.01", min: 0,
+      hint: "Blank falls back to the cheapest supplier quote" },
+    { name: "has_ash", label: "Ash", type: "checkbox", checkboxLabel: "Contains fly ash" },
+    { name: "has_air", label: "Air", type: "checkbox", checkboxLabel: "Air entrained" },
+    { name: "notes", label: "Notes", type: "textarea", full: true },
+  ];
+
+  async function load() {
+    const mixes = await Api.listMixes({ active_only: !showInactive });
+    $("#mix-body").innerHTML = `
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr>
+            <th>Code</th><th>Name</th><th>PSI</th><th>Ash</th><th>Air</th>
+            <th>Unit cost</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${mixes
+              .map(
+                (m) => `<tr ${m.is_active === false ? 'style="opacity:0.5"' : ""}>
+                <td class="muted">${esc(m.code)}</td>
+                <td><strong>${esc(m.name)}</strong>${m.is_active === false ? " (inactive)" : ""}</td>
+                <td class="num">${m.strength_psi ?? "—"}</td>
+                <td>${m.has_ash ? "✓" : ""}</td>
+                <td>${m.has_air ? "✓" : ""}</td>
+                <td class="num">${m.unit_cost != null ? money(m.unit_cost) : "—"}</td>
+                <td style="white-space:nowrap;text-align:right">
+                  <button class="btn ghost" data-edit="${m.id}">Edit</button>
+                  ${m.is_active === false ? "" : `<button class="btn ghost" data-off="${m.id}">Deactivate</button>`}
+                </td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="color:var(--text-muted);font-size:0.85rem">${mixes.length} mixes</p>`;
+
+    $$("#mix-body [data-edit]").forEach((b) => {
+      b.onclick = () => {
+        const m = mixes.find((x) => String(x.id) === b.dataset.edit);
+        openRowModal({
+          title: "Edit mix design",
+          subtitle: m.name,
+          fields: mixFields(),
+          values: m,
+          saveLabel: "Save mix",
+          onSave: async (body) => {
+            await Api.updateMix(m.id, body);
+            markCatalogDirty();
+            toast("Mix saved");
+            await load();
+          },
+        });
+      };
+    });
+    $$("#mix-body [data-off]").forEach((b) => {
+      b.onclick = async () => {
+        const m = mixes.find((x) => String(x.id) === b.dataset.off);
+        if (!confirm(`Deactivate ${m.name}? Estimates already using it keep their numbers.`)) return;
+        try {
+          await Api.deactivateMix(m.id);
+          toast("Mix deactivated");
+          await load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+  }
+
   root.innerHTML = `
     <div class="page-header">
       <div>
         <h1>Mix designs</h1>
         <p>SC / ASH / Air-ASH matrix + 3000 integral color.</p>
       </div>
+      <button class="btn primary" id="mix-new">+ New mix</button>
     </div>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Code</th><th>Name</th><th>PSI</th><th>Ash</th><th>Air</th><th>Unit cost</th></tr></thead>
-        <tbody>
-          ${mixes
-            .map(
-              (m) => `<tr>
-              <td class="muted">${esc(m.code)}</td>
-              <td><strong>${esc(m.name)}</strong></td>
-              <td class="num">${m.strength_psi ?? "—"}</td>
-              <td>${m.has_ash ? "✓" : ""}</td>
-              <td>${m.has_air ? "✓" : ""}</td>
-              <td class="num">${m.unit_cost != null ? money(m.unit_cost) : "—"}</td>
-            </tr>`
-            )
-            .join("")}
-        </tbody>
-      </table>
-    </div>`;
+    ${repriceBarHtml()}
+    <div class="toolbar">
+      <label style="display:flex;gap:0.4rem;align-items:center">
+        <input type="checkbox" id="mix-inactive" /> Show inactive
+      </label>
+    </div>
+    <div id="mix-body"></div>`;
+
+  wireRepriceBar(root);
+  await load();
+
+  $("#mix-inactive").onchange = (e) => {
+    showInactive = e.target.checked;
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#mix-new").onclick = () =>
+    openRowModal({
+      title: "New mix design",
+      fields: mixFields(),
+      values: { has_ash: false, has_air: false },
+      saveLabel: "Add mix",
+      onSave: async (body) => {
+        await Api.createMix(body);
+        markCatalogDirty();
+        toast("Mix added");
+        await load();
+      },
+    });
 }
+
 
 async function renderMaterials(root) {
   root.innerHTML = `<div class="loading">Loading materials…</div>`;
-  const cats = await Api.materialCategories();
+  let cats = await Api.materialCategories();
   let category = "";
   let q = "";
+  let showInactive = false;
+
+  const matFields = () => [
+    { name: "name", label: "Name", required: true, full: true,
+      hint: "Costing matches materials by name — renaming can change what a takeoff finds" },
+    { name: "category", label: "Category", required: true,
+      placeholder: cats[0] || "lumber" },
+    { name: "unit", label: "Unit", required: true, placeholder: "EA / LF / SF / CY / TON" },
+    { name: "unit_cost", label: "Unit cost ($)", type: "number", step: "0.0001", min: 0 },
+    { name: "unit_note", label: "Unit note", placeholder: "per 100 SF roll" },
+    { name: "code", label: "Code" },
+    { name: "supplier_ref", label: "Supplier ref" },
+    { name: "price_as_of", label: "Priced as of", type: "date" },
+    { name: "description", label: "Description", type: "textarea", full: true },
+  ];
 
   async function load() {
     const rows = await Api.listMaterials({
-      active_only: true,
+      active_only: !showInactive,
       category: category || undefined,
       q: q || undefined,
     });
     $("#mat-body").innerHTML = `
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>Cost</th><th>Note</th></tr></thead>
+          <thead><tr>
+            <th>Name</th><th>Category</th><th>Unit</th><th>Cost</th>
+            <th>Note</th><th>As of</th><th></th>
+          </tr></thead>
           <tbody>
             ${rows
               .map(
-                (m) => `<tr>
-                <td><strong>${esc(m.name)}</strong></td>
+                (m) => `<tr ${m.is_active ? "" : 'style="opacity:0.5"'}>
+                <td><strong>${esc(m.name)}</strong>${m.is_active ? "" : " (inactive)"}</td>
                 <td class="muted">${esc(m.category)}</td>
                 <td>${esc(m.unit)}</td>
                 <td class="num">${m.unit_cost != null ? money(m.unit_cost) : "—"}</td>
                 <td class="muted">${esc(m.unit_note || "")}</td>
+                <td class="muted">${esc(m.price_as_of || "—")}</td>
+                <td style="white-space:nowrap;text-align:right">
+                  <button class="btn ghost" data-edit="${m.id}">Edit</button>
+                  ${
+                    m.is_active
+                      ? `<button class="btn ghost" data-off="${m.id}">Deactivate</button>`
+                      : `<button class="btn ghost" data-on="${m.id}">Reactivate</button>`
+                  }
+                </td>
               </tr>`
               )
               .join("")}
@@ -2216,6 +4433,49 @@ async function renderMaterials(root) {
         </table>
       </div>
       <p class="muted" style="color:var(--text-muted);font-size:0.85rem">${rows.length} items</p>`;
+
+    $$("#mat-body [data-edit]").forEach((b) => {
+      b.onclick = () => {
+        const m = rows.find((x) => String(x.id) === b.dataset.edit);
+        openRowModal({
+          title: "Edit material",
+          subtitle: m.name,
+          fields: matFields(),
+          values: m,
+          saveLabel: "Save material",
+          onSave: async (body) => {
+            await Api.updateMaterial(m.id, body);
+            markCatalogDirty();
+            toast("Material saved");
+            await load();
+          },
+        });
+      };
+    });
+    $$("#mat-body [data-off]").forEach((b) => {
+      b.onclick = async () => {
+        const m = rows.find((x) => String(x.id) === b.dataset.off);
+        if (!confirm(`Deactivate ${m.name}? Takeoffs that price off it will stop finding it.`)) return;
+        try {
+          await Api.deactivateMaterial(m.id);
+          toast("Material deactivated");
+          await load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+    $$("#mat-body [data-on]").forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await Api.updateMaterial(b.dataset.on, { is_active: true });
+          toast("Material reactivated");
+          await load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
   }
 
   root.innerHTML = `
@@ -2224,21 +4484,46 @@ async function renderMaterials(root) {
         <h1>Materials</h1>
         <p>Unit-price catalog from Pricing (New Current Worksheet).</p>
       </div>
+      <button class="btn primary" id="mat-new">+ New material</button>
     </div>
+    ${repriceBarHtml()}
     <div class="toolbar">
       <input id="mat-q" placeholder="Search…" style="min-width:180px" />
       <select id="mat-cat">
         <option value="">All categories</option>
         ${cats.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("")}
       </select>
+      <label style="display:flex;gap:0.4rem;align-items:center">
+        <input type="checkbox" id="mat-inactive" /> Show inactive
+      </label>
     </div>
     <div id="mat-body"></div>`;
 
+  wireRepriceBar(root);
   await load();
+
   $("#mat-cat").onchange = (e) => {
     category = e.target.value;
     load().catch((err) => toast(err.message, "err"));
   };
+  $("#mat-inactive").onchange = (e) => {
+    showInactive = e.target.checked;
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#mat-new").onclick = () =>
+    openRowModal({
+      title: "New material",
+      fields: matFields(),
+      values: { category, unit: "EA" },
+      saveLabel: "Add material",
+      onSave: async (body) => {
+        await Api.createMaterial(body);
+        markCatalogDirty();
+        toast("Material added");
+        cats = await Api.materialCategories();
+        await load();
+      },
+    });
   let t;
   $("#mat-q").oninput = (e) => {
     clearTimeout(t);
@@ -2251,31 +4536,495 @@ async function renderMaterials(root) {
 
 async function renderEquipment(root) {
   root.innerHTML = `<div class="loading">Loading equipment…</div>`;
-  const rows = await Api.listEquipment({ active_only: true });
+  const cats = await Api.equipmentCategories();
+  let showInactive = false;
+
+  const equipFields = () => [
+    { name: "name", label: "Name", required: true, full: true, placeholder: "MINI EXCAVATOR" },
+    { name: "category", label: "Category", type: "select",
+      options: cats.map((c) => ({ value: c, label: c })) },
+    { name: "unit", label: "Unit", required: true, placeholder: "DAY / YD / HOUR" },
+    { name: "unit_cost", label: "Rate ($)", type: "number", step: "0.01", min: 0 },
+    { name: "unit_note", label: "Rate note", placeholder: "weekly rate ÷ 5" },
+    { name: "code", label: "Code" },
+    { name: "price_as_of", label: "Priced as of", type: "date" },
+    { name: "is_owned", label: "Owned", type: "checkbox",
+      checkboxLabel: "Company owned (not rented)" },
+    { name: "description", label: "Description", type: "textarea", full: true },
+  ];
+
+  async function load() {
+    const rows = await Api.listEquipment({ active_only: !showInactive });
+    $("#eq-body").innerHTML = `
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr>
+            <th>Name</th><th>Category</th><th>Unit</th><th>Rate</th>
+            <th>Note</th><th>Owned</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (e) => `<tr ${e.is_active ? "" : 'style="opacity:0.5"'}>
+                <td><strong>${esc(e.name)}</strong>${e.is_active ? "" : " (inactive)"}</td>
+                <td class="muted">${esc(e.category)}</td>
+                <td>${esc(e.unit)}</td>
+                <td class="num">${money(e.unit_cost)}</td>
+                <td class="muted">${esc(e.unit_note || "")}</td>
+                <td>${e.is_owned ? "✓" : ""}</td>
+                <td style="white-space:nowrap;text-align:right">
+                  <button class="btn ghost" data-edit="${e.id}">Edit</button>
+                  ${
+                    e.is_active
+                      ? `<button class="btn ghost" data-off="${e.id}">Deactivate</button>`
+                      : `<button class="btn ghost" data-on="${e.id}">Reactivate</button>`
+                  }
+                </td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="color:var(--text-muted);font-size:0.85rem">${rows.length} items</p>`;
+
+    $$("#eq-body [data-edit]").forEach((b) => {
+      b.onclick = () => {
+        const e = rows.find((x) => String(x.id) === b.dataset.edit);
+        openRowModal({
+          title: "Edit equipment",
+          subtitle: e.name,
+          fields: equipFields(),
+          values: e,
+          saveLabel: "Save equipment",
+          onSave: async (body) => {
+            await Api.updateEquipment(e.id, body);
+            markCatalogDirty();
+            toast("Equipment saved");
+            await load();
+          },
+        });
+      };
+    });
+    $$("#eq-body [data-off]").forEach((b) => {
+      b.onclick = async () => {
+        const e = rows.find((x) => String(x.id) === b.dataset.off);
+        if (!confirm(`Deactivate ${e.name}? Takeoffs that price off it will stop finding it.`)) return;
+        try {
+          await Api.deactivateEquipment(e.id);
+          toast("Equipment deactivated");
+          await load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+    $$("#eq-body [data-on]").forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await Api.updateEquipment(b.dataset.on, { is_active: true });
+          toast("Equipment reactivated");
+          await load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+  }
+
   root.innerHTML = `
     <div class="page-header">
       <div>
         <h1>Equipment</h1>
         <p>Rental rates from Pricing EQUIPMENT RENTAL.</p>
       </div>
+      <button class="btn primary" id="eq-new">+ New equipment</button>
     </div>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>Rate</th></tr></thead>
-        <tbody>
-          ${rows
-            .map(
-              (e) => `<tr>
-              <td><strong>${esc(e.name)}</strong></td>
-              <td class="muted">${esc(e.category)}</td>
-              <td>${esc(e.unit)}</td>
-              <td class="num">${money(e.unit_cost)}</td>
-            </tr>`
-            )
-            .join("")}
-        </tbody>
-      </table>
+    ${repriceBarHtml()}
+    <div class="toolbar">
+      <label style="display:flex;gap:0.4rem;align-items:center">
+        <input type="checkbox" id="eq-inactive" /> Show inactive
+      </label>
+    </div>
+    <div id="eq-body"></div>`;
+
+  wireRepriceBar(root);
+  await load();
+
+  $("#eq-inactive").onchange = (e) => {
+    showInactive = e.target.checked;
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#eq-new").onclick = () =>
+    openRowModal({
+      title: "New equipment",
+      fields: equipFields(),
+      values: { category: "other", unit: "DAY", is_owned: false },
+      saveLabel: "Add equipment",
+      onSave: async (body) => {
+        await Api.createEquipment(body);
+        markCatalogDirty();
+        toast("Equipment added");
+        await load();
+      },
+    });
+}
+
+// ================================================================ prices ====
+// The job's price sheet (sql/048). Every estimate carries its own copy of the
+// master list's mix and material prices, pulled when the estimate was created.
+// From then on THIS sheet is what the job pays: a catalog change does not move
+// a bid that has already gone out, and a plant's break on one job stays on
+// that job. Chad, 2026-09-02: "as we start an estimate, it pulls those
+// numbers and we can update when a supplier gives us a quote."
+//
+// Two rules the screen has to make visible:
+//   - an edited row is never overwritten by a pull; it is shown as a conflict
+//     (was / now / yours) and kept until someone resets it by hand;
+//   - a master item with no price is reported, never copied as $0.
+
+function fmtDay(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** A price the way the sheet stores it — up to four decimals, no trailing noise. */
+function priceText(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (Number.isNaN(n)) return "—";
+  return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+function driftSummaryText(d) {
+  if (!d) return "";
+  const parts = [];
+  if (d.changed.length) parts.push(`${d.changed.length} price${d.changed.length === 1 ? "" : "s"} changed`);
+  if (d.new.length) parts.push(`${d.new.length} new item${d.new.length === 1 ? "" : "s"}`);
+  if (d.conflicts.length)
+    parts.push(`${d.conflicts.length} moved under ${d.conflicts.length === 1 ? "an edit" : "your edits"}`);
+  return parts.join(", ");
+}
+
+// Concrete first, then the materials A–Z, then the machines, then the
+// company's rates, then each assembly's overrides of them.
+const PRICE_GROUP_ORDER = ["concrete"];
+const PRICE_GROUP_LAST = ["equipment", "drilling", "labor & company rates"];
+
+function priceGroupLabel(key) {
+  if (key === "concrete") return "Concrete — mix designs";
+  if (key === "equipment") return "Equipment — day rates";
+  if (key === "drilling") return "Drilling — by shaft diameter, per LF";
+  if (key === "labor & company rates") return "Labor & company rates";
+  if (/ rates$/.test(key)) return sectionLabel(key.replace(/ rates$/, "")) + " — where it differs from the company rate";
+  return (key || "other").replace(/_/g, " ");
+}
+
+function priceGroupRank(key) {
+  const first = PRICE_GROUP_ORDER.indexOf(key);
+  if (first !== -1) return first;
+  const last = PRICE_GROUP_LAST.indexOf(key);
+  if (last !== -1) return 100 + last;
+  if (/ rates$/.test(key)) return 200;
+  return 50;
+}
+
+/** A sheet value the way its unit reads: a ratio stays a ratio; money is money. */
+function sheetValueText(v, unit) {
+  if (unit === "RATIO") return v == null ? "—" : num(Number(v) * 100, 2) + "%";
+  return priceText(v);
+}
+
+/** A rate at zero is a statement (paving pumps nothing); a mix at zero is the
+ *  bug decision 5 exists to stop. The API enforces the same split. */
+function zeroAllowed(row) {
+  return row.kind === "setting" || row.kind === "assembly_rate";
+}
+
+async function renderPriceSheet(root) {
+  root.innerHTML = `<div class="loading">Loading price sheet…</div>`;
+  const [estimate, sheet] = await Promise.all([
+    Api.getEstimate(state.estimateId),
+    Api.getPriceSheet(state.estimateId),
+  ]);
+  const drift = sheet.drift;
+  const driftKey = (x) => `${x.kind}:${x.scope || ""}:${x.ref_key || x.ref_id}`;
+  const moved = new Map(); // row key -> drift entry, for the "moved" badge
+  drift.changed.forEach((x) => moved.set(driftKey(x), x));
+  drift.conflicts.forEach((x) => moved.set(driftKey(x), x));
+  const retired = new Set(drift.retired.map(driftKey));
+  const driftCount = drift.drift + drift.new.length;
+
+  // Group by category; concrete first, then the material categories A–Z.
+  const groups = new Map();
+  sheet.rows.forEach((r) => {
+    const key = r.kind === "mix" ? "concrete" : r.category || "other";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+  const groupKeys = [...groups.keys()].sort((a, b) => {
+    const ra = priceGroupRank(a);
+    const rb = priceGroupRank(b);
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+  groups.forEach((rows) => rows.sort((a, b) => a.label.localeCompare(b.label)));
+
+  const rowKey = (r) => `${r.kind}:${r.scope || ""}:${r.ref_key || r.ref_id}`;
+  const rowHtml = (r) => {
+    const key = rowKey(r);
+    const mv = moved.get(key);
+    const fmt = (v) => sheetValueText(v, r.unit);
+    const badges = [];
+    if (r.is_edited) badges.push(`<span class="badge warn" title="Set on this job; a pull will not touch it">edited</span>`);
+    if (mv)
+      badges.push(
+        `<span class="badge info" title="Master list is now ${fmt(mv.now)} (was ${fmt(mv.was)} when pulled)">master ${fmt(mv.now)}</span>`
+      );
+    if (retired.has(key)) badges.push(`<span class="badge" title="No longer on the master list; kept here">retired</span>`);
+    const isRatio = r.unit === "RATIO";
+    return `<tr data-price="${r.id}" class="${r.is_edited ? "edited" : ""}">
+      <td><strong>${esc(r.label)}</strong>${
+        r.ref_key && r.kind !== "drill_rate" ? ` <span class="muted" style="font-size:0.75rem;font-family:var(--mono)">${esc(r.ref_key)}</span>` : ""
+      }${badges.length ? " " + badges.join(" ") : ""}</td>
+      <td class="muted">${isRatio ? "" : esc(r.unit || "")}</td>
+      <td class="num muted" title="What the master list said when this row was pulled">${fmt(r.catalog_value)}</td>
+      <td class="num">
+        <input type="number" step="any" min="0" data-f="value" value="${Number(r.value)}"
+          title="${isRatio ? "As a decimal — 0.0825 is 8.25%" : "What this job pays"}" />
+      </td>
+      <td><input type="text" class="note" data-f="note" maxlength="200"
+        value="${esc(r.note || "")}" placeholder="${r.is_edited ? "who quoted it" : ""}" /></td>
+      <td style="white-space:nowrap">${
+        r.is_edited
+          ? `<button type="button" class="btn ghost" data-reset="${r.id}"
+              title="Put the master list price back and let pulls move it again">Reset</button>`
+          : ""
+      }</td>
+    </tr>`;
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <button class="btn ghost" id="back-est">← ${esc(estimate.name)}</button>
+        <h1 style="margin-top:0.5rem">Price sheet</h1>
+        <p>What <strong>${esc(estimate.name)}</strong> pays for each mix and material.
+          ${sheet.pulled_at ? `Pulled from the master list ${fmtDay(sheet.pulled_at)}.` : ""}
+          Edit a price here and it reaches every section of this job — and no other job.</p>
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn primary" id="btn-pull" type="button"
+          title="Bring this sheet up to today's master list. Prices you edited are kept.">Pull master list…</button>
+      </div>
+    </div>
+
+    ${
+      driftCount
+        ? `<div class="warn-banner">
+             <strong>The master list has moved since the pull.</strong> ${driftSummaryText(drift)}.
+             Nothing on this job changes until you pull. Rows that moved are tagged with the master's current price.
+           </div>`
+        : ""
+    }
+    ${
+      drift.unpriced.length
+        ? `<div class="warn-banner">
+             <strong>${drift.unpriced.length === 1 ? "One master-list item has" : `${drift.unpriced.length} master-list items have`} no price</strong>
+             and so ${drift.unpriced.length === 1 ? "is" : "are"} not on this sheet. A section that uses one is flagged there and costed at $0 for it:
+             <span class="muted">${drift.unpriced.map((u) => esc(u.label)).join(", ")}</span>.
+           </div>`
+        : ""
+    }
+
+    <div class="grid stats">
+      <div class="card stat"><div class="label">On the sheet</div>
+        <div class="value">${sheet.rows.length}</div>
+        <div class="hint">mixes and materials</div></div>
+      <div class="card stat"><div class="label">Edited for this job</div>
+        <div class="value">${sheet.edited}</div>
+        <div class="hint">${sheet.edited ? "kept through every pull" : "everything at the master list"}</div></div>
+      <div class="card stat"><div class="label">Master list since pull</div>
+        <div class="value">${driftCount ? driftCount : "—"}</div>
+        <div class="hint">${driftCount ? "moved · not applied" : "no change"}</div></div>
+    </div>
+
+    ${
+      sheet.rows.length
+        ? `<div class="table-wrap"><table class="data price-sheet">
+      <thead><tr>
+        <th>Item</th><th>Unit</th><th class="num">Master list</th><th class="num">This job</th><th>Note</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${groupKeys
+          .map(
+            (g) => `<tr><td class="group" colspan="6">${esc(priceGroupLabel(g))}</td></tr>` +
+              groups.get(g).map(rowHtml).join("")
+          )
+          .join("")}
+      </tbody>
+    </table></div>
+    <p class="muted" style="margin-top:0.5rem;font-size:0.85rem">
+      Master list is what the catalog said when this row was last pulled. This job is what the
+      estimate bids at. A price typed here is marked <span class="badge warn">edited</span> and
+      a later pull leaves it alone; Reset puts the master price back.
+    </p>`
+        : `<div class="card"><p>This job has no price sheet yet. Pull the master list to start one.</p></div>`
+    }
+  `;
+
+  $("#back-est").onclick = () => setRoute("estimate", { estimateId: estimate.id });
+  $("#btn-pull").onclick = () => openPullModal(estimate, () => render());
+
+  const rows = new Map(sheet.rows.map((r) => [r.id, r]));
+
+  const save = async (tr, body) => {
+    const id = tr.dataset.price;
+    tr.querySelectorAll("input,button").forEach((el) => (el.disabled = true));
+    try {
+      const updated = await Api.updatePrice(estimate.id, id, body);
+      rows.set(id, updated);
+      toast(
+        body.reset
+          ? `${updated.label} back at the master list — job repriced`
+          : body.value != null
+            ? `${updated.label} at ${sheetValueText(updated.value, updated.unit)} on this job — job repriced`
+            : "Note saved"
+      );
+      // The row's badges and Reset button depend on is_edited, and the
+      // totals changed, so just redraw; it is one request.
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+      tr.querySelectorAll("input,button").forEach((el) => (el.disabled = false));
+    }
+  };
+
+  $$("tr[data-price]").forEach((tr) => {
+    const r = rows.get(tr.dataset.price);
+    const valueInput = tr.querySelector('input[data-f="value"]');
+    const noteInput = tr.querySelector('input[data-f="note"]');
+
+    valueInput.onchange = () => {
+      const v = Number(valueInput.value);
+      if (!(v > 0) && !(v === 0 && zeroAllowed(r))) {
+        toast("A price has to be more than $0 — leave the master list unpriced instead", "err");
+        valueInput.value = Number(r.value);
+        return;
+      }
+      if (v === Number(r.value)) return;
+      save(tr, { value: v });
+    };
+    valueInput.onkeydown = (ev) => {
+      if (ev.key === "Enter") valueInput.blur();
+      if (ev.key === "Escape") {
+        valueInput.value = Number(r.value);
+        valueInput.blur();
+      }
+    };
+    noteInput.onchange = () => {
+      const n = noteInput.value.trim();
+      if (n === (r.note || "")) return;
+      save(tr, { note: n || null });
+    };
+    noteInput.onkeydown = (ev) => {
+      if (ev.key === "Enter") noteInput.blur();
+    };
+    const resetBtn = tr.querySelector("[data-reset]");
+    if (resetBtn) resetBtn.onclick = () => save(tr, { reset: true });
+  });
+}
+
+/**
+ * The pull, previewed before it is applied. A dry run lists exactly what
+ * would move; nothing on the job changes until "Pull" is pressed, and even
+ * then the edited rows do not.
+ */
+async function openPullModal(estimate, onDone) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `<div class="modal" style="width:min(760px,100%)"><h2>Pull master list</h2>
+    <div class="loading">Comparing this sheet with the master list…</div></div>`;
+  document.body.appendChild(backdrop);
+  backdrop.addEventListener("click", (ev) => {
+    if (ev.target === backdrop) backdrop.remove();
+  });
+
+  let d;
+  try {
+    d = await Api.pullPriceSheet(estimate.id, true);
+  } catch (err) {
+    backdrop.remove();
+    toast(err.message, "err");
+    return;
+  }
+
+  // "Forming labor (paving)" for an assembly's own rate; the item name otherwise.
+  const pullLabel = (x) =>
+    esc(x.label) + (x.scope ? ` <span class="muted">(${esc(sectionLabel(x.scope))})</span>` : "");
+  const list = (title, items, line, note) =>
+    items.length
+      ? `<h3 style="margin:1rem 0 0.35rem">${title} <span class="muted">(${items.length})</span></h3>
+         ${note ? `<p class="muted" style="margin:0 0 0.35rem;font-size:0.85rem">${note}</p>` : ""}
+         <ul style="margin:0 0 0 1.2rem;max-height:14rem;overflow:auto">${items.map(line).join("")}</ul>`
+      : "";
+
+  const willChange = d.new.length + d.changed.length;
+  const modal = backdrop.querySelector(".modal");
+  modal.innerHTML = `
+    <h2>Pull master list</h2>
+    <p class="muted">${
+      willChange || d.conflicts.length
+        ? `Pulling brings this sheet up to today's master list.`
+        : `This sheet already matches the master list.`
+    }</p>
+    ${list("Will change", d.changed, (x) =>
+      `<li>${pullLabel(x)}: ${sheetValueText(x.was, x.unit)} → <strong>${sheetValueText(x.now, x.unit)}</strong></li>`
+    )}
+    ${list("Will be added", d.new, (x) =>
+      `<li>${pullLabel(x)} at <strong>${sheetValueText(x.catalog_value, x.unit)}</strong>${x.unit && x.unit !== "RATIO" ? ` / ${esc(x.unit)}` : ""}</li>`,
+      "On the master list but not on this sheet — a machine or material is costed at $0 on this job until pulled; a rate falls to its built-in default."
+    )}
+    ${list("Kept — you edited these", d.conflicts, (x) =>
+      `<li>${pullLabel(x)}: master ${sheetValueText(x.was, x.unit)} → ${sheetValueText(x.now, x.unit)}; <strong>this job stays at ${sheetValueText(x.yours, x.unit)}</strong></li>`,
+      "A pull never overwrites a price set on this job. Reset a row on the sheet if you want the master's number."
+    )}
+    ${list("Unpriced on the master list", d.unpriced, (x) =>
+      `<li>${esc(x.label)}${x.on_sheet ? ` — this job keeps ${priceText(x.value)}` : " — not on this sheet"}</li>`,
+      "Nothing is copied as $0. Price these on the master list, or on this sheet."
+    )}
+    ${list("No longer on the master list", d.retired, (x) =>
+      `<li>${esc(x.label)} — kept at ${priceText(x.value)}</li>`
+    )}
+    <div class="actions" style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1.25rem">
+      <button type="button" class="btn ghost" id="pull-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="pull-apply" ${willChange ? "" : "disabled"}>
+        ${willChange ? `Pull ${willChange} price${willChange === 1 ? "" : "s"} and reprice the job` : "Nothing to pull"}
+      </button>
     </div>`;
+
+  modal.querySelector("#pull-cancel").onclick = () => backdrop.remove();
+  const apply = modal.querySelector("#pull-apply");
+  apply.onclick = async () => {
+    apply.disabled = true;
+    apply.textContent = "Pulling…";
+    try {
+      const r = await Api.pullPriceSheet(estimate.id);
+      backdrop.remove();
+      toast(
+        `Pulled ${r.new.length + r.changed.length} price${r.new.length + r.changed.length === 1 ? "" : "s"}` +
+          (r.conflicts.length ? `; ${r.conflicts.length} edited row${r.conflicts.length === 1 ? "" : "s"} kept` : "") +
+          " — job repriced"
+      );
+      if (onDone) onDone();
+    } catch (err) {
+      toast(err.message, "err");
+      apply.disabled = false;
+      apply.textContent = "Pull";
+    }
+  };
 }
 
 async function render() {
@@ -2284,7 +5033,9 @@ async function render() {
     if (state.route === "home") await renderHome(root);
     else if (state.route === "projects") await renderProjects(root);
     else if (state.route === "project") await renderProjectDetail(root);
-    else if (state.route === "estimate") await renderEstimateDetail(root);
+    else if (state.route === "estimate") await renderEstimateSummary(root);
+    else if (state.route === "section") await renderSectionDetail(root);
+    else if (state.route === "prices") await renderPriceSheet(root);
     else if (state.route === "estimators") await renderEstimators(root);
     else if (state.route === "mixes") await renderMixes(root);
     else if (state.route === "materials") await renderMaterials(root);
@@ -2303,7 +5054,9 @@ function syncNavActive() {
     const active =
       b.dataset.route === state.route ||
       (state.route === "project" && b.dataset.route === "projects") ||
-      (state.route === "estimate" && b.dataset.route === "projects");
+      (state.route === "estimate" && b.dataset.route === "projects") ||
+      (state.route === "section" && b.dataset.route === "projects") ||
+      (state.route === "prices" && b.dataset.route === "projects");
     b.classList.toggle("active", active);
   });
 }
@@ -2313,10 +5066,12 @@ function init() {
     btn.addEventListener("click", () => setRoute(btn.dataset.route));
   });
   window.addEventListener("hashchange", () => {
+    closeAllModals();
     const p = parseHash();
     state.route = p.route;
     state.projectId = p.projectId;
     state.estimateId = p.estimateId;
+    state.sectionId = p.sectionId || null;
     syncNavActive();
     render();
   });
@@ -2324,6 +5079,7 @@ function init() {
   state.route = p.route;
   state.projectId = p.projectId;
   state.estimateId = p.estimateId;
+  state.sectionId = p.sectionId || null;
   syncNavActive();
   checkHealth();
   render();

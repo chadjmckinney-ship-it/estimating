@@ -31,8 +31,8 @@ class EstimateBeamType(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    estimate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_sections.id", ondelete="CASCADE"), nullable=False
     )
     label: Mapped[str] = mapped_column(Text, nullable=False)
     kind: Mapped[str] = mapped_column(
@@ -40,6 +40,9 @@ class EstimateBeamType(Base):
     )
     width_in: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
     height_in: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
+    # Brick ledge: the depth actually formed, which is not the concrete depth
+    # when a trenched beam is thickened. NULL falls back to height_in (sql/028).
+    form_face_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
 
     top_bars_count: Mapped[int | None] = mapped_column(Integer)
     top_bars_size: Mapped[int | None] = mapped_column(SmallInteger)
