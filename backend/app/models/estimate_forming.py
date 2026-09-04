@@ -45,6 +45,12 @@ class EstimateFormingLine(Base):
     ext_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Switched off = "considered, not needed" (sql/056). The line keeps its
+    # quantity and formula, extends at $0.00, and stops appearing in the
+    # section's unpriced list. Same flag labor and equipment lines have carried
+    # from the start; forming was the odd one out, which left RESHORING with a
+    # warning nobody could answer.
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     # False for a genuine service sitting in the materials block — concrete
     # haul-off is hauling, not a purchase (sql/036).
     taxable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

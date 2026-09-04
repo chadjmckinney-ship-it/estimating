@@ -41,7 +41,7 @@ from app.models.estimate_section import (
 )
 from app.models.mix_design import MixDesign
 from app.services import quotes as qt
-from app.services.price_book import priced_as
+from app.services.price_book import for_section, priced_as
 from app.services.costing import (
     _d,
     _find_material,
@@ -501,7 +501,7 @@ def _stored_direct_total(db: Session, section: EstimateSection) -> Decimal:
 
 def section_material_costs(db: Session, section: EstimateSection) -> dict[str, Any]:
     """A reader, priced the way the section was costed: through its sheet (sql/048)."""
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _section_material_costs(db, section)
 
 

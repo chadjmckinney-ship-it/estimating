@@ -28,12 +28,13 @@ from sqlalchemy.orm import Session
 from app.services import paving as pv
 from app.models.estimate_section import (
     COLUMN_KINDS,
+    DECK_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
     WALL_KINDS,
 )
 from app.services.calc import _rate_numeric, _setting_numeric, section_kind
-from app.services.price_book import priced_as, require_book
+from app.services.price_book import for_section, priced_as, require_book
 
 
 
@@ -170,6 +171,43 @@ def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             "super_days": super_days,
             "equip_days": equip_days_from_super(super_days),
             "total_concrete_cy": _d(prow["cy"]),
+            "curb_lf": Decimal("0"),
+            "demo_lf": Decimal("0"),
+            "slip_form_sf": Decimal("0"),
+            "traffic_control_sf": Decimal("0"),
+            "construction_joint_lf": Decimal("0"),
+            "control_joint_lf": Decimal("0"),
+        }
+
+    if kind in DECK_KINDS:
+        # Deck levels, and a TYPED duration. The rental ladder rides the
+        # superintendent's days exactly as it does on piers and walls, which
+        # is why an untyped deck section prices every machine at $0.00 beside
+        # a correct rate (audit #5).
+        drow = db.execute(
+            text(
+                "SELECT count(*)::int AS n, "
+                "       coalesce(sum(area_sf), 0) AS sf, "
+                "       coalesce(sum(perm_edge_lf), 0) AS edge, "
+                "       coalesce(sum(calc_concrete_cy), 0) AS cy, "
+                "       coalesce(sum(calc_pt_sf), 0) AS pt_sf "
+                "FROM deck_levels WHERE section_id = :sid"
+            ),
+            {"sid": str(section_id)},
+        ).mappings().one()
+        sd = _super_days(db, section_id)
+        return {
+            "kind": kind,
+            "pour_count": int(drow["n"] or 0),
+            "level_count": int(drow["n"] or 0),
+            "pier_count": 0,
+            "column_count": 0,
+            "total_sf": _d(drow["sf"]),
+            "total_lf": _d(drow["edge"]),
+            "pt_sf": _d(drow["pt_sf"]),
+            "super_days": sd,
+            "equip_days": equip_days_from_super(sd),
+            "total_concrete_cy": _d(drow["cy"]),
             "curb_lf": Decimal("0"),
             "demo_lf": Decimal("0"),
             "slip_form_sf": Decimal("0"),
@@ -370,7 +408,7 @@ def _priced(
 def calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
     """A price gate (sql/049): every machine and rate below prices from the
     estimate's sheet. See services/price_book.py."""
-    with priced_as(db, _estimate_id_of(db, section_id)):
+    with priced_as(db, _estimate_id_of(db, section_id)), for_section(section_id):
         return _calc_estimate_equipment(db, section_id)
 
 
@@ -483,6 +521,33 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
     pump = _find_equip(db, "Pump") or _find_equip(db, "PUMP")
     tower = _find_equip(db, "TOWER LIGHT") or _find_equip(db, "LIGHT TOWER")
 
+    # MOBILIZATION — every assembly, because every assembly brings iron to a
+    # site (sql/053). Chad, 2026-09-04: "we need to add a price for
+    # mobilization."
+    #
+    # The workbook prices it NOWHERE — every tab was searched, and the only
+    # hits are the word "Mobile" beside supplier phone numbers. So this is not
+    # a formula being reproduced; it is a cost the sheets have been leaving
+    # out, on jobs that rent a $3,200/day crane.
+    #
+    # `rate` is one ROUND TRIP — there and home, not two figures. `days_qty`
+    # is HOW MANY MOVES, so a job that mobilizes twice for two phases says 2
+    # instead of somebody doubling a number in their head.
+    #
+    # Built here rather than six times below, because "every assembly
+    # mobilizes" is the whole point and six copies is how one of them quietly
+    # stops having it.
+    mobilization = qty_line(
+        code="mobilization", label="MOBILIZATION",
+        rate=_rate_numeric(db, kind, "mobilization_ls", Decimal("0")),
+        qty=0, unit="LS", formula="moves x round-trip cost (manual)", order=180,
+        # Short on purpose: the reasoning is in the comment above, and the
+        # screen only needs to say what to type. Every other note in this
+        # block is one line.
+        notes="There and back, once. Enter how many moves the job needs — "
+              "not taxed, no fuel.",
+    )
+
     if kind in PIER_KINDS:
         # 01-Piers rows 71–83. The ladder rides TYPED superintendent days
         # rather than an area, so a fresh piers section shows zero rental days
@@ -561,6 +626,108 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 rate=1000, qty=0, unit="LS", formula="lump sum (manual)", order=150,
             ),
         ]
+        lines.append(mobilization)
+        return _totals(d, lines, use_tiers)
+
+    if kind in DECK_KINDS:
+        # 08-CIP EL. DECK rows 105-118. The ladder is the one every assembly
+        # uses; what is different is what is on it.
+        #
+        # THE CRANE. $3,200/day x 27 billable = $136,728 with fuel and tax —
+        # 14% of the section on one line, and by far the largest single
+        # equipment figure anywhere in the app. It is here because the deck
+        # hangs in the air and everything that goes into it has to be lifted.
+        #
+        # MISCELLANEOUS is the fifth sighting of the fuel-and-tax quirk: the
+        # sheet's formula for that ONE line ends without `x (1 + tax + fuel)`
+        # where the five above it carry it. Slab, piers, walls, columns and
+        # now deck. The app taxes it like any other rental and says so.
+        lift = _find_equip(db, "20 TON") or _find_equip(db, "TON LIFT")
+        crane = _find_equip(db, "CRANE")
+        skid = _find_equip(db, "SKID STEER") or _find_equip(db, "SKID")
+        tower = _find_equip(db, "TOWER LIGHT") or _find_equip(db, "LIGHT")
+        sky = _find_equip(db, "SKY LIFT")
+
+        lines = [
+            day_line(
+                code="lift_20_ton", label="20 TON LIFT",
+                **_priced(db, kind, lift, "equip_20_ton_lift_day_rate", 850),
+                equipment_id=lift["id"] if lift else None, order=10,
+                default_days=0,
+                notes="The sheet types 0 days on this job — set days if a "
+                      "deck needs one",
+            ),
+            day_line(
+                code="crane", label="CRANE & OPERATOR",
+                **_priced(db, kind, crane, "equip_crane_day_rate", 3200),
+                equipment_id=crane["id"] if crane else None, order=20,
+                notes="The largest single equipment line in the app. Nothing "
+                      "reaches an elevated deck without it.",
+            ),
+            day_line(
+                code="skid_steer", label="SKID STEER",
+                **_priced(db, kind, skid, "equip_skid_steer_day_rate", 325),
+                equipment_id=skid["id"] if skid else None, order=30,
+            ),
+            day_line(
+                code="light_tower", label="LIGHT TOWER",
+                **_priced(db, kind, tower, "equip_light_tower_day_rate", 100),
+                equipment_id=tower["id"] if tower else None, order=40,
+            ),
+            day_line(
+                code="sky_lift", label="SKY LIFT",
+                **_priced(db, kind, sky, "equip_skytrack_day_rate", 380),
+                equipment_id=sky["id"] if sky else None, order=50,
+                notes="The sheet files this under cost code 80061 SkyTrack. "
+                      "It is the SKY LIFT — read the rate, not the label.",
+            ),
+            day_line(code="misc_equip", label="MISCELLANEOUS", rate=misc_rate,
+                     equipment_id=None, order=60,
+                     notes="The sheet exempts this one line from fuel and "
+                           "tax. Fifth sheet it has done that on; the app "
+                           "treats it as the rental it is."),
+
+            # -------------------------------------------- contract services --
+            qty_line(
+                code="engineering", label="ENGINEERING",
+                rate=_rate_numeric(db, kind, "engineering_sf", Decimal("1.05")),
+                qty=0, unit="/SF", formula="SF engineered (manual)", order=110,
+            ),
+            qty_line(
+                code="saw_cutting", label="SAW CUTTING",
+                rate=_rate_numeric(db, kind, "saw_cutting_lf", Decimal("2.5")),
+                qty=0, unit="/LF", formula="LF cut (manual)", order=120,
+            ),
+            qty_line(
+                code="concrete_pump", label="CONCRETE PUMPING",
+                rate=_rate_numeric(db, kind, "concrete_pump_cy", Decimal("10")),
+                qty=cy, unit="CY", formula="concrete CY x $/CY", order=130,
+                equipment_id=pump["id"] if pump else None,
+                notes="Half the columns rate — a deck pump is a placing boom "
+                      "on a full day, not a call-out",
+            ),
+            qty_line(
+                code="freight", label="FREIGHT",
+                rate=_rate_numeric(db, kind, "freight_load", Decimal("1100")),
+                qty=0, unit="/LOAD", formula="loads (manual)", order=140,
+            ),
+            qty_line(
+                code="waterproofing", label="WATERPROOFING",
+                rate=_rate_numeric(db, kind, "waterproofing_sf", Decimal("2.25")),
+                qty=0, unit="/SF", formula="SF waterproofed (manual)", order=150,
+            ),
+            qty_line(
+                code="out_of_town", label="OUT OF TOWN EXPENSE",
+                rate=_rate_numeric(db, kind, "out_of_town_day_rate", Decimal("225")),
+                qty=0, unit="/DAY", formula="days away (manual)", order=160,
+            ),
+            qty_line(
+                code="barricades", label="SUB CONTRACT BARRICADES",
+                rate=_rate_numeric(db, kind, "barricades_lf", Decimal("1.45")),
+                qty=0, unit="/LF", formula="LF barricaded (manual)", order=170,
+            ),
+        ]
+        lines.append(mobilization)
         return _totals(d, lines, use_tiers)
 
     if kind in COLUMN_KINDS:
@@ -611,21 +778,50 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 qty=cy, unit="CY", formula="concrete CY × $/CY", order=120,
                 equipment_id=pump["id"] if pump else None,
             ),
+            # Both OFF by default, with haul-off below. Chad, 2026-09-02, asked
+            # whether these were real for columns or more workbook rows:
+            # "furniture..". You do not cure or saw-cut a column — the rows are
+            # on the 07 sheet because the sheet was built from a slab sheet.
+            # Same treatment as haul-off: kept and disabled, so a job that
+            # genuinely needs one is a checkbox rather than a missing line.
             qty_line(
                 code="cure", label="DIAMOND HARD CURE",
                 rate=_rate_numeric(db, kind, "cure_sf", Decimal("0.5")),
                 qty=0, unit="/SF", formula="manual", order=130,
-                notes="Rated on the sheet, no quantity on this job",
+                enabled=False,
+                notes="Not part of a columns bid — a column is rubbed and "
+                      "patched, not cured. Turn it on if a job calls for it.",
             ),
             qty_line(
                 code="saw_cutting", label="SAW CUTTING",
                 rate=_rate_numeric(db, kind, "saw_cutting_lf", Decimal("2.5")),
                 qty=0, unit="/LF", formula="manual", order=140,
+                enabled=False,
+                notes="Not part of a columns bid — nothing to saw. Turn it on "
+                      "if a job calls for it.",
             ),
             qty_line(
                 code="haul_off", label="OFF SITE HAUL OFF",
                 rate=_rate_numeric(db, kind, "haul_off_cy", Decimal("6")),
                 qty=0, unit="CY", formula="spoil CY (manual)", order=150,
+                # OFF by default. Chad, 2026-09-02: "I think columns having
+                # hauloff is an artifact from building the workbook.. there
+                # shouldnt be hauloff.. and if there is, thats on us for a
+                # mistake or a CO.. but we will need it for pilasters."
+                #
+                # A column is formed off a footing somebody else dug; there is
+                # no spoil to haul. The line exists because the 07 sheet has
+                # the row, which is how a workbook column becomes a feature.
+                #
+                # It is disabled rather than deleted because a PILASTER is a
+                # columns section — sql/041, "I just use column sheet for it
+                # since it is basically a short column" — and a pilaster does
+                # dig. Tick it on there, or when a CO pays for hauling that a
+                # mistake created. Off, the rate still shows, so turning it on
+                # is one click and not a hunt for $/CY.
+                enabled=False,
+                notes="Not part of a columns bid — a column has no spoil. Turn "
+                      "it on for a pilaster section, or for a change order.",
             ),
             qty_line(
                 code="out_of_town", label="OUT OF TOWN EXPENSE",
@@ -633,6 +829,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 qty=0, unit="/DAY", formula="days away (manual)", order=160,
             ),
         ]
+        lines.append(mobilization)
         return _totals(d, lines, use_tiers)
 
     if kind in WALL_KINDS:
@@ -708,6 +905,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 rate=1000, qty=0, unit="LS", formula="lump sum (manual)", order=160,
             ),
         ]
+        lines.append(mobilization)
         return _totals(d, lines, use_tiers)
 
     if kind in PAVING_KINDS:
@@ -815,6 +1013,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 qty=0, unit="MAN-DAY", formula="man-days away (manual)", order=180,
             ),
         ]
+        lines.append(mobilization)
         return _totals(d, lines, use_tiers)
 
     sky = _find_equip(db, "SkyTrack") or _find_equip(db, "SKY")
@@ -908,6 +1107,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             enabled=False,
         )
     )
+    lines.append(mobilization)
     return _totals(d, lines, use_tiers)
 
 
@@ -1009,11 +1209,17 @@ def refresh_and_store_equipment(db: Session, section_id: UUID) -> dict[str, Any]
         enabled = prev.enabled if prev is not None else ln["enabled"]
         rate = ln["rate"]
         days_qty = ln["days_qty"]
-        # preserve user day qty if they set without is_manual and skytrack-style zeros
-        if prev is not None and prev.code in ("skytrack",) and prev.days_qty is not None:
-            # keep previous skytrack days if they enabled and set
-            if prev.enabled and prev.days_qty > 0:
-                days_qty = prev.days_qty
+        # SKYTRACK had the same special case the foreman line had in labor.py,
+        # with the same comment ("if they set without is_manual") and the same
+        # actual behaviour: it fired whenever `prev.days_qty > 0`, which is
+        # true after the first refresh, so the line stopped tracking the
+        # supervision ladder for good. `update_equipment_line` defaults
+        # mark_manual=True, so days an estimator types are preserved by the
+        # `manuals` branch above — which is the mechanism, and this was
+        # quietly overriding it.
+        #
+        # Found alongside the foreman one, 2026-09-04: 14 days kept from a
+        # takeoff that had since grown to 30. Both removed together.
 
         if ln["unit"] == "DAY":
             bill = rental_billable_units(days_qty, use_tiers=use_tiers)

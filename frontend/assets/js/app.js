@@ -774,16 +774,24 @@ const WALL_KINDS = new Set(["walls_footings"]);
 // section allocates by form contact SF — perimeter × height — because that is
 // the surface the crew actually handles (sql/045).
 const COLUMN_KINDS = new Set(["columns"]);
+// The elevated deck is the fifth shape and the first assembly that hangs in
+// the air. One row is a LEVEL: an area, a thickness, two mats of bar, an edge,
+// and the grade beams running through it. Everything shared allocates by deck
+// AREA — same as a mono slab, unlike columns (form SF) or walls (form feet).
+const DECK_KINDS = new Set(["cip_deck"]);
 
 async function renderEstimateSummary(root) {
   root.innerHTML = `<div class="loading">Loading job…</div>`;
-  const [estimate, sections, sheet] = await Promise.all([
+  const [estimate, sections, sheet, rules] = await Promise.all([
     Api.getEstimate(state.estimateId),
     Api.listSections(state.estimateId),
     // The sheet is what this job pays; the page only needs its headline —
     // how many prices were edited here, and whether the master list has
     // moved since the pull. An older build without sql/048 has no sheet.
     Api.getPriceSheet(state.estimateId).catch(() => null),
+    // The job's RULES. A build without the sql/055 screen has no endpoint,
+    // and the page is still a page without it.
+    Api.estimateRules(state.estimateId).catch(() => null),
   ]);
   const drift = sheet ? sheet.drift : null;
   const driftCount = drift ? drift.drift + drift.new.length : 0;
@@ -910,7 +918,10 @@ async function renderEstimateSummary(root) {
         : `<div class="card"><p>No sections yet. A section is one assembly of the job —
            the mono slab, the paving, the piers — each with its own rates and markup.</p></div>`
     }
+    ${renderEstimateRulesCard(rules)}
   `;
+
+  wireEstimateRules(estimate);
 
   const back = $("#back-proj");
   if (back) {
@@ -1355,6 +1366,86 @@ function pierColumns(mixes) {
  * height — and it is also the allocation basis for everything shared on the
  * section, so a wrong length or width moves far more than the plywood.
  */
+/**
+ * Deck levels (sql/052). One row is a LEVEL, not a pour.
+ *
+ * Two derived columns are worth reading, because both are the reason a number
+ * elsewhere on the page moves:
+ *
+ *   GB FF  is contact area on BOTH faces of every beam. It is also half the
+ *          driver of every lumber line on the section, together with the
+ *          permanent edge — so widening a beam moves the plywood.
+ *   PT SF  is the area of the levels that carry cable, not the deck. A level
+ *          with the box unticked is not PT area, and a lump PT quote does not
+ *          land on it.
+ */
+function deckColumns(mixes) {
+  return [
+    { f: "label", label: "Level", placeholder: "level 2" },
+    { f: "area_sf", label: "SF", type: "number" },
+    { f: "thickness_in", label: 'Thick"', type: "number" },
+    { f: "has_cable", label: "PT", type: "check" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "perm_edge_lf", label: "Edge LF", type: "number" },
+    { f: "top_bar_size", label: "Top #", type: "number", step: "1" },
+    { f: "top_bar_spacing_in", label: 'Top sp"', type: "number" },
+    { f: "bot_bar_size", label: "Bot #", type: "number", step: "1" },
+    { f: "bot_bar_spacing_in", label: 'Bot sp"', type: "number" },
+    { f: "mesh_sf", label: "Mesh SF", type: "number" },
+    { f: "stud_rail_lb", label: "Stud lb", type: "number" },
+    { f: "carton_form_sf", label: "Carton SF", type: "number" },
+    {
+      label: "Beams",
+      derived: (r) =>
+        (r.beams || []).length
+          ? `${(r.beams || []).length} · ${num(r.calc_beam_lf, 0)} LF`
+          : "—",
+      title: () =>
+        "Edit the beam schedule on the section's beam types, then set the " +
+        "lengths here. Every beam is weighed — the workbook weighs the first " +
+        "and charges 7 lb for the second.",
+    },
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: (r) =>
+        `slab ${num(r.calc_slab_cy, 2)} + beams ${num(r.calc_beam_cy, 2)} — ` +
+        `SF × thickness / 324, with waste`,
+    },
+    {
+      label: "Steel lb",
+      derived: (r) => num(r.calc_total_rebar_lb, 0),
+      title: (r) =>
+        `mats ${num(r.calc_slab_rebar_lb, 0)} + beams ${num(
+          r.calc_beam_rebar_lb,
+          0
+        )} — 2 / (spacing / 12) × area per mat, waste on every bar`,
+    },
+    {
+      label: "GB FF",
+      derived: (r) => num(r.calc_gb_form_ff, 0),
+      title: (r) =>
+        `LN FT × height / 12 × 2 — BOTH faces. This also drives every lumber ` +
+        `line on the section, with the ${num(r.perm_edge_lf, 0)} LF of edge.`,
+    },
+    {
+      label: "PT SF",
+      derived: (r) => (r.has_cable ? num(r.calc_pt_sf, 0) : "—"),
+      title: (r) =>
+        r.has_cable
+          ? `${num(r.calc_pt_lb, 0)} lb of cable at 1.15 lb/SF`
+          : "no cable on this level — it is not PT area",
+    },
+    {
+      label: "Cost / SF",
+      derived: (r) => usd(r.calc_cost_per_unit, 2),
+      title: (r) =>
+        `sale ${usd(r.calc_sale_per_unit, 2)}/SF · ${usd(r.calc_cost, 0)} for ` +
+        `the level`,
+    },
+  ];
+}
+
 function columnColumns(mixes) {
   return [
     { f: "label", label: "Type", placeholder: "C1" },
@@ -1362,6 +1453,19 @@ function columnColumns(mixes) {
     { f: "height_ft", label: "Height ft", type: "number" },
     { f: "length_in", label: 'L"', type: "number" },
     { f: "width_in", label: 'W"', type: "number" },
+    // Pilasters (sql/051). A column is wrapped; a pilaster has a wall on one
+    // or two of its L faces. Form SF is the allocation basis for the whole
+    // section, so this is the field that makes a pilaster a pilaster.
+    {
+      f: "formed_faces",
+      label: "Faces",
+      type: "select",
+      options: [
+        { id: 4, label: "4 — column" },
+        { id: 3, label: "3 — on a wall" },
+        { id: 2, label: "2 — returns only" },
+      ],
+    },
     { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
     { f: "vert1_count", label: "V1 n", type: "number", step: "1" },
     { f: "vert1_size", label: "V1 #", type: "number", step: "1" },
@@ -1378,9 +1482,9 @@ function columnColumns(mixes) {
       label: "Form SF",
       derived: (r) => num(r.calc_form_sf, 1),
       title: (r) =>
-        `(${num(r.length_in, 0)}" + ${num(r.width_in, 0)}") × 2 / 12 × ` +
-        `${num(r.height_ft, 0)} ft × ${num(r.qty, 0)} — contact area, and the ` +
-        `basis this section allocates shared cost by`,
+        `${facesFormula(r)} / 12 × ${num(r.height_ft, 0)} ft × ` +
+        `${num(r.qty, 0)} — contact area, and the basis this section ` +
+        `allocates shared cost by`,
     },
     {
       label: "CY",
@@ -1401,7 +1505,10 @@ function columnColumns(mixes) {
     {
       label: "Chamfer LF",
       derived: (r) => num(r.calc_chamfer_lf, 0),
-      title: (r) => `4 corners × ${num(r.height_ft, 0)} ft × ${num(r.qty, 0)} columns`,
+      title: (r) =>
+        `${Number(r.formed_faces ?? 4) >= 4 ? 4 : 2} corners × ` +
+        `${num(r.height_ft, 0)} ft × ${num(r.qty, 0)} — a face against a wall ` +
+        `has no chamfer strip on it`,
     },
     {
       label: "Cost / ea",
@@ -1439,7 +1546,7 @@ function wallColumns(mixes) {
     { f: "length_ft", label: "Length ft", type: "number" },
     { f: "wall_thick_in", label: 'Thick"', type: "number" },
     { f: "wall_height_in", label: 'Height"', type: "number" },
-    { f: "backfill", label: "Backfill", type: "checkbox" },
+    { f: "backfill", label: "Backfill", type: "check" },
     { f: "mix_design_id", label: "Wall mix", type: "select", options: mixOptions(mixes) },
     { f: "horiz_spacing_in", label: 'Horz sp"', type: "number" },
     { f: "horiz_size", label: "Horz #", type: "number", step: "1" },
@@ -1774,6 +1881,47 @@ function quoteCardsHtml(section) {
   return kinds.map((k) => quoteCardHtml(section, k, byKind[k])).join("");
 }
 
+/**
+ * The formed perimeter in words, for the Form SF tooltip — so the grid shows
+ * WHY a pilaster's contact area is smaller than a column's of the same size.
+ * The unformed face is always an L face (sql/051).
+ */
+function facesFormula(r) {
+  const L = `${num(r.length_in, 0)}"`;
+  const W = `${num(r.width_in, 0)}"`;
+  const faces = Number(r.formed_faces ?? 4);
+  if (faces === 3) return `(${L} + ${W} × 2)`;
+  if (faces === 2) return `(${W} × 2)`;
+  return `(${L} + ${W}) × 2`;
+}
+
+/**
+ * The one thing a pilaster section has to be checked by hand for (sql/051).
+ *
+ * A wall-side type carries its own full L × W × height, because that is the
+ * honest reading of the schedule in front of you. Whether the WALL run also
+ * carries a rectangle through the same pilaster is a question about how the
+ * wall was taken off, and it was open when this was built — Chad, 2026-09-02:
+ * "not sure — I'd have to look at a job." So the app does not net anything
+ * out; it says so, once, where the person who knows is standing.
+ *
+ * Silently deducting concrete somebody entered would be the worse error.
+ */
+function pilasterNoteHtml(rows) {
+  const wallSide = (rows || []).filter((r) => Number(r.formed_faces ?? 4) < 4);
+  if (!wallSide.length) return "";
+  const n = wallSide.reduce((a, r) => a + Number(r.qty || 0), 0);
+  return `<div class="warn-banner">
+    <strong>${wallSide.length === 1 ? "One type is" : `${wallSide.length} types are`}
+    formed against a wall</strong> — ${num(n, 0)} pilaster${n === 1 ? "" : "s"}, so
+    form area and chamfer are reduced accordingly.
+    <span style="display:block;margin-top:0.35rem">Their concrete is counted
+    <strong>in full</strong> here. If the wall run they sit on was taken off
+    straight through, that CY is on the job twice — worth a look at the walls
+    section before this goes out.</span>
+  </div>`;
+}
+
 function mixOptions(mixes) {
   return (mixes || []).map((m) => ({
     id: m.id,
@@ -1834,14 +1982,15 @@ async function renderSectionDetail(root) {
   const isPiers = PIER_KINDS.has(section.kind);
   const isWalls = WALL_KINDS.has(section.kind);
   const isColumns = COLUMN_KINDS.has(section.kind);
-  // Piers, walls and columns keep their takeoffs in their own tables, not in
-  // pours.
-  const notPours = isPiers || isWalls || isColumns;
-  const isGrid = isPaving || isPiers || isWalls || isColumns;
+  const isDeck = DECK_KINDS.has(section.kind);
+  // Piers, walls, columns and decks keep their takeoffs in their own tables,
+  // not in pours.
+  const notPours = isPiers || isWalls || isColumns || isDeck;
+  const isGrid = isPaving || isPiers || isWalls || isColumns || isDeck;
 
   const [
     slabs, totals, beamTypes, forming, labor, equip,
-    pierRows, pierT, wallRows, wallT, colRows, colT, mats,
+    pierRows, pierT, wallRows, wallT, colRows, colT, deckRows, deckT, rates, mats,
   ] = await Promise.all([
     notPours ? Promise.resolve([]) : Api.listMonoSlabs(section.id),
     notPours ? Promise.resolve(null) : Api.monoSlabTotals(section.id),
@@ -1855,6 +2004,11 @@ async function renderSectionDetail(root) {
     isWalls ? Api.wallTotals(section.id) : Promise.resolve(null),
     isColumns ? Api.listColumnTypes(section.id) : Promise.resolve([]),
     isColumns ? Api.columnTotals(section.id) : Promise.resolve(null),
+    isDeck ? Api.listDeckLevels(section.id) : Promise.resolve([]),
+    isDeck ? Api.deckTotals(section.id) : Promise.resolve(null),
+    // The rate ladder for this section (sql/055). Never fatal: a section
+    // whose takeoff will not build still shows its quantities.
+    Api.sectionRates(section.id).catch(() => null),
     // Never fatal to the page: a section with no breakdown still shows its
     // quantities, it just shows them without the money.
     Api.sectionMaterialCosts(section.id).catch(() => null),
@@ -1981,6 +2135,7 @@ async function renderSectionDetail(root) {
     </div>
 
     ${unpricedBannerHtml(section)}
+    ${isColumns ? pilasterNoteHtml(colRows) : ""}
 
     ${
       isColumns
@@ -1993,7 +2148,7 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Steel</div><div class="value">${num(colT.total_rebar_lb, 0)}</div><div class="hint">lb · vert ${num(colT.total_vert_rebar_lb, 0)} + ties ${num(colT.total_tie_rebar_lb, 0)} + dowels ${num(colT.total_dowel_rebar_lb, 0)} · waste on <em>every</em> bar</div>${moneyRow(
         matCost(mat, "rebar")
       )}</div>
-      <div class="card stat"><div class="label">Chamfer</div><div class="value">${num(colT.total_chamfer_lf, 0)}</div><div class="hint">LF · four corners × height × <strong>quantity</strong></div></div>
+      <div class="card stat"><div class="label">Chamfer</div><div class="value">${num(colT.total_chamfer_lf, 0)}</div><div class="hint">LF · exposed corners × height × <strong>quantity</strong> — four wrapped, two against a wall</div></div>
       <div class="card stat"><div class="label">Cost / form SF</div><div class="value">${usd(colT.cost_per_form_sf, 2)}</div><div class="hint">the number to compare across jobs</div></div>
       <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? colT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
       <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? colT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
@@ -2038,6 +2193,19 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? pierT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
       <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? pierT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
       <div class="card stat"><div class="label">Sale / pier</div><div class="value">${usd(section.calc_sale_per_unit ?? pierT.total_sale_per_unit, 0)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? pierT.total_cost_per_unit, 0)}/pier</div></div>
+    </div>`
+        : isDeck
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Levels</div><div class="value">${deckT.level_count}</div></div>
+      <div class="card stat"><div class="label">Deck SF</div><div class="value">${num(deckT.total_sf, 0)}</div><div class="hint">what every shared cost is allocated by</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(deckT.total_concrete_cy, 2)}</div><div class="hint">slab ${num(deckT.total_slab_cy, 1)} + beams ${num(deckT.total_beam_cy, 1)}</div>${moneyRow(matCost(mat, "concrete"))}</div>
+      <div class="card stat"><div class="label">SF / CY</div><div class="value">${num(sfPerCy(deckT.total_sf, deckT.total_concrete_cy), 1)}</div></div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(deckT.total_rebar_lb, 0)}</div><div class="hint">lb · ${num(deckT.total_rebar_tons, 2)} tons · mats ${num(deckT.total_slab_rebar_lb, 0)} + beams ${num(deckT.total_beam_rebar_lb, 0)}</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">PT</div><div class="value">${num(deckT.total_pt_sf, 0)}</div><div class="hint">SF with cable · ${num(deckT.total_pt_lb, 0)} lb</div>${moneyRow(matCost(mat, "pt"))}</div>
+      <div class="card stat"><div class="label">Lumber driver</div><div class="value">${num(deckT.lumber_driver_lf, 0)}</div><div class="hint">LF · edge ${num(deckT.total_perm_edge_lf, 0)} + GB faces ${num(deckT.total_gb_form_ff, 0)}</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? deckT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? deckT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? deckT.total_sale_per_unit, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? deckT.total_cost_per_unit, 2)}/SF</div></div>
     </div>`
         : isPaving
         ? `<div class="grid stats">
@@ -2091,15 +2259,43 @@ async function renderSectionDetail(root) {
     ${quoteCardsHtml(section)}
 
     ${
-      isColumns
+      isDeck
+        ? gridCardHtml({
+            id: "deck-levels",
+            title: "Deck levels",
+            blurb:
+              "One row is a <strong>level</strong> — an area, a thickness, two " +
+              "mats of bar, a permanent edge, and the grade beams running " +
+              "through it. The workbook gives every level two rows and sums " +
+              "across the pair; there is one row per level here. " +
+              "<strong>GB FF</strong> is beam contact area on <em>both</em> " +
+              "faces, and it does two jobs: it prices the GB forming labor and, " +
+              "together with the edge, it drives <em>every lumber line</em> on " +
+              "this section — so a wider beam moves the plywood. " +
+              "<strong>PT</strong> is per level, not per deck: a level with the " +
+              "box unticked is not post-tensioned area and a lump PT quote will " +
+              "not land on it. Supervision here is <strong>typed</strong>, like " +
+              "piers and walls, and the whole rental ladder — the crane " +
+              "included — rides those days.",
+            columns: deckColumns(state.mixes),
+            rows: deckRows,
+            addLabel: "Level",
+            saveLabel: "Save levels",
+          })
+        : isColumns
         ? gridCardHtml({
             id: "column-types",
             title: "Column types",
             blurb:
               "One row is a <strong>column type and how many of it</strong> — the " +
-              "schedule, not a location. <strong>Form SF</strong> is " +
-              "<code>(L + W) × 2 / 12 × height</code>: real contact area, and the " +
-              "basis every shared cost on this section is allocated by. Three " +
+              "schedule, not a location. <strong>Form SF</strong> is the " +
+              "<strong>formed perimeter</strong> / 12 × height: real contact " +
+              "area, and the basis every shared cost on this section is " +
+              "allocated by. <strong>Faces</strong> is what makes a pilaster a " +
+              "pilaster — a column is wrapped <code>(L + W) × 2</code>, a " +
+              "pilaster on a wall is <code>L + W × 2</code>, and one poured " +
+              "monolithic with it is <code>W × 2</code>. Enter <strong>L along " +
+              "the wall</strong>; the face you drop is always an L face. Three " +
               "vertical sets are available because the schedule carries three; a " +
               "set with no count or no size contributes nothing rather than a " +
               "zero-weight bar. Rebar waste applies to <em>every</em> bar here, " +
@@ -2300,6 +2496,7 @@ async function renderSectionDetail(root) {
     ${renderFormingCard(forming)}
     ${renderLaborCard(labor)}
     ${renderEquipmentCard(equip)}
+    ${renderSectionRatesCard(rates)}
   `;
 
   // Up from a section is the job, not the project — the job is where the other
@@ -2310,7 +2507,19 @@ async function renderSectionDetail(root) {
   if (btnAddSlab) btnAddSlab.onclick = () => openMonoSlabModal(section);
 
   if (isGrid) {
-    if (isColumns) {
+    if (isDeck) {
+      // `area_sf` alone is what the bulk endpoint requires — everything on
+      // this assembly is square feet — but a level with an area and no
+      // thickness has no concrete, so both are asked for here before
+      // anything is sent.
+      wireGrid(root, {
+        id: "deck-levels",
+        columns: deckColumns(state.mixes),
+        required: ["area_sf", "thickness_in"],
+        save: (rows) => Api.bulkSaveDeckLevels(section.id, rows),
+        remove: (id) => Api.deleteDeckLevel(id),
+      });
+    } else if (isColumns) {
       // `height_ft` alone is what the bulk endpoint requires of a new row — a
       // column with no height is not a column — but a row with a height and no
       // quantity is a schedule entry nobody is building, so both are asked for
@@ -2357,6 +2566,8 @@ async function renderSectionDetail(root) {
             ? "wall-runs"
             : isColumns
             ? "column-types"
+            : isDeck
+            ? "deck-levels"
             : "paving-areas"
         );
         if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2417,6 +2628,23 @@ async function renderSectionDetail(root) {
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     };
   }
+  // Include / exclude one lumber line (sql/056). Same gesture as the labor and
+  // equipment cards, and the answer to a warning the estimator could not
+  // previously reply to. Reverts the box on failure so the screen never claims
+  // a decision the server did not take.
+  $$(".forming-enabled").forEach((cb) => {
+    cb.onchange = async () => {
+      const code = cb.dataset.code;
+      if (!code) return;
+      try {
+        await Api.toggleFormingLine(section.id, code, cb.checked);
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        cb.checked = !cb.checked;
+      }
+    };
+  });
   const btnRefreshForming = $("#btn-refresh-forming");
   if (btnRefreshForming) {
     btnRefreshForming.onclick = async () => {
@@ -2517,6 +2745,29 @@ async function renderSectionDetail(root) {
       }
     };
   });
+  // One switch per section (sql/052). The PATCH rebuilds the labor lines —
+  // the flag lives on the line, not just the section, so the sub's sheet can
+  // be built from the stored takeoff rather than re-derived.
+  const cbSub = $("#labor-subcontracted");
+  if (cbSub) {
+    cbSub.onchange = async () => {
+      try {
+        await Api.updateSection(section.id, { labor_subcontracted: cbSub.checked });
+        toast(
+          cbSub.checked
+            ? "Field labor is subcontracted — supervision stays ours"
+            : "Field labor is back on our crew"
+        );
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        cbSub.checked = !cbSub.checked;
+      }
+    };
+  }
+
+  if (rates) wireSectionRates(root, section);
+
   const btnRefreshEquip = $("#btn-refresh-equip");
   if (btnRefreshEquip) {
     btnRefreshEquip.onclick = async () => {
@@ -3153,7 +3404,7 @@ function renderFormingCard(forming) {
                 : COLUMN_KINDS.has(d.kind)
                 ? `<strong>${num(d.column_count, 0)} columns</strong> ·
                    <strong>${num(d.form_sf, 0)} SF</strong> of form contact
-                   <span title="All four faces. A column is wrapped; a wall is formed on the face you can reach — which is why the $/SF rates here look small beside the wall sheet's $/FF.">(wrapped, not one face)</span>
+                   <span title="The faces you actually build. A free-standing column is wrapped on all four; a pilaster has a wall on one or two of them, set per type in the schedule. A wall, by contrast, is formed on the face you can reach — which is why the $/SF rates here look small beside the wall sheet's $/FF.">(formed faces only)</span>
                    · chamfer <strong>${num(d.chamfer_lf, 0)} LF</strong>`
                 : WALL_KINDS.has(d.kind)
                 ? `<strong>${num(d.wall_lf, 0)} LF</strong> of wall ·
@@ -3211,6 +3462,7 @@ function renderFormingCard(forming) {
           ? `<div class="table-wrap"><table class="data">
         <thead>
           <tr>
+            <th title="Uncheck a line that is not used on this job. It keeps its quantity and stops asking to be priced.">Use</th>
             <th>Material</th>
             <th>Qty</th>
             <th>Unit</th>
@@ -3222,14 +3474,22 @@ function renderFormingCard(forming) {
         <tbody>
           ${lines
             .map(
-              (ln) => `<tr class="${Number(ln.qty) === 0 ? "muted" : ""}">
-              <td>
+              (ln) => `<tr data-forming-code="${esc(ln.code)}" class="${
+                ln.enabled === false || Number(ln.qty) === 0 ? "muted" : ""
+              }">
+              <td style="width:2.5rem">
+                <input type="checkbox" class="forming-enabled" data-code="${esc(ln.code)}"
+                  ${ln.enabled === false ? "" : "checked"}
+                  title="Include in estimate. Unchecked = not used on this job — the line keeps its quantity, extends at $0, and drops off the unpriced list." />
+              </td>
+              <td style="max-width:30rem">
                 <strong>${esc(ln.label)}</strong>
+                ${ln.enabled === false ? ` <span class="badge" title="Not used on this job">not used</span>` : ""}
                 ${formCodes.has(ln.code) ? ` <span class="badge accent" title="Scaled by form %">form%</span>` : ""}
                 ${ln.material_name && ln.material_name !== ln.label
                   ? `<div class="muted">${esc(ln.material_name)}</div>`
                   : ""}
-                ${ln.notes ? `<div class="muted">${esc(ln.notes)}</div>` : ""}
+                ${ln.notes ? `<div class="muted" style="white-space:normal">${esc(ln.notes)}</div>` : ""}
                 ${ln.is_manual ? `<div class="badge">manual</div>` : ""}
                 ${ln.missing_price
                   ? ` <span class="badge warn" title="A real quantity with no catalog price behind it. This line adds $0 to the total — the total is light by whatever it should cost.">unpriced</span>`
@@ -3286,6 +3546,13 @@ function renderLaborCard(labor) {
   // wording. A zero next to a label that does not apply is worse than no
   // label: it reads as a takeoff that came back empty.
   const isWal = WALL_KINDS.has(d.kind);
+  // The elevated deck. Its labor can be SUBCONTRACTED — one switch on the
+  // section (sql/052), which sets the flag on every FIELD line and leaves
+  // supervision alone, because a superintendent is yours whoever swings the
+  // hammer. The money does not move; which bucket it is in does, and the sub
+  // has to be told what he is pricing.
+  const isDck = DECK_KINDS.has(d.kind);
+  const subbed = (labor.lines || []).some((ln) => ln.subcontracted);
   const superSfPerWeek =
     d.super_weeks && Number(d.super_weeks) > 0
       ? Number(d.total_sf) / Number(d.super_weeks)
@@ -3325,6 +3592,7 @@ function renderLaborCard(labor) {
               <td>
                 <strong>${esc(ln.label)}</strong>
                 ${ln.is_manual ? ` <span class="badge">manual</span>` : ""}
+                ${ln.subcontracted ? ` <span class="badge" title="Subcontracted — this line goes on the sub's sheet, not our crew's">sub</span>` : ""}
                 ${ln.notes ? `<div class="muted">${esc(ln.notes)}</div>` : ""}
               </td>
               <td>
@@ -3367,6 +3635,8 @@ function renderLaborCard(labor) {
                 ? "06-WALLS LABOR"
                 : isPav
                 ? "10-PAVING LABOR"
+                : isDck
+                ? "08-CIP EL. DECK LABOR"
                 : "04 LABOR / SUPERVISION"
             }</strong> — stored in
             <code>estimate_labor_lines</code>.
@@ -3377,10 +3647,12 @@ function renderLaborCard(labor) {
                 ? `<strong>${num(d.column_count, 0)} columns</strong> · form <strong>${num(d.form_sf, 0)} SF</strong>`
                 : isWal
                 ? `<strong>${num(d.wall_lf, 0)} LF</strong> of wall · <strong>${num(d.form_ff, 0)} FF</strong> · footing <strong>${num(d.footing_sf, 0)} SF</strong>`
+                : isDck
+                ? `<strong>${num(d.total_sf, 0)} SF</strong> of deck · edge <strong>${num(d.perm_edge_lf, 0)} LF</strong> · GB faces <strong>${num(d.gb_form_ff, 0)} FF</strong> · cable <strong>${num(d.pt_lb, 0)} lb</strong>`
                 : `SF <strong>${num(d.total_sf, 0)}</strong>`
             }
             ${
-              isPie || isCol || isWal
+              isPie || isCol || isWal || isDck
                 ? ""
                 : isPav
                 ? `· curb <strong>${num(d.curb_lf, 0)} LF</strong>`
@@ -3392,6 +3664,18 @@ function renderLaborCard(labor) {
           </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          ${
+            isDck
+              ? `<label class="card stat" style="min-width:12rem;margin:0;cursor:pointer"
+                    title="One switch for the section. Subbed labor costs the same — it moves which sheet the line goes on, and supervision is never subbed.">
+                   <div class="label">Field labor</div>
+                   <div class="value" style="font-size:1rem">
+                     <input type="checkbox" id="labor-subcontracted" ${subbed ? "checked" : ""} />
+                     ${subbed ? "subcontracted" : "our crew"}
+                   </div>
+                 </label>`
+              : ""
+          }
           <div class="card stat" style="min-width:10rem;margin:0">
             <div class="label">Labor</div>
             <div class="value" style="font-size:1.1rem">${money(labor.total_labor_cost)}</div>
@@ -3518,6 +3802,7 @@ function renderEquipmentCard(equip) {
               <td>
                 <strong>${esc(ln.label)}</strong>
                 ${ln.is_manual ? ` <span class="badge">manual</span>` : ""}
+                ${ln.subcontracted ? ` <span class="badge" title="Subcontracted — this line goes on the sub's sheet, not our crew's">sub</span>` : ""}
                 ${ln.notes ? `<div class="muted">${esc(ln.notes)}</div>` : ""}
                 <div class="muted" style="font-size:0.75rem">${esc(ln.formula || "")}</div>
               </td>
@@ -5027,6 +5312,765 @@ async function openPullModal(estimate, onDone) {
   };
 }
 
+/**
+ * Company settings — the master figures every new estimate starts from.
+ *
+ * This screen exists because sql/053 shipped `mobilization_ls` with no way to
+ * set it: the only settings UI in the app was the vapor-tape picker, and half
+ * a dozen numbers that decide what every bid costs — the tax rate, the fuel
+ * uplift, the supervision day rates — were reachable only through the
+ * database.
+ *
+ * The one thing it has to teach, and the reason every row wears a badge:
+ *
+ *   A PRICE is frozen on each estimate's price sheet when that estimate
+ *   pulls. Editing it here changes what NEW work is priced at and LEAVES
+ *   EVERY EXISTING JOB ALONE — by design, so a bid that went out last spring
+ *   keeps the numbers it was bid with.
+ *
+ *   A RULE is read live. Editing it REWRITES EVERY OPEN ESTIMATE on the spot,
+ *   because a correction to how the work is computed has to reach old jobs.
+ *
+ * Same screen, opposite consequences, and getting them the wrong way round is
+ * how somebody raises a rate here, sees LBJ not move, and raises it again.
+ * The badge, the group blurbs and the save toast all say which one happened.
+ *
+ * The taxonomy is SERVED, not re-derived here: `is_price`, `group`, `unit`
+ * and `scope` all come off the row. A second copy of that split in JavaScript
+ * is a copy that would disagree with the one deciding the money.
+ */
+async function renderSettings(root) {
+  root.innerHTML = `<div class="loading">Loading company settings…</div>`;
+  const rows = await Api.listSettings();
+
+  // Rows arrive alphabetical by key. The GROUPS are ordered by the server's
+  // own list (`group_order`), which puts the tax rate and the day rates ahead
+  // of the vapor-barrier defaults — alphabetical would open this page on
+  // "Vapor barrier", which is nobody's first question.
+  const groups = [];
+  for (const r of rows) {
+    let g = groups.find((x) => x.name === r.group);
+    if (!g) groups.push((g = { name: r.group, order: r.group_order ?? 99, rows: [] }));
+    g.rows.push(r);
+  }
+  groups.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+
+  const prices = rows.filter((r) => r.is_price).length;
+  const unset = rows.filter((r) => !r.is_set).length;
+  const odd = rows.filter((r) => r.unclassified);
+
+  const GROUP_BLURB = {
+    "Tax & uplifts":
+      "The two ratios that turn quantities into money. They do not compound — " +
+      "the workbook applies them as <code>× (1 + tax + fuel)</code>, and so does this.",
+    Supervision:
+      "Day rates, plus the pacing that decides how many days. The rates are " +
+      "prices; the pacing is a rule, and an assembly with its own pace " +
+      "(columns count 20 a week on a five-day week) overrides it.",
+    Mobilization:
+      "Getting the iron to the job and home again — one round trip. Set it " +
+      "here to seed every new section, or type it on a section's " +
+      "MOBILIZATION line when a job is unusual.",
+    "Labor rates":
+      "The COMPANY figure for each line. Every assembly can override it — " +
+      "paving forms at $0.30/SF against the slab sheet's $0.45 — so this is " +
+      "the fallback, not the answer.",
+    Equipment: "Day rates for machines with no catalog row of their own.",
+    "Waste & allowances":
+      "Rules, all of them. A change here rewrites every open estimate, " +
+      "because a waste factor is how the work is computed rather than what " +
+      "it costs.",
+    "Forming quantities":
+      "Divisors and coverages — SF per box, sheets per SF. Read these as " +
+      "quantities, never as money: <code>nails_16p_per_sf</code> is SF per " +
+      "box, not dollars.",
+    "Vapor barrier":
+      "What a section gets when it names no barrier of its own. Changing a " +
+      "default moves real money on every estimate that has not chosen.",
+    Quotes:
+      "How far from our own catalog a quote may sit before the card warns. " +
+      "Deliberately wide — it catches decimal points and unit mixups, not " +
+      "good buys.",
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1>Company settings</h1>
+        <p>
+          The master figures every new estimate starts from —
+          ${rows.length} of them, ${prices} prices and
+          ${rows.length - prices} rules.
+        </p>
+      </div>
+      <button type="button" class="btn ghost" id="btn-recalc-all"
+        title="Rewrite every open estimate from current inputs. Final and archived bids keep their numbers.">
+        Recalculate open estimates
+      </button>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+      <p style="margin:0 0 0.4rem"><strong>A price and a rule behave differently, and it matters.</strong></p>
+      <p style="margin:0;color:var(--text-muted);font-size:0.9rem">
+        <span class="badge">price</span>
+        is frozen on each estimate's price sheet when that estimate pulls.
+        Changing one here sets what <em>new</em> work is priced at and
+        <strong>leaves existing jobs alone</strong> — a bid that has gone out
+        keeps the numbers it was bid with. An open job picks it up when you
+        pull its sheet, and shows it as drift until you do.
+        <br />
+        <span class="badge warn">rule</span>
+        is read live. Changing one <strong>rewrites every open estimate now</strong>,
+        because a correction to how the work is computed has to reach the jobs
+        it was wrong on. The save will tell you how many it rewrote.
+      </p>
+    </div>
+
+    ${
+      unset
+        ? `<div class="error-banner" style="margin-bottom:1rem">
+             <strong>${unset} setting${unset === 1 ? " has" : "s have"} no value.</strong>
+             A blank is not a zero — the sections that reach for it report it as
+             unpriced rather than costing it at nothing. Give it a number here,
+             or leave it blank on purpose.
+           </div>`
+        : ""
+    }
+    ${
+      odd.length
+        ? `<div class="error-banner" style="margin-bottom:1rem">
+             <strong>${odd.length} key${odd.length === 1 ? " is" : "s are"} classified as neither a price nor a rule:</strong>
+             ${odd.map((r) => `<code>${esc(r.key)}</code>`).join(", ")}.
+             Nothing decides whether ${odd.length === 1 ? "it freezes" : "they freeze"}
+             on a sheet. Worth naming in <code>price_book.py</code>.
+           </div>`
+        : ""
+    }
+
+    ${groups
+      .map(
+        (g) => `
+      <div class="card" style="margin-bottom:1rem" id="grp-${esc(
+        g.name.replace(/[^a-z]/gi, "").toLowerCase()
+      )}">
+        <h3 style="margin:0 0 0.25rem">${esc(g.name)}</h3>
+        ${
+          GROUP_BLURB[g.name]
+            ? `<p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">${GROUP_BLURB[g.name]}</p>`
+            : ""
+        }
+        <div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>Setting</th>
+            <th style="width:4.5rem"></th>
+            <th style="width:9rem">Value</th>
+            <th style="width:4.5rem">Unit</th>
+            <th style="width:9rem">Rewrites</th>
+            <th style="width:8rem"></th>
+          </tr></thead>
+          <tbody>
+            ${g.rows.map(settingRowHtml).join("")}
+          </tbody>
+        </table></div>
+      </div>`
+      )
+      .join("")}
+  `;
+
+  wireSettings(root);
+}
+
+/** What a change to this key rewrites, in words rather than four booleans. */
+function scopeText(scope) {
+  const on = Object.entries(scope || {})
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+  if (!on.length) return "nothing stored";
+  if (on.length === 4) return "every takeoff";
+  return on.join(" · ");
+}
+
+function settingRowHtml(r) {
+  const badge = r.is_price
+    ? `<span class="badge" title="Frozen on each estimate's price sheet. Changing it here sets what NEW work is priced at.">price</span>`
+    : `<span class="badge warn" title="Read live. Changing it rewrites every open estimate.">rule</span>`;
+  // A boolean setting is a switch, not a number somebody types "true" into.
+  const isBool = r.value === "true" || r.value === "false";
+  const input = isBool
+    ? `<select data-k="${esc(r.key)}" class="setting-input">
+         <option value="true"${r.value === "true" ? " selected" : ""}>true</option>
+         <option value="false"${r.value === "false" ? " selected" : ""}>false</option>
+       </select>`
+    : `<input data-k="${esc(r.key)}" class="setting-input" type="text" inputmode="decimal"
+         value="${esc(r.value == null ? "" : r.value)}"
+         placeholder="${r.is_set ? "" : "not set"}" style="width:8rem" />`;
+
+  // The description is CLAMPED to two lines with the whole of it on hover.
+  // Unclamped, the long ones (mobilization, the quote band) pushed the Value
+  // column off the right edge of the card and the screen lost the boxes it
+  // exists to show.
+  const clamp =
+    "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;" +
+    "overflow:hidden;font-size:0.8rem;max-width:38rem";
+  return `<tr data-setting="${esc(r.key)}"${r.is_set ? "" : ' class="muted"'}>
+    <td>
+      <strong>${esc(r.label || r.key)}</strong>
+      ${r.label ? `<div class="muted"><code>${esc(r.key)}</code></div>` : ""}
+      ${
+        r.description
+          ? `<div class="muted" style="${clamp}" title="${esc(r.description)}">${esc(r.description)}</div>`
+          : ""
+      }
+    </td>
+    <td>${badge}</td>
+    <td>${input}</td>
+    <td class="muted">${esc(r.unit || "")}</td>
+    <td class="muted" style="font-size:0.8rem">${esc(scopeText(r.scope))}</td>
+    <td style="white-space:nowrap">
+      <button type="button" class="btn ghost setting-save" data-k="${esc(r.key)}">Save</button>
+      ${
+        // Only offer to blank a PRICE. Blanking a rule would leave the code
+        // default in charge with nothing on screen saying so, which is the
+        // opposite of what this screen is for.
+        r.is_price && r.is_set
+          ? `<button type="button" class="btn danger ghost setting-clear" data-k="${esc(r.key)}"
+               title="Clear back to unset. Not zero — sections that reach for it will report it as unpriced.">Clear</button>`
+          : ""
+      }
+    </td>
+  </tr>`;
+}
+
+function wireSettings(root) {
+  const save = async (key, value) => {
+    const btn = root.querySelector(`.setting-save[data-k="${CSS.escape(key)}"]`);
+    if (btn) btn.disabled = true;
+    try {
+      const report = await Api.updateSetting(key, value);
+      const n = (report.recalculated || []).length;
+      const skipped = (report.skipped || []).length;
+      let msg =
+        value === null
+          ? `${key} cleared`
+          : `${key} saved`;
+      // The whole point of the badge, said again at the moment it matters.
+      if (n) msg += ` — rewrote ${n} open estimate${n === 1 ? "" : "s"}`;
+      else msg += " — no stored estimate changed";
+      if (skipped) msg += `, ${skipped} final/archived left alone`;
+      toast(msg);
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  $$(".setting-save").forEach((btn) => {
+    btn.onclick = () => {
+      const key = btn.dataset.k;
+      const el = root.querySelector(`.setting-input[data-k="${CSS.escape(key)}"]`);
+      const raw = (el?.value ?? "").trim();
+      // An emptied box means UNSET, which is a real state here and not a zero.
+      // Sending "" would land as the string "" and read back as unset anyway,
+      // but null says so on purpose.
+      save(key, raw === "" ? null : raw);
+    };
+  });
+
+  $$(".setting-clear").forEach((btn) => {
+    btn.onclick = () => save(btn.dataset.k, null);
+  });
+
+  const rc = $("#btn-recalc-all");
+  if (rc) {
+    rc.onclick = async () => {
+      rc.disabled = true;
+      try {
+        const report = await Api.recalcAllEstimates();
+        const n = (report.recalculated || []).length;
+        const s = (report.skipped || []).length;
+        toast(
+          `Rewrote ${n} open estimate${n === 1 ? "" : "s"}` +
+            (s ? `, left ${s} final/archived at their bid numbers` : "")
+        );
+      } catch (err) {
+        toast(err.message, "err");
+      }
+      rc.disabled = false;
+    };
+  }
+}
+
+/**
+ * Rates on ONE section (sql/055).
+ *
+ * Chad, 2026-09-04, asked where a per-job rate change belongs: "I think making
+ * rates changes per section is what I would like the best" — because what
+ * makes a sub cheaper is the size of THESE pours, not the whole job.
+ *
+ * The editing is the easy half. The card's real job is **saying where each
+ * number came from**, because a rate you cannot trace is a rate you cannot
+ * defend three months later:
+ *
+ *     section   this section said so                 ← beats everything
+ *     job       the estimate's price sheet, or its rule override
+ *     assembly  what a paving section does
+ *     company   what S&S does
+ *     default   the literal in the code, when nothing else answered
+ *
+ * Every row carries the whole ladder in its tooltip, so "$0.42 here where the
+ * company says $0.55" reads as a decision rather than a typo.
+ *
+ * Collapsed to the overrides by default. A paving section reads 37 rates and
+ * a card that opens on all of them is one nobody scrolls past.
+ */
+/**
+ * Rules for this job (sql/055's `estimate_rules`, given a screen).
+ *
+ * The card that was missing from the middle of the ladder. What it has to
+ * teach, and the reason the blurb leads with it:
+ *
+ *   a PRICE is frozen on this job's price sheet at the pull, so a company
+ *   change leaves the bid alone;
+ *
+ *   a RULE is read LIVE, so a correction to how the work is COMPUTED reaches
+ *   the jobs it was made for.
+ *
+ * Which is why prices are not on this card at all, and why the sentence
+ * pointing at the price sheet is not an afterthought.
+ */
+function renderEstimateRulesCard(rules) {
+  if (!rules) return "";
+  const rows = rules.rows || [];
+  if (!rows.length) {
+    return `<div class="card" id="estimate-rules" style="margin-top:1rem">
+      <h3 style="margin:0 0 0.35rem">Rules for this job</h3>
+      <p class="muted" style="margin:0;color:var(--text-muted);font-size:0.85rem">
+        Nothing to set yet — rules appear here once the job has a section that
+        reads one.
+      </p>
+    </div>`;
+  }
+  const set = rows.filter((r) => r.job_value != null);
+  const rest = rows.filter((r) => r.job_value == null);
+
+  // Grouped by the SERVED taxonomy, in the SERVED order. Sorting by name here
+  // is how the settings screen ended up alphabetical with tax below vapour
+  // barrier — the order is a decision, and it is made once, server-side.
+  const groups = [];
+  rest.forEach((r) => {
+    let g = groups.find((x) => x.name === r.group);
+    if (!g) groups.push((g = { name: r.group, order: r.group_order, rows: [] }));
+    g.rows.push(r);
+  });
+  groups.sort((a, b) => a.order - b.order);
+
+  return `
+    <div class="card" id="estimate-rules" style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+        <div style="max-width:52rem">
+          <h3 style="margin:0">Rules for this job</h3>
+          <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
+            A <strong>rule</strong> is how the work is computed — waste factors,
+            divisors, supervision pacing, geometry. Rules are read
+            <strong>live</strong>, so setting one here changes this job now and
+            a company correction still reaches it later. Set on the job, it
+            beats the assembly and the company; a section can still say
+            something different on its own card.
+            <br />
+            A <strong>price</strong> is not here. Prices are frozen on this
+            job's <a href="#prices/${esc(rules.estimate_id)}">price sheet</a> at
+            the pull — that is the point of them — so they are edited there.
+          </p>
+        </div>
+        <div class="card stat" style="min-width:9rem;margin:0">
+          <div class="label">Set on this job</div>
+          <div class="value">${set.length}</div>
+          <div class="hint">of ${rows.length} in play</div>
+        </div>
+      </div>
+
+      ${
+        set.length
+          ? `<div class="table-wrap" style="margin-top:0.75rem"><table class="data">
+               <thead><tr>
+                 <th>Rule</th><th style="width:8rem">This job</th>
+                 <th style="width:8rem">Would be</th><th>Why</th><th style="width:6rem"></th>
+               </tr></thead>
+               <tbody>${set.map((r) => estimateRuleRowHtml(r, true)).join("")}</tbody>
+             </table></div>`
+          : `<p class="muted" style="margin:0.75rem 0 0;color:var(--text-muted);font-size:0.85rem">
+               Nothing is set on this job — every rule below comes from the
+               assembly or the company.
+             </p>`
+      }
+
+      ${groups
+        .map(
+          (g) => `<details style="margin-top:0.5rem">
+          <summary style="cursor:pointer;color:var(--text-muted);font-size:0.85rem">
+            ${esc(g.name)} · ${g.rows.length}
+          </summary>
+          <div class="table-wrap" style="margin-top:0.5rem"><table class="data">
+            <thead><tr>
+              <th>Rule</th><th style="width:8rem">This job</th>
+              <th style="width:8rem">From</th><th>Why</th><th style="width:6rem"></th>
+            </tr></thead>
+            <tbody>${g.rows.map((r) => estimateRuleRowHtml(r, false)).join("")}</tbody>
+          </table></div>
+        </details>`
+        )
+        .join("")}
+    </div>`;
+}
+
+/** The ladder in words, for the tooltip. Assembly values are per KIND. */
+function ruleLadderText(r) {
+  const bits = [];
+  if (r.job_value != null) bits.push(`job ${Number(r.job_value)}`);
+  Object.keys(r.assembly_values || {})
+    .sort()
+    .forEach((k) => bits.push(`${k} ${Number(r.assembly_values[k])}`));
+  if (r.company_value != null) bits.push(`company ${Number(r.company_value)}`);
+  if (r.default_value != null) bits.push(`code default ${Number(r.default_value)}`);
+  return bits.length ? bits.join("  ·  ") : "nothing has a value for this";
+}
+
+function estimateRuleRowHtml(r, isSet) {
+  // "Would be" on a row that is set is what the job falls BACK to — not
+  // `r.source`, which after a write always reads "job" and would make the
+  // column say a number came from the row replacing it. Same bug the section
+  // card had and the same fix.
+  let fallback = r.value;
+  let fallbackSource = r.source;
+  if (isSet) {
+    const asm = Object.values(r.assembly_values || {});
+    const one = asm.length && asm.every((v) => Number(v) === Number(asm[0]));
+    const ladder = [
+      ["assembly", one ? asm[0] : null],
+      ["company", r.company_value],
+      ["default", r.default_value],
+    ].find(([, v]) => v !== null && v !== undefined);
+    fallback = ladder ? ladder[1] : null;
+    fallbackSource = ladder ? ladder[0] : "nothing";
+  }
+
+  // Who is NOT listening, and why. A job rule that quietly does nothing on
+  // half the sections is the class of bug this app keeps finding in the
+  // workbook — so it is stated on the row, not left to be discovered.
+  const off = r.overridden_by || [];
+  const columnKind = off.some((s) => s.source === "column");
+  const notListening = off.length
+    ? `<div class="badge warn" title="${esc(
+        off
+          .map((s) => `${s.name}: ${Number(s.value)} (${s.source === "column" ? "set on the section" : "section rate"})`)
+          .join("  ·  ")
+      )}">${
+        off.length === 1
+          ? `1 section ${columnKind ? "sets its own" : "overrides this"}`
+          : `${off.length} sections ${columnKind ? "set their own" : "override this"}`
+      }</div>`
+    : "";
+
+  return `<tr data-rule="${esc(r.key)}">
+    <td style="max-width:26rem">
+      <strong>${esc(r.label)}</strong>
+      ${
+        r.is_section_column
+          ? ` <span class="badge" title="Also a field on each section. A section that has its own value uses that instead — it is read before this ladder runs.">per-section field</span>`
+          : ""
+      }
+      <div class="muted"><code>${esc(r.key)}</code>${r.unit ? ` · ${esc(r.unit)}` : ""}</div>
+      ${
+        r.description
+          ? `<div class="muted" style="white-space:normal;font-size:0.78rem">${esc(r.description)}</div>`
+          : ""
+      }
+      ${notListening}
+    </td>
+    <td class="num">
+      <input type="number" step="any" class="rule-val" data-k="${esc(r.key)}"
+        value="${r.job_value == null ? "" : Number(r.job_value)}"
+        placeholder="${fallback == null ? "" : Number(fallback)}" style="width:6.5rem" />
+    </td>
+    <td class="num muted" title="${esc(ruleLadderText(r))}">
+      ${fallback == null ? "—" : Number(fallback)}
+      <div class="muted" style="font-size:0.75rem">${esc(fallbackSource)}</div>
+    </td>
+    <td>
+      <input type="text" class="rule-note" data-k="${esc(r.key)}" maxlength="200"
+        value="${esc(r.note || "")}" placeholder="${isSet ? "who said so" : ""}" />
+    </td>
+    <td style="white-space:nowrap">
+      <button type="button" class="btn ghost rule-save" data-k="${esc(r.key)}">Save</button>
+      ${
+        isSet
+          ? `<button type="button" class="btn danger ghost rule-clear" data-k="${esc(r.key)}"
+               title="Remove the job rule and let the assembly or company decide again">Clear</button>`
+          : ""
+      }
+    </td>
+  </tr>`;
+}
+
+function wireEstimateRules(estimate) {
+  // Every write repriced the WHOLE job, so the page is re-rendered rather than
+  // patched: the section table above it is now stale by definition.
+  $$(".rule-save").forEach((btn) => {
+    btn.onclick = async () => {
+      const key = btn.dataset.k;
+      const val = $(`.rule-val[data-k="${CSS.escape(key)}"]`);
+      const note = $(`.rule-note[data-k="${CSS.escape(key)}"]`);
+      const raw = (val?.value ?? "").trim();
+      btn.disabled = true;
+      try {
+        // An emptied box is "stop overriding", not zero. A zero rule is a
+        // statement somebody makes on purpose; a blank is not one.
+        if (raw === "") {
+          await Api.clearEstimateRule(estimate.id, key);
+          toast("Rule cleared — the assembly or company decides again");
+        } else {
+          await Api.setEstimateRule(estimate.id, key, raw, note?.value || null);
+          toast("Rule set on this job — every section repriced");
+        }
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btn.disabled = false;
+      }
+    };
+  });
+  $$(".rule-clear").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await Api.clearEstimateRule(estimate.id, btn.dataset.k);
+        toast("Rule cleared — the assembly or company decides again");
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btn.disabled = false;
+      }
+    };
+  });
+}
+
+function renderSectionRatesCard(rates) {
+  if (!rates) return "";
+  const rows = rates.rows || [];
+  // Chad's policy, 2026-09-04: "each section should be separate from the
+  // others for labor ... materials should be standard across the estimate.
+  // concrete and materials are quoted per job so should be edited that way."
+  //
+  // So the job-level rates are SHOWN — you still want to see what this section
+  // is paying for PT cable — but read-only, with somewhere to go. Hiding them
+  // would leave the card looking like the whole story when it is not.
+  const mine = rows.filter((r) => r.level !== "estimate");
+  const jobOnly = rows.filter((r) => r.level === "estimate");
+  const over = mine.filter((r) => r.source === "section");
+  const rest = mine.filter((r) => r.source !== "section");
+
+  return `
+    <div class="card" id="section-rates" style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+        <div>
+          <h3 style="margin:0">Rates on this section</h3>
+          <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
+            <strong>Labor, equipment and subbed services</strong> are set per
+            section — each section is separate, because forming labor on a deck
+            is not forming labor on paving. A rate set here beats the job's
+            price sheet, the assembly and the company, for when a sub is
+            cheaper on <em>these</em> pours and not on the rest of the job.
+            <strong>Materials are set for the whole job</strong> on the
+            <a href="#prices/${esc(rates.estimate_id)}">price sheet</a> —
+            concrete and materials are quoted per job, so they are edited
+            that way.
+          </p>
+        </div>
+        <div class="card stat" style="min-width:9rem;margin:0">
+          <div class="label">Set here</div>
+          <div class="value">${over.length}</div>
+          <div class="hint">of ${mine.length} you can set here</div>
+        </div>
+      </div>
+
+      ${
+        over.length
+          ? `<div class="table-wrap" style="margin-top:0.75rem"><table class="data">
+               <thead><tr>
+                 <th>Rate</th><th style="width:4.5rem"></th><th style="width:8rem">This section</th>
+                 <th style="width:8rem">Would be</th><th>Why</th><th style="width:6rem"></th>
+               </tr></thead>
+               <tbody>${over.map((r) => sectionRateRowHtml(r, true)).join("")}</tbody>
+             </table></div>`
+          : `<p class="muted" style="margin:0.75rem 0 0;color:var(--text-muted);font-size:0.85rem">
+               Nothing is set on this section — every rate below comes from the
+               job, the assembly or the company.
+             </p>`
+      }
+
+      <details style="margin-top:0.75rem">
+        <summary style="cursor:pointer;color:var(--text-muted);font-size:0.85rem">
+          ${rest.length} more this section reads — click to set one
+        </summary>
+        <div class="table-wrap" style="margin-top:0.5rem"><table class="data">
+          <thead><tr>
+            <th>Rate</th><th style="width:4.5rem"></th><th style="width:8rem">This section</th>
+            <th style="width:8rem">From</th><th>Why</th><th style="width:6rem"></th>
+          </tr></thead>
+          <tbody>${rest.map((r) => sectionRateRowHtml(r, false)).join("")}</tbody>
+        </table></div>
+      </details>
+
+      ${
+        jobOnly.length
+          ? `<details style="margin-top:0.5rem">
+               <summary style="cursor:pointer;color:var(--text-muted);font-size:0.85rem">
+                 ${jobOnly.length} set for the whole job — materials, tax and
+                 company conventions
+               </summary>
+               <p class="muted" style="margin:0.5rem 0 0;color:var(--text-muted);font-size:0.8rem">
+                 These are the same on every section of this job. Change one on
+                 the <a href="#prices/${esc(rates.estimate_id)}">price sheet</a>
+                 or in <strong>Company settings</strong>.
+               </p>
+               <div class="table-wrap" style="margin-top:0.5rem"><table class="data">
+                 <thead><tr>
+                   <th>Rate</th><th style="width:4.5rem"></th>
+                   <th style="width:8rem">This job</th><th style="width:8rem">From</th>
+                 </tr></thead>
+                 <tbody>${jobOnly.map(jobRateRowHtml).join("")}</tbody>
+               </table></div>
+             </details>`
+          : ""
+      }
+    </div>`;
+}
+
+/** A job-level rate, shown so the section is legible — not editable here. */
+function jobRateRowHtml(r) {
+  return `<tr${r.was_read ? "" : ' class="muted"'}>
+    <td>
+      <strong>${esc(r.label)}</strong>
+      <div class="muted"><code>${esc(r.key)}</code>${r.unit ? ` · ${esc(r.unit)}` : ""}</div>
+    </td>
+    <td><span class="badge info" title="Set for the whole job — materials are quoted per job, not per section">job</span></td>
+    <td class="num">${r.value == null ? "\u2014" : Number(r.value)}</td>
+    <td class="num muted" style="font-size:0.8rem" title="${esc(rateLadderText(r))}">${esc(r.source)}</td>
+  </tr>`;
+}
+
+/** The ladder in words, for the tooltip. */
+function rateLadderText(r) {
+  const bits = [];
+  const add = (name, v) => {
+    if (v !== null && v !== undefined) bits.push(`${name} ${Number(v)}`);
+  };
+  add("section", r.section_value);
+  add("job", r.job_value);
+  add("assembly", r.assembly_value);
+  add("company", r.company_value);
+  add("code default", r.default_value);
+  return bits.length ? bits.join("  ·  ") : "nothing has a value for this";
+}
+
+function sectionRateRowHtml(r, isOverride) {
+  const badge = r.is_price
+    ? `<span class="badge" title="A price. Frozen on the job's sheet unless set here.">price</span>`
+    : `<span class="badge warn" title="A rule — how the work is computed. Read live unless set here.">rule</span>`;
+  // "Would be" on an override is what the section would fall back to; on a
+  // normal row it is where the live number came from. Same column, and the
+  // header changes with it, because both answer "and if I clear this?".
+  // On an override, this is what the section would fall BACK to, and the
+  // little label under it has to name that rung — not `r.source`, which after
+  // an override always reads "section" and made the column say a number came
+  // from the very row that was replacing it.
+  let fallback = r.value;
+  let fallbackSource = r.source;
+  if (isOverride) {
+    const ladder = [
+      ["job", r.job_value],
+      ["assembly", r.assembly_value],
+      ["company", r.company_value],
+      ["default", r.default_value],
+    ].find(([, v]) => v !== null && v !== undefined);
+    fallback = ladder ? ladder[1] : null;
+    fallbackSource = ladder ? ladder[0] : "nothing";
+  }
+  return `<tr data-rate="${esc(r.key)}"${r.was_read ? "" : ' class="muted"'}>
+    <td>
+      <strong>${esc(r.label)}</strong>
+      <div class="muted"><code>${esc(r.key)}</code>${
+        r.unit ? ` · ${esc(r.unit)}` : ""
+      }${r.was_read ? "" : " · not read by this section today"}</div>
+    </td>
+    <td>${badge}</td>
+    <td class="num">
+      <input type="number" step="any" min="0" class="rate-val" data-k="${esc(r.key)}"
+        value="${r.section_value == null ? "" : Number(r.section_value)}"
+        placeholder="${fallback == null ? "" : Number(fallback)}" style="width:6.5rem" />
+    </td>
+    <td class="num muted" title="${esc(rateLadderText(r))}">
+      ${fallback == null ? "—" : Number(fallback)}
+      <div class="muted" style="font-size:0.75rem">${esc(fallbackSource)}</div>
+    </td>
+    <td>
+      <input type="text" class="rate-note" data-k="${esc(r.key)}" maxlength="200"
+        value="${esc(r.note || "")}"
+        placeholder="${isOverride ? "who said so" : ""}" />
+    </td>
+    <td style="white-space:nowrap">
+      <button type="button" class="btn ghost rate-save" data-k="${esc(r.key)}">Save</button>
+      ${
+        isOverride
+          ? `<button type="button" class="btn danger ghost rate-clear" data-k="${esc(r.key)}"
+               title="Remove the override and let the job, assembly or company decide again">Clear</button>`
+          : ""
+      }
+    </td>
+  </tr>`;
+}
+
+function wireSectionRates(root, section) {
+  $$(".rate-save").forEach((btn) => {
+    btn.onclick = async () => {
+      const key = btn.dataset.k;
+      const val = root.querySelector(`.rate-val[data-k="${CSS.escape(key)}"]`);
+      const note = root.querySelector(`.rate-note[data-k="${CSS.escape(key)}"]`);
+      const raw = (val?.value ?? "").trim();
+      btn.disabled = true;
+      try {
+        if (raw === "") {
+          // An emptied box is "stop overriding", not "zero". A zero rate is a
+          // statement somebody makes on purpose; a blank is not one.
+          await Api.clearSectionRate(section.id, key);
+          toast(`${key} back to the job / assembly / company rate`);
+        } else {
+          await Api.setSectionRate(section.id, key, raw, note?.value);
+          toast(`${key} set on this section — the section was recalculated`);
+        }
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btn.disabled = false;
+      }
+    };
+  });
+  $$(".rate-clear").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await Api.clearSectionRate(section.id, btn.dataset.k);
+        toast(`${btn.dataset.k} back to the job / assembly / company rate`);
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btn.disabled = false;
+      }
+    };
+  });
+}
+
 async function render() {
   const root = $("#app");
   try {
@@ -5040,6 +6084,7 @@ async function render() {
     else if (state.route === "mixes") await renderMixes(root);
     else if (state.route === "materials") await renderMaterials(root);
     else if (state.route === "equipment") await renderEquipment(root);
+    else if (state.route === "settings") await renderSettings(root);
     else {
       root.innerHTML = `<div class="error-banner">Unknown page: ${esc(state.route)}</div>`;
     }

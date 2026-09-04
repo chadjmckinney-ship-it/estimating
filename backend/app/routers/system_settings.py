@@ -19,9 +19,61 @@ from app.schemas.system_setting import (
     SystemSettingRead,
     SystemSettingUpdate,
 )
+from app.services.price_book import MONETARY_KEYS, RULE_KEYS
 from app.services.recalc import recalc_all_estimates, settings_scope
 
 router = APIRouter(prefix="/system-settings", tags=["system-settings"])
+
+
+# Which card a key is filed under. Ordered, and the FIRST match wins — so
+# `equip_fuel_maint_pct` lands in "Tax & uplifts" beside the tax rate it
+# compounds with, rather than in "Equipment" with the day rates.
+#
+# This lives here and not in JavaScript for the same reason `is_price` does:
+# one taxonomy, served, so the screen cannot hold a copy that drifts.
+_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Tax & uplifts", ("sales_tax_pct", "equip_fuel_maint_pct")),
+    (
+        "Supervision",
+        (
+            "labor_super_day_rate", "labor_foreman_day_rate", "labor_pm_day_rate",
+            "labor_expense_day_rate", "labor_super_sf_per_week",
+            "labor_super_days_per_week", "columns_per_super_week",
+        ),
+    ),
+    ("Mobilization", ("mobilization_ls",)),
+    ("Waste & allowances", (
+        "waste_", "support_rebar_lb_per_sf", "pt_lb_per_sf",
+        "labor_tie_steel_free_lb_per_sf", "haul_off_swell", "backfill_swell",
+    )),
+    # After the allowances above, so `labor_tie_steel_free_lb_per_sf`
+    # files as the allowance it is rather than as a rate.
+    ("Labor rates", ("labor_",)),
+    ("Equipment", ("equip_", "out_of_town_day_rate")),
+    ("Contract services", (
+        "concrete_pump_cy", "haul_off_cy", "cure_sf", "saw_cutting_lf",
+        "joint_", "demo_lf", "stamping_sf", "slip_form_sf", "surveying_ea",
+        "waterproofing_sf", "barricades_", "engineering_sf", "freight_load",
+        "form_rental_", "rock_cy",
+    )),
+    ("Forming quantities", (
+        "form_percent", "form_waste", "lumber_", "nails_", "stakes_",
+        "chamfer_", "chairs_", "patch_", "camlocks_", "wall_ties_",
+        "pipe_brace_", "horiz_lap_", "sand_in_under_form", "cure_sf_per_gal",
+        "pavecrete_", "accessories_", "reshoring_multiplier",
+    )),
+    ("Vapor barrier", ("default_vapor_", "vapor_")),
+    ("Pier geometry", ("pier_",)),
+    ("Quotes", ("quote_",)),
+)
+
+
+def _group_for(key: str) -> tuple[str, int]:
+    """The card this key is filed under, and where that card sits."""
+    for i, (name, prefixes) in enumerate(_GROUPS):
+        if any(key == p or key.startswith(p) for p in prefixes):
+            return name, i
+    return "Other", len(_GROUPS)
 
 
 def _note(out: dict[str, Any]) -> str:
@@ -37,11 +89,23 @@ def _note(out: dict[str, Any]) -> str:
 
 
 def _row_to_read(row: Any) -> SystemSettingRead:
+    key = row["key"]
+    label, unit = MONETARY_KEYS.get(key, (None, None))
+    is_price = key in MONETARY_KEYS
     return SystemSettingRead(
-        key=row["key"],
+        key=key,
         value=row["text_value"],
         description=row["description"],
         updated_at=row["updated_at"],
+        is_price=is_price,
+        label=label,
+        unit=unit,
+        group=_group_for(key)[0],
+        group_order=_group_for(key)[1],
+        # jsonb null reads back as SQL NULL. EXISTS but unpriced — not zero.
+        is_set=row["text_value"] is not None,
+        scope=settings_scope([key]),
+        unclassified=not is_price and key not in RULE_KEYS,
     )
 
 

@@ -136,6 +136,12 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "labor_layout_ea":           ("Layout labor", "EA"),
     "labor_cleanup_ea":          ("Cleanup labor", "EA"),
     "labor_pier_cap_ea":         ("Pier cap labor", "EA"),
+    # -- the elevated deck's own labor (sql/052)
+    "labor_reshoring_sf":        ("Reshoring labor", "SF"),
+    "labor_edge_rails_lf":       ("Edge & safety rails labor", "LF"),
+    "labor_gb_forming_ff":       ("Grade beam forming labor", "FF"),
+    "labor_stud_rails_ton":      ("Stud rails labor", "TON"),
+    "labor_cable_placement_lb":  ("PT cable placement labor", "LB"),
     # -- equipment day rates that live as rates rather than catalog rows
     "equip_misc_day_rate":       ("Misc equipment", "DAY"),
     "equip_vault_day_rate":      ("Vault", "DAY"),
@@ -150,7 +156,14 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "equip_skid_steer_day_rate": ("Skid steer", "DAY"),
     "equip_skid_day_rate":       ("Skid steer", "DAY"),
     "equip_trencher_day_rate":   ("Trencher", "DAY"),
+    "equip_crane_day_rate":      ("Crane & operator", "DAY"),
+    "equip_20_ton_lift_day_rate": ("20 ton lift", "DAY"),
     "out_of_town_day_rate":      ("Out of town", "DAY"),
+    # Getting the iron to the job and home again — one round trip (sql/053).
+    # The workbook prices it nowhere; this is a real cost the sheets have been
+    # leaving out. Deliberately unset company-wide, so it reads as unpriced
+    # rather than free until somebody says what a move costs.
+    "mobilization_ls":           ("Mobilization", "LS"),
     # -- contract services and per-unit costs
     "concrete_pump_cy":          ("Concrete pump", "CY"),
     "haul_off_cy":               ("Haul off", "CY"),
@@ -165,6 +178,19 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "surveying_ea":              ("Surveying", "EA"),
     "waterproofing_sf":          ("Waterproofing", "SF"),
     "barricades_month":          ("Barricades", "MONTH"),
+    "barricades_lf":             ("Barricades", "LF"),
+    "engineering_sf":            ("Engineering", "SF"),
+    "freight_load":              ("Freight", "LOAD"),
+    # -- deck materials priced per unit of DECK rather than per catalog row
+    "pt_cable_sf":               ("PT cable", "SF"),
+    "stud_rails_lb":             ("Stud rails", "LB"),
+    "carton_forms_sf":           ("Carton forms", "SF"),
+    "plywood_forming_sf":        ("Plywood forming", "SF"),
+    "form_rental_shoring_sf":    ("Form rental shoring", "SF"),
+    # Registered but deliberately absent from every table: the deck sheet's
+    # F83 is blank, so reshoring material has no price and the section says
+    # so rather than costing it at zero (sql/052).
+    "reshoring_material_sf":     ("Reshoring material", "SF"),
     "form_rental_contact_ft":    ("Form rental", "CONTACT FT"),
     "rock_cy":                   ("Rock", "CY"),            # on paving/sidewalk; not read by any service (audit P3)
     "sand_unit_cost":            ("Sand", "CY"),            # an assembly override of the SAND material price; no rows today
@@ -176,12 +202,19 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
 RULE_KEYS: frozenset[str] = frozenset({
     # waste and allowances
     "waste_concrete", "waste_sand", "waste_poly", "waste_rebar",
+    "waste_rebar_beams",
     "support_rebar_lb_per_sf", "pt_lb_per_sf", "labor_tie_steel_free_lb_per_sf",
     # forming quantities and divisors — SF per box, LF per SF, sheets per SF
     "form_percent", "form_waste", "form_rental_percent",
     "nails_16p_per_sf", "nails_8p_per_sf", "lumber_2x4_per_sf", "lumber_ply_per_sf",
     "lumber_2x4_per_ff", "lumber_ply_per_ff", "chairs_sf_per_bag", "form_release_sf_per_gal",
     "patch_sf_per_bag", "stakes_per_column", "chamfer_per_column", "camlocks_per_ff",
+    # the elevated deck's divisors, all riding perm edge LF + GB form FF
+    "lumber_2x4_per_lf", "lumber_2x6_per_lf", "lumber_2x10_per_lf", "lumber_ply_per_lf",
+    "stakes_2x10_lf_per_stake", "stakes_per_bundle", "nails_edge_factor",
+    "pavecrete_sf_per_bag", "cure_sf_per_gal", "accessories_stud_rail_factor",
+    # J83 on the deck sheet is one cell read by two lines; here it is two rules
+    "reshoring_multiplier", "form_rental_shoring_multiplier",
     "wall_ties_per_ff", "pipe_brace_per_ff", "horiz_lap_ft_per_course", "sand_in_under_form",
     # supervision pacing
     "labor_super_sf_per_week", "labor_super_days_per_week", "columns_per_super_week",
@@ -344,6 +377,149 @@ class NoPriceBook(RuntimeError):
 
 def current_book() -> PriceBook | None:
     return _current.get()
+
+
+# ------------------------------------------- section-level or job-level ----
+#
+# WHERE a rate is allowed to be set. Chad, 2026-09-04, stating the policy:
+#
+#     "I want all the rates editable per section, each section should be
+#      separate from the others for labor. we have a default that we set when
+#      we start then can change as needed when we make it past the first round
+#      of proposals. forming labor for slabs, paving, CIP decks, etc is based
+#      on that section. materials should be standard across the estimate.
+#      concrete and materials are quoted per job so should be edited that way."
+#
+# So: **labor is a section fact, material is a job fact.**
+#
+# Most of that was already true and needed no code. Mixes and materials are
+# catalog rows on the price sheet (`kind='mix'` / `'material'`, resolved by
+# ref_id) and never come through `_rate_numeric` at all, so concrete and
+# lumber have always been job-level and could never be set on a section.
+#
+# The list below is the handful that DO come through here and are materials
+# anyway — bought by the square foot or the pound instead of by a catalog row —
+# plus the job and company facts that were never section-shaped. Without this,
+# the section rates card offered a box for PT cable at $1.45/SF, which is
+# $50,384.96 on LBJ, on a section rather than on the job that quoted it.
+#
+# Everything not named here is SECTION-level: labor, equipment day rates, the
+# subbed services, the waste factors and the divisors — all of them things
+# that describe this bit of work.
+
+# The line that took two passes to find. The first cut said "a material is a
+# material however it is priced" and put PT cable here. Chad, 2026-09-04:
+#
+#     "PT cables are section level, per sf on slabs is different the decks.
+#      also have done one a project that is townhomes and apartments and they
+#      had different pt spacing."
+#
+# Which is the better rule, and it is not about materials at all. What decides
+# the level is **what the price is per**:
+#
+#   * priced per unit of THE WORK — $/SF of slab, $/SF of deck — varies with
+#     what is being built, so it is a SECTION rate however material-shaped it
+#     looks. PT at $1.45/SF is not the same purchase on a slab as on a deck;
+#     `pt_lb_per_sf`, the cable weight, was already a section-level rule for
+#     the same reason, which is what lets one job carry townhomes and
+#     apartments at different spacings.
+#
+#   * priced per unit of THE MATERIAL — $/CY of sand, $/lb of steel — is the
+#     supplier's number for the job, and it does not care which section the
+#     truck backs up to.
+
+ESTIMATE_LEVEL_KEYS: frozenset[str] = frozenset({
+    # Priced per unit of the MATERIAL. A supplier quotes these for the job.
+    "stud_rails_lb",
+    "rock_cy",
+    "sand_unit_cost",
+    # Job facts. Tax follows the project and the fuel uplift follows the
+    # company; neither is a property of one section's work.
+    "sales_tax_pct",
+    "equip_fuel_maint_pct",
+    # WHICH material, so it follows the material.
+    "default_vapor_barrier_material_id",
+    "default_vapor_tape_material_id",
+    # Company conventions. A quote band that differed per section would make
+    # the badge meaningless, and the rental tier is how S&S bills, not how
+    # this deck is built.
+    "quote_warn_low_ratio",
+    "quote_warn_high_ratio",
+    "equip_use_rental_tiers",
+})
+
+
+def rate_level(key: str) -> str:
+    """Where this rate is allowed to be set: "section" or "estimate"."""
+    return "estimate" if key in ESTIMATE_LEVEL_KEYS else "section"
+
+
+# ------------------------------------------------------- the section ----
+#
+# Which SECTION the current pass is costing (sql/055). A separate context from
+# the book, deliberately: the book is one per estimate and is reused across the
+# sections under it, while this changes on every gate.
+#
+# Same reasoning as the book itself, and the same evidence. `_rate_numeric` has
+# 113 call sites. Threading a section_id through them would mean 113 chances to
+# forget one, and a forgotten one does not fail — it quietly reads the
+# company's number for a section that overrode it, forever. A context set at
+# the gates cannot be forgotten per-site, because there are no per-site sites.
+#
+# None means "no section in view" — a catalog read, a quote comparison, a test
+# calling a helper bare. Nothing breaks: the ladder simply starts one rung down.
+
+_section: contextvars.ContextVar[UUID | None] = contextvars.ContextVar(
+    "estimating_section", default=None
+)
+
+
+def current_section() -> UUID | None:
+    return _section.get()
+
+
+@contextmanager
+def for_section(section_id: UUID | None) -> Iterator[None]:
+    """Run a pass as one section, so its own rates win. Re-entrant."""
+    token = _section.set(section_id)
+    try:
+        yield
+    finally:
+        _section.reset(token)
+
+
+# ----------------------------------------------------- what was read ----
+#
+# A pass can RECORD which rate keys it looked up. That is how the section's
+# rates screen knows what to show: not a hand-written list of "keys a paving
+# section reads", which would drift from the line sets the day somebody adds a
+# line, but the keys the takeoff actually asked for while it ran.
+
+_recording: contextvars.ContextVar[dict[str, Decimal | None] | None] = (
+    contextvars.ContextVar("estimating_rate_reads", default=None)
+)
+
+
+def note_rate_read(key: str, default: Decimal) -> None:
+    seen = _recording.get()
+    if seen is None or key in seen:
+        return
+    # `_equip_price` passes Decimal("NaN") as a sentinel meaning "there is no
+    # code default — tell me if nothing answered". That is a real default of
+    # None, not a number, and letting a NaN out of here 500s the rates screen
+    # on a JSON serialiser rather than saying so.
+    seen[key] = None if default.is_nan() else default
+
+
+@contextmanager
+def recording_rates() -> Iterator[dict[str, Decimal | None]]:
+    """Collect every rate key a pass reads, and the code default behind it."""
+    seen: dict[str, Decimal | None] = {}
+    token = _recording.set(seen)
+    try:
+        yield seen
+    finally:
+        _recording.reset(token)
 
 
 @contextmanager

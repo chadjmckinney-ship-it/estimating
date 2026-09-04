@@ -26,7 +26,7 @@ from app.models.estimate_equipment import EstimateEquipmentSummary
 from app.models.estimate_forming import EstimateFormingSummary
 from app.models.estimate_labor import EstimateLaborSummary
 from app.services.calc import refresh_section_slab_calcs
-from app.models.estimate_section import COLUMN_KINDS
+from app.models.estimate_section import COLUMN_KINDS, DECK_KINDS
 from app.services.costing import PIER_KINDS, WALL_KINDS
 from app.services.estimate_equipment import refresh_and_store_equipment
 from app.services.forming import refresh_and_store_forming
@@ -45,6 +45,12 @@ _POUR_KEYS = frozenset(
     }
 )
 _FORMING_KEYS = frozenset({"form_percent", "form_waste"})
+# Keys that feed the EQUIPMENT lines without being named `equip_`. Mobilization
+# is one (sql/053): it seeds a contract-services line on every assembly, so a
+# change to it has to rewrite them, and the prefix rule below would have said
+# "this key feeds no stored calculation" — which is how a company rate change
+# reaches nothing and nobody notices.
+_EQUIPMENT_KEYS = frozenset({"mobilization_ls"})
 # Priced at cost time from stored quantities, so a change only needs the costing
 # pass — but that runs inside the pour refresh, so ask for pours.
 _COSTING_KEYS = frozenset(
@@ -88,7 +94,7 @@ def settings_scope(keys: list[str]) -> dict[str, bool]:
             scope["labor"] = True
             # Equipment days ride on the superintendent duration.
             scope["equipment"] = True
-        elif key.startswith("equip_"):
+        elif key.startswith("equip_") or key in _EQUIPMENT_KEYS:
             scope["equipment"] = True
     return scope
 
@@ -135,6 +141,11 @@ def recalc_section(
             from app.services.columns import refresh_section_column_calcs
 
             done["pours"] = refresh_section_column_calcs(db, section)
+        elif section.kind in DECK_KINDS:
+            # Fifth shape: a deck LEVEL (sql/052).
+            from app.services.cip_deck import refresh_section_deck_calcs
+
+            done["pours"] = refresh_section_deck_calcs(db, section)
         else:
             done["pours"] = refresh_section_slab_calcs(db, section)
 

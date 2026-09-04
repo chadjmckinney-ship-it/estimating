@@ -97,19 +97,54 @@ def _w(db: Session, size: int | None, sheet: bool) -> Decimal:
 # --------------------------------------------------------------- geometry ---
 
 
-def form_sf(height_ft: Any, length_in: Any, width_in: Any, qty: Any) -> Decimal:
+def formed_perimeter_in(length_in: Any, width_in: Any, faces: Any = 4) -> Decimal:
     """
-    Form contact area: the four faces you actually wrap, times the count.
+    Inches of form around one column type — the faces you actually build.
 
-        (L + W) x 2 / 12 x height x qty
+        4   free-standing column       2L + 2W
+        3   pilaster on a built wall    L + 2W    the wall side needs no form
+        2   monolithic with the wall       2W     the wall's gang form carries
+                                                  the outer face
+
+    **The unformed face is always an L face** (sql/051): enter L along the
+    wall and W as the projection out of it. A pilaster is a short column
+    (sql/041) and differs from one here and almost nowhere else — but this is
+    the difference that matters, because form SF is also the basis this
+    section allocates every shared cost by.
+    """
+    length = _d(length_in)
+    width = _d(width_in)
+    n = int(_d(faces) or 4)
+    l_faces = {4: Decimal("2"), 3: Decimal("1"), 2: Decimal("0")}.get(n, Decimal("2"))
+    return length * l_faces + width * Decimal("2")
+
+
+def formed_corners(faces: Any = 4) -> Decimal:
+    """
+    Chamfered corners on one column. Four when it is wrapped; two when a face
+    sits against a wall, because that corner is a joint, not an edge.
+    """
+    return Decimal("4") if int(_d(faces) or 4) >= 4 else Decimal("2")
+
+
+def form_sf(
+    height_ft: Any, length_in: Any, width_in: Any, qty: Any, faces: Any = 4
+) -> Decimal:
+    """
+    Form contact area: the faces you actually wrap, times the count.
+
+        formed perimeter / 12 x height x qty
 
     NOT the sheet's `height x (L x W / 36) / 2`, which multiplies the two
     dimensions instead of adding them and therefore is not an area of anything.
     See the module docstring — the sheet holds this same expression one column
     over and uses it for a single labor line.
+
+    `faces` defaults to 4, so a column is unchanged and only a pilaster row
+    has to say anything.
     """
     per_column = (
-        (_d(length_in) + _d(width_in)) * Decimal("2") / Decimal("12") * _d(height_ft)
+        formed_perimeter_in(length_in, width_in, faces) / Decimal("12") * _d(height_ft)
     )
     return (per_column * _d(qty)).quantize(_Q4)
 
@@ -129,9 +164,9 @@ def concrete_cy(height_ft: Any, length_in: Any, width_in: Any, qty: Any) -> Deci
     ).quantize(_Q4)
 
 
-def chamfer_lf(height_ft: Any, qty: Any) -> Decimal:
-    """Four corners of every column, full height."""
-    return (_d(height_ft) * Decimal("4") * _d(qty)).quantize(_Q3)
+def chamfer_lf(height_ft: Any, qty: Any, faces: Any = 4) -> Decimal:
+    """Every exposed corner, full height — four wrapped, two against a wall."""
+    return (_d(height_ft) * formed_corners(faces) * _d(qty)).quantize(_Q3)
 
 
 def vert_rebar_lb(
@@ -219,12 +254,16 @@ def refresh_column_type_calcs(
     waste_r = _waste(section, db, "waste_rebar", "waste_rebar")
     qty = Decimal(int(row.qty or 0))
 
+    # `sheet_mode` reproduces the workbook, and the workbook has no pilasters —
+    # so faces apply to the honest figure only. Every sheet_mode row is a
+    # wrapped column by definition.
+    faces = getattr(row, "formed_faces", 4) or 4
     row.calc_form_sf = (
         sheet_form_sf(row.height_ft, row.length_in, row.width_in, qty)
         if sheet_mode
-        else form_sf(row.height_ft, row.length_in, row.width_in, qty)
+        else form_sf(row.height_ft, row.length_in, row.width_in, qty, faces)
     )
-    row.calc_chamfer_lf = chamfer_lf(row.height_ft, qty)
+    row.calc_chamfer_lf = chamfer_lf(row.height_ft, qty, faces)
     row.calc_concrete_cy = (
         concrete_cy(row.height_ft, row.length_in, row.width_in, qty)
         * (Decimal("1") + waste_c)

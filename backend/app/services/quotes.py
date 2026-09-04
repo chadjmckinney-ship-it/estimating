@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 
 from app.models.estimate_section import (
     COLUMN_KINDS,
+    DECK_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
     WALL_KINDS,
@@ -59,7 +60,8 @@ REBAR = "rebar"
 PT = "pt"
 
 STEEL_KINDS = (
-    frozenset({"mono_slab", "piers"}) | PAVING_KINDS | WALL_KINDS | COLUMN_KINDS
+    frozenset({"mono_slab", "piers"})
+    | PAVING_KINDS | WALL_KINDS | COLUMN_KINDS | DECK_KINDS
 )
 
 QUOTE_KINDS: dict[str, dict[str, Any]] = {
@@ -81,7 +83,11 @@ QUOTE_KINDS: dict[str, dict[str, Any]] = {
     },
     PT: {
         "label": "Post-tension",
-        "kinds": frozenset({"mono_slab"}),
+        # The CIP deck sheet already has the slot: `N80 = IF(I80 = 0,
+        # SF x 1.45, I80)` is a supplier quote replacing the computed figure.
+        # That is what this is, so PT on a deck is a quote row and not a
+        # thirteenth column (sql/052).
+        "kinds": frozenset({"mono_slab"}) | DECK_KINDS,
         "units": ("LS", "SF"),
         "driver": "SF",
         "blurb": "The PT sub's price for the package. Spread across the PT pours only.",
@@ -213,10 +219,17 @@ LUMP_DRIVERS = {
     REBAR: lambda row: _d(getattr(row, "calc_total_rebar_lb", 0)),
     # PT SF, not section SF. A lump PT quote priced against the whole slab area
     # when only half of it is post-tensioned is a different number.
+    # A deck level stores its PT area outright (`calc_pt_sf`, zero when the
+    # level carries no cable); a slab pour stores an area and a flag. Same
+    # question, two takeoff shapes.
     PT: lambda row: (
-        _d(getattr(row, "square_footage", 0))
-        if getattr(row, "post_tension", False)
-        else Decimal("0")
+        _d(getattr(row, "calc_pt_sf", None))
+        if getattr(row, "calc_pt_sf", None) is not None
+        else (
+            _d(getattr(row, "square_footage", 0))
+            if getattr(row, "post_tension", False)
+            else Decimal("0")
+        )
     ),
     DRILLING: lambda row: _d(getattr(row, "calc_total_lf", 0)),
 }

@@ -69,6 +69,7 @@ ROW_KEYS = {
     "height_ft",
     "length_in",
     "width_in",
+    "formed_faces",
     "mix_design_id",
     "vert1_count", "vert1_size",
     "vert2_count", "vert2_size",

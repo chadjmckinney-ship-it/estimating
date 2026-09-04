@@ -20,6 +20,16 @@ class ColumnTypeBase(BaseModel):
     height_ft: Decimal = Field(0, ge=0)
     length_in: Decimal = Field(0, ge=0)
     width_in: Decimal = Field(0, ge=0)
+    formed_faces: int = Field(
+        4,
+        ge=2,
+        le=4,
+        description=(
+            "Faces actually formed: 4 free-standing column (2L+2W), "
+            "3 pilaster on a built wall (L+2W), 2 monolithic with it (2W). "
+            "The unformed face is always an L face — enter L along the wall."
+        ),
+    )
 
     # Three vertical sets, because the sheet carries three. A set with no count
     # or no size contributes nothing rather than a zero-weight bar.
@@ -55,6 +65,7 @@ class ColumnTypeUpdate(BaseModel):
     height_ft: Decimal | None = Field(None, ge=0)
     length_in: Decimal | None = Field(None, ge=0)
     width_in: Decimal | None = Field(None, ge=0)
+    formed_faces: int | None = Field(None, ge=2, le=4)
     vert1_count: int | None = Field(None, ge=0)
     vert1_size: int | None = Field(None, ge=0, le=20)
     vert2_count: int | None = Field(None, ge=0)

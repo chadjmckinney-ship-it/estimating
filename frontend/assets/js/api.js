@@ -125,6 +125,26 @@ export const Api = {
   updatePrice: (estimateId, priceId, body) =>
     api(`/estimates/${estimateId}/prices/${priceId}`, { method: "PATCH", body }),
   // Company defaults
+  // Rates set on ONE section (sql/055). The GET reports the whole ladder —
+  // section, job, assembly, company, default — so the screen can say where a
+  // number came from rather than just what it is. DELETE removes the override
+  // and lets the ladder below take over again.
+  sectionRates: (sectionId) =>
+    api(`/sections/${encodeURIComponent(sectionId)}/rates`),
+  setSectionRate: (sectionId, key, value, note) =>
+    api(`/sections/${encodeURIComponent(sectionId)}/rates/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: { value, note: note || null },
+    }),
+  clearSectionRate: (sectionId, key) =>
+    api(`/sections/${encodeURIComponent(sectionId)}/rates/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    }),
+
+  // Company settings. Every row carries its own metadata since sql/053 —
+  // price or rule, label, unit, group, and what a change rewrites — so the
+  // screen never holds a second copy of that taxonomy. Sending `null` clears
+  // a key back to UNSET, which is not the same as zero.
   listSettings: (prefix) =>
     api(`/system-settings${prefix ? "?prefix=" + encodeURIComponent(prefix) : ""}`),
   updateSetting: (key, value) =>
@@ -180,6 +200,20 @@ export const Api = {
       body: { section_id: sectionId, rows, delete_missing: deleteMissing },
     }),
 
+  // The CIP elevated deck — the fifth takeoff shape: a LEVEL (sql/052). An
+  // area, a thickness, two mats and the grade beams running through it. The
+  // beams are a nested list on the row, so the grid sends them with it.
+  listDeckLevels: (sectionId) =>
+    api(`/deck-levels?section_id=${encodeURIComponent(sectionId)}`),
+  deckTotals: (sectionId) =>
+    api(`/deck-levels/totals?section_id=${encodeURIComponent(sectionId)}`),
+  deleteDeckLevel: (id) => api(`/deck-levels/${id}`, { method: "DELETE" }),
+  bulkSaveDeckLevels: (sectionId, rows, deleteMissing = false) =>
+    api("/deck-levels/bulk", {
+      method: "PUT",
+      body: { section_id: sectionId, rows, delete_missing: deleteMissing },
+    }),
+
   pierDrillRates: () => api("/pier-groups/drill-rates"),
   bulkSavePierGroups: (sectionId, rows, deleteMissing = false) =>
     api("/pier-groups/bulk", {
@@ -215,11 +249,30 @@ export const Api = {
   deleteBeamType: (typeId, force = false) =>
     api(`/beam-types/${typeId}${force ? "?force=true" : ""}`, { method: "DELETE" }),
   beamTypeUsage: (typeId) => api(`/beam-types/${typeId}/usage`),
+  // Rules for one JOB (sql/055's estimate_rules). Rules only — a price is
+  // frozen on the price sheet and is edited there.
+  estimateRules: (estimateId) => api(`/estimates/${estimateId}/rules`),
+  setEstimateRule: (estimateId, key, value, note) =>
+    api(`/estimates/${estimateId}/rules/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: { value, note },
+    }),
+  clearEstimateRule: (estimateId, key) =>
+    api(`/estimates/${estimateId}/rules/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    }),
   // Forming / lumber takeoff (stored on estimate; refresh recalculates from pours)
   formingMaterials: (sectionId) =>
     api(`/sections/${sectionId}/forming-materials`),
   refreshFormingMaterials: (sectionId) =>
     api(`/sections/${sectionId}/forming-materials/refresh`, { method: "POST" }),
+  // Include / exclude one lumber line (sql/056). Unchecking is how you answer
+  // "RESHORING — forming" without inventing a price for it.
+  toggleFormingLine: (sectionId, code, enabled) =>
+    api(
+      `/sections/${sectionId}/forming-materials/lines/${encodeURIComponent(code)}`,
+      { method: "PATCH", body: { enabled } }
+    ),
   setFormPercent: (sectionId, form_percent) =>
     api(`/sections/${sectionId}/forming-materials/form-percent`, {
       method: "PUT",

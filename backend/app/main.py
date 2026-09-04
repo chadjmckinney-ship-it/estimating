@@ -24,8 +24,11 @@ from app.routers import (
     pier_groups,
     projects,
     section_quotes,
+    estimate_rules,
+    section_rates,
     system_settings,
     column_types,
+    deck_levels,
     estimate_prices,
     wall_runs,
 )
@@ -66,8 +69,11 @@ app.include_router(mono_slabs.router, prefix="/api")
 app.include_router(pier_groups.router, prefix="/api")
 app.include_router(wall_runs.router, prefix="/api")
 app.include_router(column_types.router, prefix="/api")
+app.include_router(deck_levels.router, prefix="/api")
 app.include_router(estimate_prices.router, prefix="/api")
 app.include_router(section_quotes.router)
+app.include_router(section_rates.router, prefix="/api")
+app.include_router(estimate_rules.router, prefix="/api")
 app.include_router(grade_beams.router, prefix="/api")
 app.include_router(beam_types.router, prefix="/api")
 app.include_router(mix_designs.router, prefix="/api")

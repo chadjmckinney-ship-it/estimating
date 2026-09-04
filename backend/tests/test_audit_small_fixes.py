@@ -195,3 +195,66 @@ def test_stored_pricing_figures_come_from_the_summary(client, db, estimate):
     assert Decimal(str(d["super_days"])) == Decimal(str(summary.super_days))
     assert Decimal(str(d["equip_days"])) == Decimal(str(summary.equip_days))
     assert int(d["pier_count"]) > 0
+
+
+# ------------------------------- columns haul-off: a workbook artifact ----
+
+
+def test_columns_haul_off_is_off_by_default_but_still_reachable(db, estimate):
+    """
+    Chad, 2026-09-02: "I think columns having hauloff is an artifact from
+    building the workbook.. there shouldnt be hauloff.. and if there is, thats
+    on us for a mistake or a CO.. but we will need it for pilasters."
+
+    A column is formed off a footing someone else dug — no spoil. The line is
+    on the 07 sheet, so it exists here; it is DISABLED rather than deleted
+    because a pilaster is a columns section (sql/041) and a pilaster does dig.
+    """
+    section = _build(db, estimate, "columns_fixture")
+    lines = {ln["code"]: ln for ln in load_stored_equipment(db, section.id)["lines"]}
+    haul = lines["haul_off"]
+
+    assert haul["enabled"] is False
+    assert Decimal(str(haul["ext_cost"])) == 0
+    # The rate is still there, so turning it on is one click, not a hunt.
+    assert Decimal(str(haul["rate"])) > 0
+    # ...and it is not flagged as unpriced: a disabled line costs nothing on
+    # purpose, which is not the same as a line nobody could price.
+    assert not any("HAUL" in x.upper() for x in _unpriced(db, section.id))
+
+
+def test_turning_columns_haul_off_on_bills_it(client, db, estimate):
+    """The pilaster / change-order path: tick it on, give it spoil, it costs."""
+    section = _build(db, estimate, "columns_fixture")
+    before = db.execute(
+        text("SELECT calc_total_cost FROM estimate_sections WHERE id = :i"),
+        {"i": str(section.id)},
+    ).scalar()
+
+    r = client.patch(
+        f"/api/sections/{section.id}/equipment/lines/haul_off",
+        json={"enabled": True, "days_qty": 40},
+    )
+    assert r.status_code == 200, r.text
+
+    lines = {ln["code"]: ln for ln in load_stored_equipment(db, section.id)["lines"]}
+    haul = lines["haul_off"]
+    assert haul["enabled"] is True
+    assert Decimal(str(haul["ext_cost"])) == (
+        Decimal("40") * Decimal(str(haul["rate"]))
+    ).quantize(Decimal("0.01"))
+
+    after = db.execute(
+        text("SELECT calc_total_cost FROM estimate_sections WHERE id = :i"),
+        {"i": str(section.id)},
+    ).scalar()
+    assert after > before, "a change order that hauls spoil has to reach the bid"
+
+
+def test_the_other_assemblies_keep_their_haul_off_enabled(db, estimate):
+    """Piers and walls dig. Only columns is the artifact."""
+    for mod in ("piers_fixture", "walls_fixture"):
+        section = _build(db, estimate, mod)
+        lines = {ln["code"]: ln for ln in load_stored_equipment(db, section.id)["lines"]}
+        if "haul_off" in lines:
+            assert lines["haul_off"]["enabled"] is True, mod

@@ -53,6 +53,13 @@ class ColumnType(Base):
     width_in: Mapped[Decimal] = mapped_column(
         Numeric(8, 3), nullable=False, server_default=text("0")
     )
+    # 4 = free-standing column, 3 = pilaster on a built wall, 2 = monolithic
+    # with it (sql/051). The unformed face is always an L face, so L runs
+    # along the wall. Drives calc_form_sf, which is the section's allocation
+    # basis — this is the whole difference between a column and a pilaster.
+    formed_faces: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("4")
+    )
 
     vert1_count: Mapped[int | None] = mapped_column(Integer)
     vert1_size: Mapped[int | None] = mapped_column(Integer)

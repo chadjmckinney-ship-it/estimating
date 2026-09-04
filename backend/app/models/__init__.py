@@ -9,6 +9,7 @@ from app.models.estimate_price import EstimatePrice
 from app.models.mix_design import ConcreteSupplier, MixDesign
 from app.models.beam_type import EstimateBeamType
 from app.models.grade_beam import GradeBeam
+from app.models.deck_level import DeckLevel, DeckLevelBeam
 from app.models.section_quote import SectionQuote
 from app.models.wall_run import WallRun
 from app.models.mono_slab import MonoSlab
@@ -24,6 +25,8 @@ __all__ = [
     "PierGroup",
     "EstimateBeamType",
     "GradeBeam",
+    "DeckLevel",
+    "DeckLevelBeam",
     "EstimateFormingLine",
     "EstimateFormingSummary",
     "EstimateLaborLine",

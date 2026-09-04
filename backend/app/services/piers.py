@@ -32,7 +32,7 @@ from app.models.estimate_section import PIER_KINDS, EstimateSection
 from app.models.pier_group import PierGroup
 from app.services.calc import _rate_numeric, _waste
 from app.services.costing import allocate_amount
-from app.services.price_book import priced_as, require_book
+from app.services.price_book import for_section, priced_as, require_book
 
 _Q3 = Decimal("0.001")
 _Q4 = Decimal("0.0001")
@@ -171,7 +171,7 @@ def refresh_pier_group_calcs(
         section = db.get(EstimateSection, group.section_id)
     if section is None:
         raise ValueError("section not found for pier group")
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _refresh_pier_group_calcs(db, group, section)
 
 
@@ -288,6 +288,9 @@ def _shaped_weight(db: Session, group: PierGroup) -> Decimal | None:
 
 def drill_quote_basis(db: Session, groups: list[PierGroup]) -> str:
     """Which apportionment apply_drill_quote will use. Reported, not guessed at."""
+    # No `for_section` here: these two read the DRILLING table, not
+    # `_rate_numeric`, so there is no section rate to resolve. Claiming a
+    # section would be a lie about what the pass is doing.
     with priced_as(db, _estimate_of_groups(db, groups)):
         shaped = [_shaped_weight(db, g) for g in groups]
     if all(w is not None for w in shaped) and sum(shaped, Decimal("0")) > 0:
@@ -298,7 +301,7 @@ def drill_quote_basis(db: Session, groups: list[PierGroup]) -> str:
 def apply_drill_quote(
     db: Session, section: EstimateSection, groups: list[PierGroup]
 ) -> Decimal | None:
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _apply_drill_quote(db, section, groups)
 
 
@@ -360,6 +363,9 @@ def rate_table_drill_cost(db: Session, groups: list[PierGroup]) -> Decimal | Non
     difference a saving.
     """
     total = Decimal("0")
+    # No `for_section` here: these two read the DRILLING table, not
+    # `_rate_numeric`, so there is no section rate to resolve. Claiming a
+    # section would be a lie about what the pass is doing.
     with priced_as(db, _estimate_of_groups(db, groups)):
         for g in groups:
             rate = drill_rate(db, g.diameter_in)

@@ -43,6 +43,11 @@ WALL_KINDS = frozenset({"walls_footings"})
 # put a full schedule. Two sections, the second named "Pilasters" — which is
 # why sql/041 dropped the pilaster fields from wall_runs.
 COLUMN_KINDS = frozenset({"columns"})
+# A cast-in-place elevated deck takes off as a LEVEL — an area, a thickness,
+# two mats and the beams running through it. The fifth shape (sql/052), and the
+# first assembly that hangs in the air: shoring, reshoring, a crane and
+# post-tension all exist here because there is nothing underneath.
+DECK_KINDS = frozenset({"cip_deck"})
 
 # What each assembly is measured in — a property of the assembly, not the job.
 DEFAULT_UNIT_BY_KIND = {
@@ -98,6 +103,15 @@ class EstimateSection(Base):
     # from `kind`: plenty of paving is not ROW, and a silently exempt section is
     # a wrong number with nothing on screen to notice.
     tax_exempt: Mapped[bool | None] = mapped_column(nullable=True)
+
+    # Is this section's FIELD labor subcontracted? (sql/052) The CIP deck sheet
+    # decides it per line — a Y/N on each of the ten labor rows routing that
+    # row's money to one of two buckets. Asked whether that is real, Chad,
+    # 2026-09-04: one switch per section. Supervision is never subbed; the
+    # sheet has no Y/N on the supervision block either.
+    labor_subcontracted: Mapped[bool] = mapped_column(
+        nullable=False, server_default=text("false"), default=False
+    )
 
     form_percent: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
     waste_concrete: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))

@@ -59,12 +59,18 @@ from sqlalchemy.orm import Session
 from app.services import paving as pv
 from app.models.estimate_section import (
     COLUMN_KINDS,
+    DECK_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
     WALL_KINDS,
 )
-from app.services.calc import _rate_numeric, _setting_numeric, section_kind
-from app.services.price_book import priced_as, require_book
+from app.services.calc import (
+    _rate_numeric,
+    _rate_optional,
+    _setting_numeric,
+    section_kind,
+)
+from app.services.price_book import for_section, priced_as, require_book
 
 
 
@@ -227,6 +233,80 @@ def _column_forming_drivers(
     }
 
 
+def _deck_forming_drivers(
+    db: Session, section_id: UUID, kind: str | None
+) -> dict[str, Any]:
+    """
+    A CIP deck runs off DECK AREA and off `perm edge LF + GB form FF`.
+
+    The second of those is the one to watch: the entire lumber block — 2x4,
+    2x6, 2x10, plywood, stakes and both nail lines — rides it, which is why
+    doubling the grade beam faces was worth $985.01 of lumber on LBJ on top of
+    the $1,440 of GB forming labor (sql/052).
+    """
+    row = db.execute(
+        text(
+            "SELECT count(*)::int AS n, "
+            "       coalesce(sum(area_sf), 0) AS sf, "
+            "       coalesce(sum(perm_edge_lf), 0) AS edge, "
+            "       coalesce(sum(mesh_sf), 0) AS mesh, "
+            "       coalesce(sum(stud_rail_lb), 0) AS stud, "
+            "       coalesce(sum(carton_form_sf), 0) AS carton, "
+            "       coalesce(sum(calc_gb_form_ff), 0) AS gb_ff, "
+            "       coalesce(sum(calc_total_rebar_lb), 0) AS steel, "
+            "       coalesce(sum(calc_concrete_cy), 0) AS cy, "
+            "       coalesce(sum(calc_pt_sf), 0) AS pt_sf, "
+            "       coalesce(sum(calc_pt_lb), 0) AS pt_lb "
+            "FROM deck_levels WHERE section_id = :sid"
+        ),
+        {"sid": str(section_id)},
+    ).mappings().one()
+    form_pct = _rate_numeric(db, kind, "form_percent", Decimal("0.50"))
+    sf = _d(row["sf"])
+    edge = _d(row["edge"])
+    gb_ff = _d(row["gb_ff"])
+    return {
+        "section_id": section_id,
+        "kind": kind,
+        "pour_count": int(row["n"] or 0),
+        "level_count": int(row["n"] or 0),
+        "total_sf": sf,
+        "perm_edge_lf": edge,
+        "gb_form_ff": gb_ff,
+        # The one figure the whole lumber block rides.
+        "lumber_driver_lf": edge + gb_ff,
+        "stud_rail_lb": _d(row["stud"]),
+        "carton_form_sf": _d(row["carton"]),
+        "pt_sf": _d(row["pt_sf"]),
+        "pt_lb": _d(row["pt_lb"]),
+        "total_concrete_cy": _d(row["cy"]),
+        "total_rebar_lb": _d(row["steel"]),
+        "mesh_sf": _d(row["mesh"]),
+        "column_count": 0,
+        "pier_count": 0,
+        "form_sf": Decimal("0"),
+        "chamfer_lf": Decimal("0"),
+        "wall_lf": Decimal("0"),
+        "form_ff": Decimal("0"),
+        "footing_sf": Decimal("0"),
+        "drain_lf": Decimal("0"),
+        "total_lf": Decimal("0"),
+        "perimeter_lf": edge,
+        "drops_ff": Decimal("0"),
+        "ledge_lf": Decimal("0"),
+        "curb_lf": Decimal("0"),
+        "thick_edge_lf": Decimal("0"),
+        "demo_lf": Decimal("0"),
+        "construction_joint_lf": Decimal("0"),
+        "control_joint_lf": Decimal("0"),
+        "poly_sf": Decimal("0"),
+        "form_percent": form_pct,
+        "form_percent_is_override": False,
+        "form_percent_system_default": form_pct,
+        "form_waste": _rate_numeric(db, kind, "form_waste", Decimal("0")),
+    }
+
+
 def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
     """Roll up pour-level drivers used by forming formulas."""
     kind_now = section_kind(db, section_id)
@@ -236,6 +316,8 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _wall_forming_drivers(db, section_id, kind_now)
     if kind_now in COLUMN_KINDS:
         return _column_forming_drivers(db, section_id, kind_now)
+    if kind_now in DECK_KINDS:
+        return _deck_forming_drivers(db, section_id, kind_now)
 
     row = db.execute(
         text(
@@ -842,7 +924,8 @@ def _column_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
         L(code="ply", label='3/4" FORMING PLY', qty=sf * ply_rate * pct, unit="SHEET",
           formula="form SF / 32 × 2 × form%", material=m_ply,
           sheet_unit_cost="74.75",
-          notes="The biggest lumber line on this assembly — four faces per column"),
+          notes="The biggest lumber line on this assembly — it rides the formed "
+                "perimeter, so a pilaster's wall side is not in it"),
         L(code="stakes", label="2 x 2 x 30 STAKES", qty=_ceil(n * stake_n),
           unit="BUNDLE", formula="ceil(columns / 2 / 25)", material=m_stakes,
           sheet_unit_cost="24"),
@@ -866,6 +949,203 @@ def _column_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           qty=_ceil(sf / rel_sf / 55.0) if rel_sf else 0, unit="DRUM",
           formula="ceil(form SF / 300 / 55)", material=m_release,
           sheet_unit_cost="542"),
+    ]
+
+
+def _rate_line(
+    db: Session,
+    *,
+    kind: str | None,
+    code: str,
+    label: str,
+    qty: Decimal | float | int,
+    unit: str,
+    formula: str,
+    rate_key: str,
+    notes: str | None = None,
+    taxable: bool = True,
+    multiplier: Decimal = Decimal("1"),
+) -> dict[str, Any]:
+    """
+    A material priced by a RATE rather than by a catalog row.
+
+    Post-tension, stud rails, carton forms, plywood forming and shoring are
+    all bought by the square foot of deck; there is no catalog item to resolve
+    and no unit cost to look up. The rate is still a PRICE — every key here is
+    in MONETARY_KEYS, so it is frozen on the estimate's sheet like any other
+    (sql/049) — and `_rate_optional` returns None when nobody has ever said
+    what it costs, which is how the deck's blank reshoring rate becomes an
+    unpriced line rather than a free one.
+    """
+    q = _d(qty).quantize(Decimal("0.001"))
+    rate = _rate_optional(db, kind, rate_key)
+    ext = None if rate is None else (q * rate * multiplier).quantize(Decimal("0.01"))
+    return {
+        "code": code,
+        "label": label,
+        "qty": q,
+        "unit": unit,
+        "formula": formula,
+        "notes": notes,
+        "material_id": None,
+        "material_name": None,
+        "unit_cost": rate,
+        "ext_cost": ext,
+        "price_source": None if rate is None else "rate",
+        "missing_price": rate is None and q > 0,
+        "taxable": taxable,
+        "group": "forming",
+    }
+
+
+def _deck_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    08-CIP EL. DECK: the per-SF material lines (rows 79-84) and the lumber
+    block (rows 73-118) that every other assembly also carries.
+
+    Concrete and steel are NOT here — they sit on the level as direct cost,
+    the way they sit on a pour, a pier group, a wall run and a column type.
+
+    POST TENSION is NOT here. It is a material bought against the takeoff and
+    quotable against it, so it sits on the LEVEL as direct cost the way
+    concrete and steel do — see costing._deck_units. Putting it here as well
+    would bill it twice, which is exactly what the first draft did.
+
+    Five lines exist on no other assembly, and all five exist because the deck
+    hangs in the air:
+
+        STUD RAILS            lb x $1.65        shear reinforcement at columns
+        CARTON FORMS          SF x $0.85
+        PLYWOOD FORMING       SF x 50% coverage x $1.50
+        RESHORING             SF x rate x 1.10  <- the rate is BLANK on the sheet
+        FORM RENTAL SHORING   SF x $1.25 x 1.10
+
+    The 1.10 on the last two is ONE CELL on the sheet (`J83`), labelled under
+    reshoring and silently reused by form rental shoring — edit it for one
+    reason and the other moves $4,300. Two rules here.
+
+    Everything in the lumber block rides `perm edge LF + GB form FF`, not deck
+    area. That is the figure the grade beam face count doubles.
+    """
+    kind = d["kind"]
+    sf = float(d["total_sf"])
+    edge = float(d["perm_edge_lf"])
+    lumber_lf = float(d["lumber_driver_lf"])
+    steel = float(d["total_rebar_lb"])
+    stud = float(d["stud_rail_lb"])
+    pct = float(d["form_percent"])
+    waste = d["form_waste"]
+
+    x4 = float(_rate_numeric(db, kind, "lumber_2x4_per_lf", Decimal("1")))
+    x6 = float(_rate_numeric(db, kind, "lumber_2x6_per_lf", Decimal("1")))
+    x10 = float(_rate_numeric(db, kind, "lumber_2x10_per_lf", Decimal("0.2")))
+    ply = float(_rate_numeric(db, kind, "lumber_ply_per_lf", Decimal("0.015625")))
+    stake_lf = float(_rate_numeric(db, kind, "stakes_2x10_lf_per_stake", Decimal("25")))
+    per_bundle = float(_rate_numeric(db, kind, "stakes_per_bundle", Decimal("2")))
+    nail_f = float(_rate_numeric(db, kind, "nails_edge_factor", Decimal("1.25")))
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("1500")))
+    n8 = float(_rate_numeric(db, kind, "nails_8p_per_sf", Decimal("3000")))
+    pave_sf = float(_rate_numeric(db, kind, "pavecrete_sf_per_bag", Decimal("1200")))
+    chair_sf = float(_rate_numeric(db, kind, "chairs_sf_per_bag", Decimal("15000")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_gal", Decimal("300")))
+    stud_f = float(
+        _rate_numeric(db, kind, "accessories_stud_rail_factor", Decimal("0.75"))
+    )
+    reshore_m = _rate_numeric(db, kind, "reshoring_multiplier", Decimal("1"))
+    rental_m = _rate_numeric(
+        db, kind, "form_rental_shoring_multiplier", Decimal("1")
+    )
+
+    m_2x4 = _find_material(db, "2 X 4")
+    m_2x6 = _find_material(db, "2 X 6")
+    m_2x10 = _find_material(db, "2 X 10")
+    m_ply = _find_material(db, "FORMING PLY") or _find_material(db, "PLY")
+    m_stakes = _find_material(db, "2 x 2", "Stake") or _find_material(db, "2 x 2")
+    m_16p = _find_material(db, "16p")
+    m_8p = _find_material(db, "8p")
+    m_6p = _find_material(db, "6p")
+    m_pave = _find_material(db, "PAVECRETE")
+    # "SLAB CHAIRS" by name, never "CHAIRS" — asking for the latter matched
+    # METAL CHAIRS 2.5" at $45 by sort order on the columns sheet (audit #7).
+    m_chairs = _find_material(db, "SLAB CHAIRS")
+    m_acc = _find_material(db, "ACCESSORIES")
+    m_cure = _find_material(db, "SLAB CURE")
+    m_mesh = _find_material(db, "MESH")
+
+    def L(**kw: Any) -> dict[str, Any]:
+        return _line(db=db, kind=kind, form_waste=waste, **kw)
+
+    def R(**kw: Any) -> dict[str, Any]:
+        return _rate_line(db, kind=kind, **kw)
+
+    return [
+        # ------------------------------------------- what only a deck buys --
+        R(code="stud_rails", label="STUD RAILS", qty=stud, unit="LB",
+          formula="stud rail lb x $/lb", rate_key="stud_rails_lb",
+          notes="Shear reinforcement where the deck lands on a column. Zero "
+                "on LBJ; kept because Chad asked for it kept."),
+        R(code="carton_forms", label="CARTON FORMS", qty=d["carton_form_sf"],
+          unit="SF", formula="carton form SF x $/SF", rate_key="carton_forms_sf"),
+        R(code="plywood_forming", label="PLYWOOD FORMING",
+          qty=sf * pct, unit="SF",
+          formula=f"deck SF x {pct:.0%} coverage x $/SF",
+          rate_key="plywood_forming_sf"),
+        R(code="reshoring", label="RESHORING", qty=sf, unit="SF",
+          formula="deck SF x $/SF x multiplier", rate_key="reshoring_material_sf",
+          multiplier=reshore_m,
+          notes="Every level, not the sheet's hand-picked row list. The "
+                "sheet's rate cell (F83) is BLANK, so this line is UNPRICED "
+                "rather than free - its labor bills $11,235 on LBJ."),
+        R(code="form_rental_shoring", label="FORM RENTAL SHORING", qty=sf,
+          unit="SF", formula="deck SF x $/SF x multiplier",
+          rate_key="form_rental_shoring_sf", multiplier=rental_m),
+
+        # ---------------------------------------------- the lumber block --
+        L(code="2x4", label="2 X 4 X 16'", qty=lumber_lf * x4, unit="LF",
+          formula="(perm edge LF + GB form FF) x rate", material=m_2x4,
+          sheet_unit_cost="0.859375"),
+        L(code="2x6", label="2 X 6 X 16'", qty=lumber_lf * x6, unit="LF",
+          formula="= 2x4 LF", material=m_2x6, sheet_unit_cost="1.4453125"),
+        L(code="2x10", label="2 X 10 X 16'", qty=lumber_lf * x10, unit="LF",
+          formula="(perm edge LF + GB form FF) x 0.2", material=m_2x10,
+          sheet_unit_cost="1.09375"),
+        L(code="ply", label='3/4" FORMING PLY', qty=lumber_lf * ply, unit="SHEET",
+          formula="(perm edge LF + GB form FF) / 64", material=m_ply,
+          sheet_unit_cost="74.75"),
+        L(code="stakes", label="2 x 2 x 30 STAKES",
+          qty=(_round0(lumber_lf * x10 / stake_lf) / per_bundle) if stake_lf and per_bundle else 0,
+          unit="BUNDLE", formula="round(2x10 LF / 25) / 2", material=m_stakes,
+          sheet_unit_cost="24"),
+        L(code="16p", label="16p NAILS DUPLEX",
+          qty=_ceil(edge * nail_f / n16) if n16 else 0, unit="BOX",
+          formula="ceil(perm edge LF x 1.25 / 1500)", material=m_16p,
+          sheet_unit_cost="68.2"),
+        L(code="8p", label="8p DUPLEX",
+          qty=_ceil(edge * nail_f / n8) if n8 else 0, unit="BOX",
+          formula="ceil(perm edge LF x 1.25 / 3000)", material=m_8p,
+          sheet_unit_cost="68.2"),
+        L(code="6p", label="6p NAILS",
+          qty=_ceil(edge * nail_f / n8) if n8 else 0, unit="BOX",
+          formula="= 8p boxes", material=m_6p, sheet_unit_cost="68.2"),
+        L(code="mesh", label="WIRE MESH", qty=d["mesh_sf"], unit="SF",
+          formula="mesh SF entered on the levels", material=m_mesh,
+          notes="Zero on LBJ - the mats are the steel here"),
+        L(code="pavecrete", label="PAVECRETE",
+          qty=(sf / pave_sf) if pave_sf else 0, unit="BAG",
+          formula="deck SF / 1200", material=m_pave, sheet_unit_cost="15"),
+        L(code="chairs", label="SLAB CHAIRS",
+          qty=_ceil(sf / chair_sf) if chair_sf else 0, unit="BAG",
+          formula="ceil(deck SF / 15000)", material=m_chairs),
+        L(code="accessories", label="ACCESSORIES",
+          qty=steel + stud * stud_f, unit="LB",
+          formula="total steel lb + stud rail lb x 0.75", material=m_acc,
+          sheet_unit_cost="0.02",
+          notes="The sheet types $0.02 over a catalog that says $0.04 - the "
+                "same cell sql/044 found on paving and columns"),
+        L(code="cure", label="SLAB CURE",
+          qty=_ceil(sf / cure_sf / 55.0) if cure_sf else 0, unit="DRUM",
+          formula="ceil(deck SF / 300 / 55)", material=m_cure,
+          sheet_unit_cost="567.5"),
     ]
 
 
@@ -981,7 +1261,7 @@ def _wall_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
 def calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     """One of the four price gates (sql/048): the whole takeoff prices from the
     estimate's sheet. See services/price_book.py."""
-    with priced_as(db, _estimate_id_of(db, section_id)):
+    with priced_as(db, _estimate_id_of(db, section_id)), for_section(section_id):
         return _calc_forming_materials(db, section_id)
 
 
@@ -1000,6 +1280,8 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _wall_lines(db, d)
     elif d["kind"] in COLUMN_KINDS:
         lines = _column_lines(db, d)
+    elif d["kind"] in DECK_KINDS:
+        lines = _deck_lines(db, d)
     elif d["kind"] in PAVING_KINDS:
         lines = _paving_lines(db, d)
     else:
@@ -1062,6 +1344,11 @@ def refresh_and_store_forming(db: Session, section_id: UUID) -> dict[str, Any]:
         ).all()
     }
     manuals = {c: r for c, r in existing.items() if r.is_manual and c in live_codes}
+    # A refresh REWRITES quantities; it must not undo a decision (sql/056).
+    # Same rule labor and equipment already follow: `enabled = prev.enabled if
+    # prev is not None`. Read off the rows before the delete, since the delete
+    # is what takes the flag with it.
+    was_off = {c for c, r in existing.items() if not r.enabled}
 
     db.execute(
         delete(EstimateFormingLine).where(
@@ -1090,8 +1377,14 @@ def refresh_and_store_forming(db: Session, section_id: UUID) -> dict[str, Any]:
             if ln.get("unit_cost") is not None:
                 m.unit_cost = ln["unit_cost"]
                 m.ext_cost = (
-                    _d(m.qty) * _d(ln["unit_cost"]) * (Decimal("1") + _d(drivers["form_waste"]))
-                ).quantize(Decimal("0.01"))
+                    Decimal("0.00")
+                    if not m.enabled
+                    else (
+                        _d(m.qty)
+                        * _d(ln["unit_cost"])
+                        * (Decimal("1") + _d(drivers["form_waste"]))
+                    ).quantize(Decimal("0.01"))
+                )
             m.material_id = ln.get("material_id")
             m.material_name = ln.get("material_name")
             m.formula = ln.get("formula")
@@ -1103,6 +1396,7 @@ def refresh_and_store_forming(db: Session, section_id: UUID) -> dict[str, Any]:
             stored_lines.append(m)
             continue
 
+        on = ln["code"] not in was_off
         row = EstimateFormingLine(
             section_id=section_id,
             code=ln["code"],
@@ -1114,10 +1408,11 @@ def refresh_and_store_forming(db: Session, section_id: UUID) -> dict[str, Any]:
             material_id=ln.get("material_id"),
             material_name=ln.get("material_name"),
             unit_cost=ln.get("unit_cost"),
-            ext_cost=ln.get("ext_cost"),
+            ext_cost=ln.get("ext_cost") if on else Decimal("0.00"),
             sort_order=order,
             is_manual=False,
             taxable=ln.get("taxable", True),
+            enabled=on,
         )
         db.add(row)
         stored_lines.append(row)
@@ -1153,6 +1448,72 @@ def refresh_and_store_forming(db: Session, section_id: UUID) -> dict[str, Any]:
     from app.services.costing import refresh_pour_costs_for_id
     refresh_pour_costs_for_id(db, section_id)
 
+    db.commit()
+    return load_stored_forming(db, section_id)
+
+
+def set_forming_line_enabled(
+    db: Session, section_id: UUID, code: str, enabled: bool
+) -> dict[str, Any]:
+    """
+    Switch one forming line on or off (sql/056).
+
+    Off is a DECISION, and the line says so rather than disappearing: it keeps
+    its quantity, its formula and its unit price, extends at $0.00, and stops
+    appearing in the section's unpriced list. Deleting it would lose the
+    takeoff and the next refresh would put it straight back.
+
+    Chad, 2026-09-04: "that message should go away after I uncheck it as not
+    used." This is the box to uncheck — forming was the one takeoff without
+    one, which left `RESHORING — forming` asking a question nobody could
+    answer.
+
+    No refresh: rewriting the whole line set here would re-derive quantities
+    the estimator may have edited, and a checkbox should not move a number it
+    was not pointed at. The section's cost IS rebuilt, because the total just
+    changed.
+    """
+    from sqlalchemy import select
+
+    from app.models.estimate_forming import EstimateFormingLine, EstimateFormingSummary
+
+    row = db.scalars(
+        select(EstimateFormingLine).where(
+            EstimateFormingLine.section_id == section_id,
+            EstimateFormingLine.code == code,
+        )
+    ).first()
+    if row is None:
+        raise ValueError(f"no forming line {code!r} on this section")
+
+    row.enabled = bool(enabled)
+    if not row.enabled:
+        row.ext_cost = Decimal("0.00")
+    elif row.unit_cost is not None:
+        summary = db.get(EstimateFormingSummary, section_id)
+        waste = _d(summary.form_waste) if summary else Decimal("0")
+        row.ext_cost = (
+            _d(row.qty) * _d(row.unit_cost) * (Decimal("1") + waste)
+        ).quantize(Decimal("0.01"))
+    db.flush()
+
+    summary = db.get(EstimateFormingSummary, section_id)
+    if summary is not None:
+        summary.total_ext_cost = sum(
+            (
+                _d(r.ext_cost)
+                for r in db.scalars(
+                    select(EstimateFormingLine).where(
+                        EstimateFormingLine.section_id == section_id
+                    )
+                ).all()
+            ),
+            Decimal("0"),
+        ).quantize(Decimal("0.01"))
+
+    from app.services.costing import refresh_pour_costs_for_id
+
+    refresh_pour_costs_for_id(db, section_id)
     db.commit()
     return load_stored_forming(db, section_id)
 
@@ -1203,12 +1564,29 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "taxable": r.taxable,
             "group": "forming",
             "is_manual": r.is_manual,
-            "missing_price": r.unit_cost is None and _d(r.qty) > 0,
+            "enabled": r.enabled,
+            # A switched-off line is not missing a price — somebody took it
+            # out. Only a LIVE quantity with nothing behind it is a hole.
+            "missing_price": r.enabled and r.unit_cost is None and _d(r.qty) > 0,
             "id": str(r.id),
         }
         for r in rows
     ]
     kind = section_kind(db, section_id)
+    if kind in DECK_KINDS:
+        # The summary table is shaped for pours; a deck's real drivers are
+        # levels, deck area and the lumber figure. Serve the live geometry
+        # (audit #9) rather than back-filling six summary columns.
+        d = _deck_forming_drivers(db, section_id, kind)
+        d["pour_count"] = summary.pour_count
+        return {
+            "drivers": d,
+            "lines": lines,
+            "total_ext_cost": summary.total_ext_cost,
+            "missing_prices": [ln["code"] for ln in lines if ln.get("missing_price")],
+            "stored": True,
+            "refreshed_at": summary.refreshed_at.isoformat() if summary.refreshed_at else None,
+        }
     if kind in COLUMN_KINDS:
         d = _column_forming_drivers(db, section_id, kind)
         d["pour_count"] = summary.pour_count

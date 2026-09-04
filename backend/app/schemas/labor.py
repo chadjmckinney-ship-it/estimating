@@ -36,6 +36,15 @@ class LaborDrivers(BaseModel):
     sf_per_week: Decimal = Decimal("0")
     days_per_week: Decimal = Decimal("0")
     foreman_days: Decimal = Decimal("0")
+    # CIP deck (sql/052): area, the permanent edge, both faces of every grade
+    # beam, and the cable weight. `perm_edge_lf + gb_form_ff` is what the whole
+    # lumber block rides, so the card names both halves rather than the sum.
+    level_count: int = 0
+    perm_edge_lf: Decimal = Decimal("0")
+    gb_form_ff: Decimal = Decimal("0")
+    pt_lb: Decimal = Decimal("0")
+    stud_rail_lb: Decimal = Decimal("0")
+    stud_rail_tons: Decimal = Decimal("0")
     total_rebar_lb: Decimal
     total_rebar_tons: Decimal
     super_weeks: Decimal
@@ -56,6 +65,10 @@ class LaborLine(BaseModel):
     notes: str | None = None
     sort_order: int = 0
     is_manual: bool = False
+    # One switch per section (sql/052). The screen shows a `sub` badge on
+    # every line carrying it, so the estimator can see at a glance which work
+    # is on the sub's sheet and which is ours.
+    subcontracted: bool = False
 
 
 class LaborMaterialsRead(BaseModel):

@@ -57,6 +57,18 @@ class FormPercentUpdate(BaseModel):
     )
 
 
+class FormingLineToggle(BaseModel):
+    """Switch one forming line on or off (sql/056)."""
+
+    enabled: bool = Field(
+        ...,
+        description=(
+            "False = not used on this job. Keeps the quantity and formula, "
+            "extends at $0.00, and stops asking to be priced."
+        ),
+    )
+
+
 class FormingLine(BaseModel):
     id: str | None = None
     code: str
@@ -73,8 +85,13 @@ class FormingLine(BaseModel):
     is_manual: bool = False
     # False only for a genuine service filed with the lumber (haul-off).
     taxable: bool = True
+    # Unchecked = not used on this job (sql/056). Keeps qty and formula,
+    # extends at $0.00, and goes quiet in the unpriced list.
+    enabled: bool = True
     # A real quantity with no price behind it. Surfaced rather than left to
     # extend at $0 — a silent zero on a live line is how a hole stays hidden.
+    # A DISABLED line is never missing_price: nobody left it out, somebody
+    # took it out.
     missing_price: bool = False
 
 

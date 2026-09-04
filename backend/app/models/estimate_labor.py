@@ -45,6 +45,13 @@ class EstimateLaborLine(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Set from estimate_sections.labor_subcontracted at refresh (sql/052).
+    # Costing does not care — subbed labor is still labor, untaxed and
+    # carrying no fuel — but the sub has to be told what he is pricing, which
+    # is what the workbook's SUB LABOR SHEET tab is for.
+    subcontracted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

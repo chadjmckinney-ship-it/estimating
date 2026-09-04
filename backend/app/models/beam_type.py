@@ -55,6 +55,10 @@ class EstimateBeamType(Base):
     l_bars_count: Mapped[int | None] = mapped_column(Integer)
     l_bars_size: Mapped[int | None] = mapped_column(SmallInteger)
     l_bars_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    # CIP deck only (sql/052). The deck schedule spaces L bars along the beam
+    # and gives each one a LENGTH; a mono-slab beam counts them
+    # longitudinally. NULL keeps the mono-slab reading.
+    l_bars_length_ft: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
     # PT cables running through this section; LF = count × length used
     pt_cables_count: Mapped[int | None] = mapped_column(Integer)
 

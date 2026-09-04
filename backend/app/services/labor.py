@@ -27,12 +27,13 @@ from sqlalchemy.orm import Session
 
 from app.models.estimate_section import (
     COLUMN_KINDS,
+    DECK_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
     WALL_KINDS,
 )
 from app.services.calc import _rate_numeric, _setting_numeric, section_kind
-from app.services.price_book import priced_as
+from app.services.price_book import for_section, priced_as
 
 
 def _d(x: Any) -> Decimal:
@@ -110,6 +111,8 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _wall_labor_drivers(db, section_id, kind)
     if kind in COLUMN_KINDS:
         return _column_labor_drivers(db, section_id, kind)
+    if kind in DECK_KINDS:
+        return _deck_labor_drivers(db, section_id, kind)
 
     row = db.execute(
         text(
@@ -676,6 +679,163 @@ def _column_labor_lines(
     ]
 
 
+def _deck_labor_drivers(
+    db: Session, section_id: UUID, kind: str | None
+) -> dict[str, Any]:
+    """
+    A CIP deck TYPES its supervision days, like piers and walls.
+
+    Nothing on the sheet derives them — `D100` is entered (60 on LBJ) and the
+    foreman, expense, PM and the whole rental ladder read it. So this assembly
+    inherits the untyped-supervision warning built for audit #5.
+    """
+    row = db.execute(
+        text(
+            """
+            SELECT
+              count(*)::int AS level_count,
+              coalesce(sum(area_sf), 0) AS total_sf,
+              coalesce(sum(perm_edge_lf), 0) AS perm_edge_lf,
+              coalesce(sum(stud_rail_lb), 0) AS stud_rail_lb,
+              coalesce(sum(calc_gb_form_ff), 0) AS gb_form_ff,
+              coalesce(sum(calc_total_rebar_lb), 0) AS total_rebar_lb,
+              coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
+              coalesce(sum(calc_pt_lb), 0) AS pt_lb
+            FROM deck_levels
+            WHERE section_id = :sid
+            """
+        ),
+        {"sid": str(section_id)},
+    ).mappings().one()
+
+    typed_days = db.execute(
+        text(
+            "SELECT qty FROM estimate_labor_lines "
+            "WHERE section_id = :sid AND code = 'superintendent'"
+        ),
+        {"sid": str(section_id)},
+    ).scalar()
+    days = _d(typed_days)
+    rebar = _d(row["total_rebar_lb"])
+    days_per_week = _rate_numeric(db, kind, "labor_super_days_per_week", Decimal("7"))
+    sf = _d(row["total_sf"])
+    return {
+        "kind": kind,
+        "pour_count": int(row["level_count"] or 0),
+        "level_count": int(row["level_count"] or 0),
+        "pier_count": 0,
+        "column_count": 0,
+        "total_sf": sf,
+        "perm_edge_lf": _d(row["perm_edge_lf"]),
+        "gb_form_ff": _d(row["gb_form_ff"]),
+        "stud_rail_lb": _d(row["stud_rail_lb"]),
+        "stud_rail_tons": (_d(row["stud_rail_lb"]) / Decimal("2000")).quantize(
+            Decimal("0.0001")
+        ),
+        "pt_lb": _d(row["pt_lb"]),
+        "form_sf": Decimal("0"),
+        "chamfer_lf": Decimal("0"),
+        "wall_lf": Decimal("0"),
+        "form_ff": Decimal("0"),
+        "footing_sf": Decimal("0"),
+        "excavate_cy": Decimal("0"),
+        "backfill_cy": Decimal("0"),
+        "drain_lf": Decimal("0"),
+        "total_lf": Decimal("0"),
+        "drops_ff": Decimal("0"),
+        "ledge_lf": Decimal("0"),
+        "curb_lf": Decimal("0"),
+        "paving_add": Decimal("0"),
+        "total_rebar_lb": rebar,
+        # Every pound is tied — a deck mat has no support-steel allowance to
+        # carve out, the same call piers, walls and columns made.
+        "tied_rebar_lb": rebar,
+        "total_rebar_tons": (rebar / Decimal("2000")).quantize(Decimal("0.0001")),
+        "total_concrete_cy": _d(row["total_concrete_cy"]),
+        "total_slab_cy": Decimal("0"),
+        "super_days": days,
+        "super_weeks": (days / days_per_week).quantize(Decimal("0.0001"))
+        if days_per_week > 0
+        else Decimal("0"),
+        "sf_per_week": Decimal("0"),
+        "days_per_week": days_per_week,
+        "super_days_are_typed": True,
+    }
+
+
+def _deck_labor_lines(
+    db: Session, kind: str | None, d: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """
+    08-CIP EL. DECK rows 87-96. Ten lines, and each rides its own driver —
+    four off deck area, and one each off the edge, the beam faces, the steel,
+    the cable and the stud rails.
+
+    Three of them exist on no other assembly, all three because the deck hangs
+    in the air: RESHORING, EDGE / SAFETY RAILS and GB FORMING.
+
+    Two notes about the sheet:
+
+      * `G87` looks like an input at $6.05/SF and is DERIVED — the blended rate
+        of the first four lines over the deck area. It is not seeded here.
+      * `K95`, the OWN-CREW cable placement, reads row 100, which is blank. The
+        sub column is right; self-perform cable placement on the sheet and it
+        costs $0. That is $23,994.75 on LBJ (sql/052).
+    """
+    sf = float(d["total_sf"])
+    edge = float(d["perm_edge_lf"])
+    gb_ff = float(d["gb_form_ff"])
+    tons = float(d["total_rebar_tons"])
+    pt_lb = float(d["pt_lb"])
+    stud_tons = float(d["stud_rail_tons"])
+
+    return [
+        _line(group="labor", code="forming", label="FORMING",
+              rate=_rate(db, kind, "labor_forming_sf", Decimal("4.75")),
+              unit="/SF", qty=sf, formula="deck SF x rate", order=10),
+        _line(group="labor", code="place_finish", label="PLACE AND FINISH",
+              rate=_rate(db, kind, "labor_place_finish_sf", Decimal("0.5")),
+              unit="/SF", qty=sf, formula="deck SF x rate", order=20),
+        _line(group="labor", code="wreck", label="WRECK AND CLEAN",
+              rate=_rate(db, kind, "labor_wreck_sf", Decimal("0.45")),
+              unit="/SF", qty=sf, formula="deck SF x rate", order=30),
+        _line(group="labor", code="reshoring", label="RESHORING",
+              rate=_rate(db, kind, "labor_reshoring_sf", Decimal("0.35")),
+              unit="/SF", qty=sf, formula="deck SF x rate",
+              notes="Every level. The sheet adds up a hand-picked list of "
+                    "rows and misses any level entered outside it.",
+              order=40),
+        _line(group="labor", code="edge_rails", label="EDGE / SAFETY RAILS",
+              rate=_rate(db, kind, "labor_edge_rails_lf", Decimal("6")),
+              unit="/LF", qty=edge, formula="perm edge LF x rate", order=50),
+        _line(group="labor", code="gb_forming", label="GB FORMING",
+              rate=_rate(db, kind, "labor_gb_forming_ff", Decimal("6")),
+              unit="/FF", qty=gb_ff, formula="GB form FF x rate",
+              notes="Both faces of every beam. The sheet forms one - Chad, "
+                    "2026-09-04: \"both faces, the sheet is light\".",
+              order=60),
+        _line(group="labor", code="rub_patch", label="RUB & PATCH",
+              rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.25")),
+              unit="/SF", qty=sf, formula="deck SF x rate", order=70),
+        _line(group="labor", code="stud_rails", label="STUD RAILS",
+              rate=_rate(db, kind, "labor_stud_rails_ton", Decimal("500")),
+              unit="/TON", qty=stud_tons, formula="stud rail lb / 2000 x rate",
+              order=80),
+        _line(group="labor", code="cable_placement", label="CABLE PLACEMENT",
+              rate=_rate(db, kind, "labor_cable_placement_lb", Decimal("0.65")),
+              unit="/LB", qty=pt_lb, formula="PT SF x 1.15 lb x rate",
+              notes="The sheet's own-crew formula reads an empty row and "
+                    "charges $0 - $23,994.75 on LBJ the day you self-perform.",
+              order=90),
+        _line(group="labor", code="tie_steel", label="TIE STEEL",
+              rate=_rate(db, kind, "labor_tie_steel_ton", Decimal("450")),
+              unit="/TON", qty=tons, formula="total steel lb / 2000 x rate",
+              notes=f"All {d['total_rebar_lb']:,.0f} lb - a deck mat carries "
+                    "no support-steel allowance to carve out",
+              order=100),
+    ]
+
+
 def _wall_labor_lines(
     db: Session, kind: str | None, d: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -743,7 +903,7 @@ def _wall_labor_lines(
 def calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     """A price gate (sql/049): every labor rate below prices from the
     estimate's sheet. See services/price_book.py."""
-    with priced_as(db, _estimate_id_of(db, section_id)):
+    with priced_as(db, _estimate_id_of(db, section_id)), for_section(section_id):
         return _calc_labor_materials(db, section_id)
 
 
@@ -769,6 +929,8 @@ def _calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _wall_labor_lines(db, kind, d)
     elif kind in COLUMN_KINDS:
         lines = _column_labor_lines(db, kind, d)
+    elif kind in DECK_KINDS:
+        lines = _deck_labor_lines(db, kind, d)
     elif is_paving:
         lines = _paving_labor_lines(db, kind, d)
     else:
@@ -819,6 +981,16 @@ def refresh_and_store_labor(db: Session, section_id: UUID) -> dict[str, Any]:
     data = calc_labor_materials(db, section_id)
     drivers = data["drivers"]
     lines = data["lines"]
+
+    subbed = bool(
+        db.execute(
+            text(
+                "SELECT coalesce(labor_subcontracted, false) "
+                "FROM estimate_sections WHERE id = :sid"
+            ),
+            {"sid": str(section_id)},
+        ).scalar()
+    )
 
     live_codes = {ln["code"] for ln in lines}
     existing = {
@@ -876,10 +1048,22 @@ def refresh_and_store_labor(db: Session, section_id: UUID) -> dict[str, Any]:
         enabled = prev.enabled if prev is not None else ln["enabled"]
         rate = ln["rate"]
         # qty always recalculated for non-manual (except we already skipped manuals)
+        #
+        # There used to be a special case here that kept the FOREMAN's previous
+        # qty whenever `prev.qty > 0` — "if user set it once without
+        # is_manual", from before `mark_manual` existed on this path. It has
+        # not meant that for a long time: `update_labor_line` defaults
+        # mark_manual=True, so a qty an estimator types lands in `manuals`
+        # above and is preserved there. What the special case actually did was
+        # fire on every line nobody had touched, freezing the foreman at
+        # whatever the FIRST refresh computed.
+        #
+        # Found 2026-09-04 on a columns section whose schedule changed between
+        # refreshes: superintendent, expense and PM all moved to 17 days and
+        # the foreman stayed at 5.5 — $2,875 light, is_manual false, with the
+        # driver on screen reading 17. A line that silently stops tracking its
+        # driver is the exact failure this app keeps finding in the workbook.
         qty = ln["qty"]
-        # Special: foreman keeps previous qty if user set it once without is_manual
-        if ln["code"] == "foreman" and prev is not None and prev.qty and prev.qty > 0:
-            qty = prev.qty
         ext = (_d(qty) * _d(rate)).quantize(Decimal("0.01")) if enabled else Decimal("0.00")
 
         db.add(
@@ -897,6 +1081,13 @@ def refresh_and_store_labor(db: Session, section_id: UUID) -> dict[str, Any]:
                 notes=ln.get("notes"),
                 sort_order=ln["sort_order"],
                 is_manual=False,
+                # One switch per section (sql/052). Only FIELD labor is
+                # subbed — the supervision block on the deck sheet has no Y/N
+                # column, because a superintendent is yours whoever swings the
+                # hammer. Costing treats both buckets identically; what this
+                # buys is being able to say what the sub is being asked to
+                # price.
+                subcontracted=subbed and ln["group_name"] == "labor",
             )
         )
 
@@ -974,6 +1165,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "notes": r.notes,
             "sort_order": r.sort_order,
             "is_manual": r.is_manual,
+            "subcontracted": bool(getattr(r, "subcontracted", False)),
         }
         for r in rows
     ]
@@ -1020,12 +1212,16 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
     # a columns header says "68 ÷ 20 a week × 5", which needs both divisors and
     # not just the answer. Nothing already in the dict is touched — every
     # stored cost, day and total above survives — so this can only add.
-    if kind in WALL_KINDS or kind in COLUMN_KINDS:
+    if kind in WALL_KINDS or kind in COLUMN_KINDS or kind in DECK_KINDS:
         live = labor_drivers(db, section_id)
         for key in (
             "column_count", "form_sf", "chamfer_lf",
             "sf_per_week", "days_per_week", "foreman_days",
             "wall_lf", "form_ff", "footing_sf",
+            # A deck header says "32,100 SF, 1,684 LF of edge, 480 FF of beam
+            # face" — the summary table has none of those columns.
+            "level_count", "total_sf", "perm_edge_lf", "gb_form_ff",
+            "stud_rail_lb", "stud_rail_tons", "pt_lb",
         ):
             if key in live:
                 drivers[key] = live[key]

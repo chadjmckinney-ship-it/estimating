@@ -12,7 +12,13 @@ from app.models.estimate_section import EstimateSection
 from app.models.grade_beam import GradeBeam
 from app.models.mono_slab import MonoSlab
 from app.services import paving
-from app.services.price_book import MONETARY_KEYS, require_book
+from app.services.price_book import (
+    MONETARY_KEYS,
+    RULE_KEYS,
+    current_section,
+    note_rate_read,
+    require_book,
+)
 
 
 def _setting_numeric(db: Session, key: str, default: Decimal) -> Decimal:
@@ -35,19 +41,91 @@ def section_kind(db: Session, section_id: Any) -> str | None:
     ).scalar()
 
 
+def _section_rate(db: Session, key: str) -> Decimal | None:
+    """
+    What THIS section says this key is (sql/055), or None.
+
+    The top of the ladder, and it beats everything below — the job's price
+    sheet, the job's rule overrides, the assembly, the company. Chad,
+    2026-09-04, asked where a per-job rate change belongs: **"I think making
+    rates changes per section is what I would like the best"** — because the
+    thing that makes a sub cheaper is the size of THESE pours rather than the
+    job as a whole.
+
+    Reads the section from the CONTEXT, not from an argument. `_rate_numeric`
+    has 113 call sites; a threaded parameter would be 113 chances to forget
+    one, and a forgotten one does not fail — it silently reads the company's
+    number for a section that overrode it, forever. Same reasoning, and the
+    same evidence, as the price book itself.
+    """
+    sid = current_section()
+    if sid is None:
+        return None
+    row = db.execute(
+        text("SELECT value FROM section_rates WHERE section_id = :s AND key = :k"),
+        {"s": str(sid), "k": key},
+    ).scalar()
+    return None if row is None else Decimal(str(row))
+
+
+def _estimate_rule(db: Session, key: str) -> Decimal | None:
+    """
+    What THIS JOB says a RULE is (sql/055), or None.
+
+    Prices never come through here — they are on the price sheet already. A
+    rule cannot go on the sheet, because the sheet FREEZES what it holds and a
+    rule that froze would stop a correction ever reaching the jobs it was made
+    for. So this is an override table, read live, and a key with no row in it
+    resolves exactly as it did before sql/055.
+
+    Found from the section, because that is what the context carries and every
+    section knows its estimate.
+    """
+    sid = current_section()
+    if sid is None:
+        return None
+    row = db.execute(
+        text(
+            "SELECT r.value FROM estimate_rules r "
+            "JOIN estimate_sections s ON s.estimate_id = r.estimate_id "
+            "WHERE s.id = :s AND r.key = :k"
+        ),
+        {"s": str(sid), "k": key},
+    ).scalar()
+    return None if row is None else Decimal(str(row))
+
+
 def _rate_numeric(
     db: Session, kind: str | None, key: str, default: Decimal
 ) -> Decimal:
     """
-    A rate, resolved assembly-first.
+    A rate, resolved section-first (sql/055).
 
-        assembly_rates (this kind)  →  system_settings  →  the code default
+        section_rates (this section)      beats everything, price or rule
+          price sheet     a PRICE, frozen at this job's pull
+          estimate_rules  a RULE, this job's override, read live
+            assembly_rates (this kind)
+              system_settings
+                the code default
 
     Every sheet in the workbook carries its own labor rates — paving forms at
     $0.30/SF against the slab sheet's $0.45 — so the company setting is the
-    fallback, not the answer. A kind with nothing to say about a key behaves
-    exactly as it did before sql/035.
+    fallback, not the answer. And a sub who is cheaper on one section's pours
+    is cheaper on that section, which is what the top rung is for.
+
+    A kind with nothing to say about a key, on a section with no overrides,
+    behaves exactly as it did before sql/035 — which is what every golden test
+    in the suite checks.
     """
+    # Recorded before anything resolves, so the section's rates screen can show
+    # every key this takeoff actually READ rather than a hand-kept list that
+    # drifts from the line sets the day somebody adds a line.
+    note_rate_read(key, default)
+
+    override = _section_rate(db, key)
+    if override is not None:
+        return override
+
     if key in MONETARY_KEYS:
         # A PRICE (sql/049): this job's sheet, not the tables. The sheet holds
         # the same two levels — the assembly's row and the company's — so a
@@ -59,6 +137,11 @@ def _rate_numeric(
         if book.has_sheet:
             sheeted = book.rate(kind, key)
             return sheeted if sheeted is not None else default
+    else:
+        # RULES only. A price never reads this table: it is on the sheet.
+        job = _estimate_rule(db, key)
+        if job is not None:
+            return job
     if kind:
         row = db.execute(
             text("SELECT value FROM assembly_rates WHERE kind = :k AND key = :key"),
@@ -67,6 +150,50 @@ def _rate_numeric(
         if row is not None:
             return Decimal(str(row))
     return _setting_numeric(db, key, default)
+
+
+def _rate_optional(db: Session, kind: str | None, key: str) -> Decimal | None:
+    """
+    The same resolution as `_rate_numeric`, with NO code default: `None` means
+    nobody has ever said what this costs.
+
+    There is one of these in the app and it exists because of one cell. The
+    deck sheet's reshoring MATERIAL rate (`F83`) is blank, so that line prices
+    at $0 while its labor prices at $11,235. A default would hide it and a
+    zero would assert it is free — decision 5, "a zero rate is a statement,
+    a zero price is refused". This returns None and the section says
+    `unpriced` instead.
+    """
+    note_rate_read(key, Decimal("0"))
+    override = _section_rate(db, key)
+    if override is not None:
+        return override
+
+    if key in MONETARY_KEYS:
+        book = require_book(f"rate {key!r}")
+        if book.has_sheet:
+            return book.rate(kind, key)
+    else:
+        job = _estimate_rule(db, key)
+        if job is not None:
+            return job
+    if kind:
+        row = db.execute(
+            text("SELECT value FROM assembly_rates WHERE kind = :k AND key = :key"),
+            {"k": kind, "key": key},
+        ).scalar()
+        if row is not None:
+            return Decimal(str(row))
+    row = db.execute(
+        text("SELECT value #>> '{}' FROM system_settings WHERE key = :key"),
+        {"key": key},
+    ).scalar()
+    if row is None or str(row).strip() == "":
+        return None
+    try:
+        return Decimal(str(row))
+    except Exception:
+        return None
 
 
 def _waste(section: EstimateSection, db: Session, field: str, setting_key: str) -> Decimal:

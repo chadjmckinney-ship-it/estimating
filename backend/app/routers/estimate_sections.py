@@ -119,6 +119,7 @@ def _to_read(db: Session, row: EstimateSection) -> EstimateSectionRead:
         margin_pct=row.margin_pct,
         contingency_pct=row.contingency_pct,
         tax_exempt=row.tax_exempt,
+        labor_subcontracted=bool(getattr(row, "labor_subcontracted", False)),
         effective_tax_exempt=_effective_exempt(db, row),
         form_percent=row.form_percent,
         waste_concrete=row.waste_concrete,
@@ -225,6 +226,11 @@ def section_material_costs_endpoint(
 # Inputs that change what a section costs. Editing one has to rewrite the stored
 # numbers, or the screen shows new factors over old results.
 _POUR_FIELDS = frozenset({"waste_concrete", "waste_sand", "waste_rebar"})
+# Fields that change the LABOR lines without changing a quantity. Subbing the
+# labor moves no money (sql/052) — it moves which bucket every field line is
+# in, and the lines are stored, so they have to be rewritten or the screen
+# keeps showing the old answer.
+_LABOR_FIELDS = frozenset({"labor_subcontracted"})
 _COSTING_FIELDS = frozenset(
     {"vapor_barrier_material_id", "vapor_tape_material_id", "margin_pct",
      "contingency_pct", "tax_exempt", "footing_mix_design_id"}
@@ -258,6 +264,8 @@ def update_section(
         recalc_section(db, row)
     elif "form_percent" in changed:
         recalc_section(db, row, pours=False, labor=False, equipment=False)
+    elif changed & _LABOR_FIELDS:
+        recalc_section(db, row, pours=False)
     elif changed & _COSTING_FIELDS:
         # A price or a rate changed, not a quantity — re-cost, don't re-take-off.
         refresh_pour_costs(db, row)

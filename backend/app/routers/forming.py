@@ -6,11 +6,16 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.estimate_section import EstimateSection
-from app.schemas.forming import FormingMaterialsRead, FormPercentUpdate
+from app.schemas.forming import (
+    FormingLineToggle,
+    FormingMaterialsRead,
+    FormPercentUpdate,
+)
 from app.services.forming import (
     get_or_refresh_forming,
     refresh_and_store_forming,
     set_form_percent_and_refresh,
+    set_forming_line_enabled,
 )
 
 router = APIRouter(tags=["forming"])
@@ -50,6 +55,34 @@ def refresh_forming_materials(
     if not db.get(EstimateSection, section_id):
         raise HTTPException(status_code=404, detail="Section not found")
     data = refresh_and_store_forming(db, section_id)
+    return _to_read(section_id, data)
+
+
+@router.patch(
+    "/sections/{section_id}/forming-materials/lines/{code}",
+    response_model=FormingMaterialsRead,
+)
+def toggle_forming_line(
+    section_id: UUID,
+    code: str,
+    body: FormingLineToggle,
+    db: Session = Depends(get_db),
+) -> FormingMaterialsRead:
+    """
+    Include or exclude one forming line (sql/056).
+
+    The answer to a warning. Chad, 2026-09-04: "that message should go away
+    after I uncheck it as not used." Unchecking here zeroes the line's extended
+    cost and takes it off the section's unpriced list, while the quantity and
+    the formula stay on screen — so the section still shows what was decided,
+    not just what was bought.
+    """
+    if not db.get(EstimateSection, section_id):
+        raise HTTPException(status_code=404, detail="Section not found")
+    try:
+        data = set_forming_line_enabled(db, section_id, code, body.enabled)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return _to_read(section_id, data)
 
 

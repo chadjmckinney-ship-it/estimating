@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 
 from app.models.estimate_section import (
     COLUMN_KINDS,
+    DECK_KINDS,
     PIER_KINDS,
     WALL_KINDS,
     EstimateSection,
@@ -52,7 +53,7 @@ from app.models.estimate_labor import EstimateLaborLine
 from app.models.mix_design import MixDesign
 from app.models.mono_slab import MonoSlab
 from app.services import quotes as qt
-from app.services.price_book import priced_as, require_book
+from app.services.price_book import for_section, priced_as, require_book
 
 _Q2 = Decimal("0.01")
 _Q4 = Decimal("0.0001")
@@ -318,7 +319,7 @@ def _mesh_unit_cost(db: Session) -> Decimal | None:
 
 def resolve_vapor_barrier(db: Session, section: EstimateSection) -> dict[str, Any] | None:
     """Gated (sql/048): the section's roll, at this job's price."""
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _resolve_vapor_barrier(db, section)
 
 
@@ -371,7 +372,7 @@ def vapor_barrier_source(section: EstimateSection, db: Session) -> str:
 
 def resolve_vapor_tape(db: Session, section: EstimateSection) -> dict[str, Any] | None:
     """Gated (sql/048): the section's roll, at this job's price."""
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _resolve_vapor_tape(db, section)
 
 
@@ -516,7 +517,7 @@ def _money_setting(db: Session, key: str, default: Decimal) -> Decimal:
 def tax_rate_for(db: Session, section: EstimateSection) -> Decimal:
     """Sales tax rate for this section — see `_tax_rate_for`. Self-gating,
     because callers have the section in hand and nothing else to thread."""
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _tax_rate_for(db, section)
 
 
@@ -569,6 +570,8 @@ def _on_takeoff_lines(db: Session, section_id: UUID) -> list[dict[str, Any]]:
             EstimateFormingLine.section_id == section_id
         )
     ).all():
+        if not r.enabled:
+            continue
         ext = _d(r.ext_cost)
         if ext == 0:
             continue
@@ -658,6 +661,12 @@ def allocation_basis(kind: str | None) -> str:
         # Form feet — contact area on one face (sql/040). A walls section has
         # no square footage either, so the same zero-weight trap applies.
         return "FF"
+    if kind in DECK_KINDS:
+        # Deck AREA. The sheet's own allocation columns (BU:BY) all divide by
+        # the total square footage, and the section is measured and sold in
+        # SF, so weight and quantity are the same field here — the first
+        # assembly since the mono slab where they are.
+        return "SF"
     if kind in COLUMN_KINDS:
         # Form CONTACT area, all four faces (sql/045). Columns are measured and
         # sold in EA, but forming is what the money goes on, and a 24-foot
@@ -754,6 +763,69 @@ def _column_units(db: Session, section: EstimateSection) -> list[_Unit]:
                 weight=_d(r.calc_form_sf),
                 cy=cy,
                 quantity=qty,
+                direct_taxable=materials.quantize(_Q2),
+                direct_untaxed=Decimal("0"),
+                per_unit_fields=("calc_cost_per_unit", "calc_sale_per_unit"),
+            )
+        )
+    _apply_lump_quotes(db, section, units, quotes)
+    return units
+
+
+def _deck_units(db: Session, section: EstimateSection) -> list[_Unit]:
+    """
+    One deck LEVEL, weighted by area and counted in square feet.
+
+    The concrete, the mats, the beam steel and the POST-TENSION all sit here
+    as direct cost, the way concrete and steel sit on a pour or a column type.
+    PT is the new one: it is priced per square foot of the levels that carry
+    cable (`calc_pt_sf`, zero where they do not), and a PT quote replaces the
+    computed figure — which is exactly the slot the sheet already has at
+    `N80 = IF(I80 = 0, SF x 1.45, I80)`.
+    """
+    from app.models.deck_level import DeckLevel
+
+    kind = section.kind
+    rows = list(
+        db.scalars(
+            select(DeckLevel)
+            .where(DeckLevel.section_id == section.id)
+            .order_by(DeckLevel.sort_order, DeckLevel.created_at)
+        ).all()
+    )
+    quotes = qt.load_quotes(db, section.id)
+    rebar_q = quotes.get(qt.REBAR)
+    quoted_lb = rebar_q.per_lb() if rebar_q else None
+    pt_q = quotes.get(qt.PT)
+    quoted_pt_sf = pt_q.per_sf() if pt_q else None
+
+    units: list[_Unit] = []
+    for r in rows:
+        sf = _d(r.area_sf)
+        cy = _d(r.calc_concrete_cy)
+        materials = Decimal("0")
+        if cy > 0:
+            materials += cy * _z(_mix_unit_cost(db, r.mix_design_id))
+        steel = _d(r.calc_total_rebar_lb)
+        if steel > 0 and not (rebar_q and rebar_q.is_lump):
+            rate = quoted_lb if quoted_lb is not None else _z(
+                _rebar_unit_cost(db, True, kind)
+            )
+            materials += steel * rate
+        pt_sf = _d(r.calc_pt_sf)
+        if pt_sf > 0 and not (pt_q and pt_q.is_lump):
+            rate = quoted_pt_sf
+            if rate is None:
+                from app.services.calc import _rate_optional
+
+                rate = _z(_rate_optional(db, kind, "pt_cable_sf"))
+            materials += pt_sf * rate
+        units.append(
+            _Unit(
+                row=r,
+                weight=sf,
+                cy=cy,
+                quantity=sf,
                 direct_taxable=materials.quantize(_Q2),
                 direct_untaxed=Decimal("0"),
                 per_unit_fields=("calc_cost_per_unit", "calc_sale_per_unit"),
@@ -925,13 +997,15 @@ def cost_units(db: Session, section: EstimateSection) -> list[_Unit]:
     book) and from `quotes.section_driver_qty` via the quotes router (not).
     Re-entrant, so the nested case costs nothing.
     """
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         if section.kind in PIER_KINDS:
             return _pier_units(db, section)
         if section.kind in WALL_KINDS:
             return _wall_units(db, section)
         if section.kind in COLUMN_KINDS:
             return _column_units(db, section)
+        if section.kind in DECK_KINDS:
+            return _deck_units(db, section)
         return _slab_units(db, section)
 
 
@@ -949,7 +1023,7 @@ def refresh_pour_costs(db: Session, section: EstimateSection) -> dict[str, Any]:
     split_wall_and_footing, section_unpriced and the quote spread — reads the
     same sheet.
     """
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _refresh_pour_costs(db, section)
 
 
@@ -1137,6 +1211,26 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
                 need(rebar_label(False), _rebar_unit_cost(db, False, kind), r.calc_total_rebar_lb)
             need("SAND", _sand_unit_cost(db), getattr(r, "calc_sand_cy", 0))
 
+    elif kind in DECK_KINDS:
+        from app.models.deck_level import DeckLevel
+        from app.services.calc import _rate_optional
+
+        for r in db.scalars(select(DeckLevel).where(DeckLevel.section_id == section.id)):
+            need_mix(r.mix_design_id, r.calc_concrete_cy)
+            if not rebar_quoted:
+                # A deck is post-tensioned steel: the catalog says so in the
+                # item's own name, "REBAR PIERS / PT slabs" (sql/043).
+                need(rebar_label(True), _rebar_unit_cost(db, True, kind), r.calc_total_rebar_lb)
+            if not pt_quoted:
+                # Priced per SF of the levels that carry cable, by RATE rather
+                # than by a catalog row — the sheet's F80.
+                need(
+                    "POST TENSION — cables",
+                    _rate_optional(db, kind, "pt_cable_sf"),
+                    r.calc_pt_sf,
+                )
+            need("WIRE MESH", _mesh_unit_cost(db), r.mesh_sf)
+
     elif kind in COLUMN_KINDS:
         from app.models.column_type import ColumnType
 
@@ -1177,36 +1271,93 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
     # beside it, and supervision itself at $0 — proven −$19,638.67 on piers,
     # −$14,403.10 on walls (audit 2026-09-02 #5). Not an unpriced ITEM, but
     # the same lie in the total, so it goes on the same list.
-    if kind in PIER_KINDS or kind in WALL_KINDS:
+    if kind in PIER_KINDS or kind in WALL_KINDS or kind in DECK_KINDS:
+        table = (
+            "pier_groups" if kind in PIER_KINDS
+            else "wall_runs" if kind in WALL_KINDS
+            else "deck_levels"
+        )
         has_work = db.execute(
-            text(
-                "SELECT count(*) FROM pier_groups WHERE section_id = :sid"
-                if kind in PIER_KINDS
-                else "SELECT count(*) FROM wall_runs WHERE section_id = :sid"
-            ),
+            text(f"SELECT count(*) FROM {table} WHERE section_id = :sid"),
             {"sid": str(section.id)},
         ).scalar()
-        typed = db.execute(
-            text("SELECT qty FROM estimate_labor_lines "
+        sup = db.execute(
+            text("SELECT qty, enabled FROM estimate_labor_lines "
                  "WHERE section_id = :sid AND code = 'superintendent'"),
             {"sid": str(section.id)},
-        ).scalar()
-        if has_work and _d(typed) <= 0:
+        ).first()
+        typed = _d(sup[0]) if sup else Decimal("0")
+        # An UNCHECKED superintendent is a decision, not an omission — Chad,
+        # 2026-09-04: "that message should go away after I uncheck it as not
+        # used". Nothing is riding on the days in that state either: on all
+        # three typed assemblies the rental ladder derives from super days, so
+        # zero days means the machines are already at zero and the warning has
+        # nothing left to protect.
+        typed_off = bool(sup) and not sup[1]
+        if has_work and typed <= 0 and not typed_off:
             out.add("superintendent days — not typed (supervision and rentals are at 0 days)")
 
     # The two stored takeoffs keep their own lists. Fold them in so the section
     # carries ONE answer to "what on this bid has no price behind it".
     from app.models.estimate_forming import EstimateFormingLine
 
-    for r in db.scalars(
-        select(EstimateEquipmentLine).where(EstimateEquipmentLine.section_id == section.id)
-    ):
+    equip_lines = list(
+        db.scalars(
+            select(EstimateEquipmentLine).where(
+                EstimateEquipmentLine.section_id == section.id
+            )
+        )
+    )
+    for r in equip_lines:
         if r.price_source == "default" and r.enabled and _d(r.billable_units) > 0:
             out.add(f"{r.label} — equipment (placeholder rate)")
+
+    # MOBILIZATION (sql/053). The workbook prices it nowhere, so every bid in
+    # the system is currently missing the cost of getting the iron to the job
+    # — which on a section renting a $3,200/day crane is not a rounding error.
+    #
+    # Flagged only where there is something to mobilize: a section billing
+    # rental days and carrying $0 of mobilization has left it out. A section
+    # with no machines on it has nothing to move and says nothing.
+    #
+    # A WARNING, not a refusal — Chad, on validation: "Skip it." Equipment
+    # already on site from the last phase is a real zero. It should just never
+    # be a silent one.
+    #
+    # And UNCHECKING the line is how you say so. Chad, 2026-09-04: "you have it
+    # set to that when something shows an error if nothing is entered, I like
+    # that so I can check it.. but that message should go away after I uncheck
+    # it as not used."
+    #
+    # He is right, and the version I shipped had it exactly backwards: it fired
+    # BECAUSE the box was unchecked, so the one gesture that means "considered,
+    # not needed" was the one gesture that could not clear it. A warning you
+    # cannot answer is a warning people learn to scroll past, which costs the
+    # rest of the list its credibility too.
+    #
+    # So: no line at all, or a line that is ON and carrying nothing, warns —
+    # that is the case where somebody has not looked. A line switched OFF is
+    # somebody having looked.
+    renting = any(
+        r.enabled
+        and (r.group_name or "equipment") == "equipment"
+        and is_rental(r.unit)
+        and _d(r.billable_units) > 0
+        for r in equip_lines
+    )
+    mobil = next((r for r in equip_lines if r.code == "mobilization"), None)
+    if renting and (mobil is None or (mobil.enabled and _d(mobil.ext_cost) <= 0)):
+        out.add(
+            "mobilization — not entered (this section rents equipment and "
+            "carries nothing for getting it there)"
+        )
+    # Forming lines carry the same switch as of sql/056, for the same reason:
+    # RESHORING on a deck has no rate anywhere, and until now there was no box
+    # to uncheck and no way to make the line stop asking.
     for r in db.scalars(
         select(EstimateFormingLine).where(EstimateFormingLine.section_id == section.id)
     ):
-        if r.unit_cost is None and _d(r.qty) > 0:
+        if r.enabled and r.unit_cost is None and _d(r.qty) > 0:
             out.add(f"{r.label} — forming")
 
     return sorted(out)
@@ -1234,7 +1385,7 @@ def catalog_cost_for_quote(
     means at THIS JOB's prices, or a negotiated mix rate makes every quote on
     the job read as off-band.
     """
-    with priced_as(db, section.estimate_id):
+    with priced_as(db, section.estimate_id), for_section(section.id):
         return _catalog_cost_for_quote(db, section, quote_kind)
 
 

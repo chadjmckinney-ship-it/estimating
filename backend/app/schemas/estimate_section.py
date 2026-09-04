@@ -22,6 +22,10 @@ class EstimateSectionBase(BaseModel):
     # Tri-state. NULL inherits projects.tax_exempt; true/false override it for
     # this section — ROW paving and sidewalks inside a taxable job.
     tax_exempt: bool | None = None
+    # One switch per section (sql/052). The CIP deck sheet decides it per
+    # labor line; Chad, 2026-09-04, asked whether that is real: one switch.
+    # Supervision is never subbed.
+    labor_subcontracted: bool = False
     form_percent: Decimal | None = Field(None, ge=0, le=2)
     waste_concrete: Decimal | None = Field(None, ge=0, le=1)
     waste_sand: Decimal | None = Field(None, ge=0, le=1)
@@ -55,6 +59,7 @@ class EstimateSectionUpdate(BaseModel):
     margin_pct: Decimal | None = Field(None, ge=0, le=2)
     contingency_pct: Decimal | None = Field(None, ge=0, le=2)
     tax_exempt: bool | None = None
+    labor_subcontracted: bool | None = None
     form_percent: Decimal | None = Field(None, ge=0, le=2)
     waste_concrete: Decimal | None = Field(None, ge=0, le=1)
     waste_sand: Decimal | None = Field(None, ge=0, le=1)

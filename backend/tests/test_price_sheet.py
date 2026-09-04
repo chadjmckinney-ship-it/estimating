@@ -111,7 +111,13 @@ def test_a_pull_reproduces_the_master_list_exactly(db, estimate):
     for r in db.execute(text("SELECT id, unit_cost FROM equipment WHERE is_active AND unit_cost > 0")):
         master[("equipment", "", r[0])] = Decimal(str(r[1]))
     for r in db.execute(text("SELECT key, value #>> '{}' FROM system_settings")):
-        if r[0] in pb.MONETARY_KEYS:
+        # A monetary key whose value is NULL is a price nobody has set —
+        # `mobilization_ls` since sql/053. It EXISTS so it can be edited and
+        # pulled the day it has a number, and sql/049's backfill guards on
+        # numericness so it is skipped rather than copied onto every sheet as
+        # a zero. Same guard here, or this test would ask the pull for a row
+        # the pull is right not to make.
+        if r[0] in pb.MONETARY_KEYS and r[1] is not None:
             master[("setting", "", r[0])] = Decimal(str(r[1]))
     for r in db.execute(text("SELECT kind, key, value FROM assembly_rates")):
         if r[1] in pb.MONETARY_KEYS:
@@ -295,7 +301,10 @@ def test_a_catalog_item_added_after_the_pull_is_unpriced_until_the_next_pull(db,
     recalc_section(db, section); db.flush()
     unpriced = db.execute(text("SELECT calc_unpriced FROM estimate_sections WHERE id = :i"),
                           {"i": str(section.id)}).scalar()
-    assert unpriced == []
+    # Mobilization is not a PRICE-SHEET hole — sql/053 deliberately ships no
+    # company figure, and the section warns until somebody types one. This
+    # test is about the sheet, so it asks the sheet's question only.
+    assert [u for u in unpriced if "mobilization" not in u] == [], unpriced
 
 
 def test_a_rule_change_still_reaches_a_priced_estimate(db, estimate, setting):
