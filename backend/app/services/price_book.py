@@ -437,6 +437,15 @@ ESTIMATE_LEVEL_KEYS: frozenset[str] = frozenset({
     # company; neither is a property of one section's work.
     "sales_tax_pct",
     "equip_fuel_maint_pct",
+    # Supervision is priced for the job. Chad, 2026-09-05: "supervision,
+    # equipment, materials are all project specific pricing.. labor changes
+    # with each section." The DAYS stay per section (labor_super_sf_per_week
+    # and labor_super_days_per_week are rules, read per kind); the day RATES
+    # are the job's.
+    "labor_super_day_rate",
+    "labor_foreman_day_rate",
+    "labor_pm_day_rate",
+    "labor_expense_day_rate",
     # WHICH material, so it follows the material.
     "default_vapor_barrier_material_id",
     "default_vapor_tape_material_id",

@@ -166,6 +166,50 @@ are settable there and 3 are not.
 and the card still LISTS the six read-only with a `job` badge. Hiding them
 would leave the card looking like the whole story when it is not.
 
+## 2026-09-05 — rates are always per section
+
+Chad, verifying the model: "supervision, equipment, materials are all project
+specific pricing.. labor changes with each section" — then "labor needs to be
+per section" — then, on the design: **"Rates are always per section. go."**
+
+Until today a section that had not spoken inherited its kind's rates from the
+job's sheet, the assembly and the company, and followed them forever: editing
+the walls forming rate on the job sheet moved every walls section on the job.
+The override existed; the ownership did not.
+
+Now:
+
+* **A new section is seeded.** `POST /estimates/{id}/sections` calls
+  `services/section_rates.seed`, which writes every section-level PRICE the
+  section reads onto `section_rates` at the value it resolves to that moment
+  (the job sheet if the estimate has one, else the assembly, else the
+  company, else the code default), with a note saying when and from which
+  rung. From then on the rate is the section's: nothing that happens to those
+  tables afterwards moves it, and two sections of one kind on one job share
+  nothing. *Clear* hands a rate back to the ladder, and it follows the ladder
+  again from then on.
+* **Existing sections were seeded** by `backend/seed_section_rates.py` at
+  what they resolved to on 2026-09-05, so no number moved on the way in.
+  Idempotent; safe to run twice.
+* **Supervision day rates moved to the job.** `labor_super_day_rate`,
+  `labor_foreman_day_rate`, `labor_pm_day_rate`, `labor_expense_day_rate` are
+  in `ESTIMATE_LEVEL_KEYS` now, on Chad's "supervision ... project specific
+  pricing" — set on the price sheet, shown read-only on the card. The DAYS
+  per section stay per section (rules).
+* **Rules are never seeded.** Waste, divisors, how the work is computed are
+  read live by design (a rule change still reaches a priced estimate); they
+  stay section-level and settable, just not frozen.
+* The read and the ladder moved from the router into
+  `services/section_rates.py`, because the seeding needs the same truth the
+  screen shows.
+
+`tests/test_rates_are_per_section.py`: a new section owns every price it
+reads at the ladder's value; supervision rates and rules are not its to own;
+a later assembly change does not move it while a section made after the
+change starts at the new number; two sections of one kind share nothing;
+Clear hands back; the backfill seeds a fixture-built section without moving
+its cost and does nothing the second time.
+
 ## Still to build
 
 * **`estimate_rules` has no screen.** The table and the resolution are done and

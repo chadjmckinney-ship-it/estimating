@@ -6148,21 +6148,22 @@ function renderSectionRatesCard(rates) {
         <div>
           <h3 style="margin:0">Rates on this section</h3>
           <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
-            <strong>Labor, equipment and subbed services</strong> are set per
-            section — each section is separate, because forming labor on a deck
-            is not forming labor on paving. A rate set here beats the job's
-            price sheet, the assembly and the company, for when a sub is
-            cheaper on <em>these</em> pours and not on the rest of the job.
-            <strong>Materials are set for the whole job</strong> on the
+            <strong>Rates are always per section.</strong> Every rate this
+            section reads is its own — seeded when the section was created,
+            from the job's price sheet or the company's defaults — and nothing
+            that happens to those afterwards moves this section. Change one
+            here and it is this section's number; <em>Clear</em> hands it back
+            to whatever the job, the assembly or the company says today.
+            <strong>Supervision day rates, materials and equipment day rates
+            are set for the whole job</strong> on the
             <a href="#prices/${esc(rates.estimate_id)}">price sheet</a> —
-            concrete and materials are quoted per job, so they are edited
-            that way.
+            they are quoted per job, so they are edited that way.
           </p>
         </div>
         <div class="card stat" style="min-width:9rem;margin:0">
-          <div class="label">Set here</div>
+          <div class="label">This section's own</div>
           <div class="value">${over.length}</div>
-          <div class="hint">of ${mine.length} you can set here</div>
+          <div class="hint">of ${mine.length} it reads</div>
         </div>
       </div>
 
@@ -6176,8 +6177,10 @@ function renderSectionRatesCard(rates) {
                <tbody>${over.map((r) => sectionRateRowHtml(r, true)).join("")}</tbody>
              </table></div>`
           : `<p class="muted" style="margin:0.75rem 0 0;color:var(--text-muted);font-size:0.85rem">
-               Nothing is set on this section — every rate below comes from the
-               job, the assembly or the company.
+               Nothing is this section's own yet — every rate below comes from
+               the job, the assembly or the company. (Sections made before
+               2026-09-05 were seeded by the backfill; a section with no takeoff
+               rows may read nothing until it has some.)
              </p>`
       }
 
@@ -6296,7 +6299,7 @@ function sectionRateRowHtml(r, isOverride) {
       ${
         isOverride
           ? `<button type="button" class="btn danger ghost rate-clear" data-k="${esc(r.key)}"
-               title="Remove the override and let the job, assembly or company decide again">Clear</button>`
+               title="Hand this rate back — the job, the assembly or the company decides again, and follows them from now on">Clear</button>`
           : ""
       }
     </td>

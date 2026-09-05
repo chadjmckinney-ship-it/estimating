@@ -447,11 +447,20 @@ def test_labor_is_a_section_fact(client, db, estimate):
     section." Every labor key is settable here."""
     section = _build(db, estimate, "deck_fixture")
     rows = _rates(client, section.id)
-    labor = [k for k in rows if k.startswith("labor_")]
+    # Supervision DAY RATES are the job's, not the section's — Chad,
+    # 2026-09-05: "supervision, equipment, materials are all project specific
+    # pricing.. labor changes with each section." The days per section stay.
+    supervision = {
+        "labor_super_day_rate", "labor_foreman_day_rate",
+        "labor_pm_day_rate", "labor_expense_day_rate",
+    }
+    labor = [k for k in rows if k.startswith("labor_") and k not in supervision]
     assert labor, "a deck reads labor rates"
     assert all(rows[k]["level"] == "section" for k in labor), [
         k for k in labor if rows[k]["level"] != "section"
     ]
+    for k in supervision & set(rows):
+        assert rows[k]["level"] == "estimate", k
 
     r = client.put(
         f"/api/sections/{section.id}/rates/labor_forming_sf", json={"value": "4.10"}

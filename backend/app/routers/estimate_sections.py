@@ -190,6 +190,15 @@ def create_section(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # Rates are always per section (Chad, 2026-09-05). A new section takes
+    # every section-level price it reads at today's resolved value and owns
+    # it from here — services/section_rates.seed. The job's sheet and the
+    # company's settings are where a NEW section starts, not what an existing
+    # one follows.
+    from app.services import section_rates as sr
+
+    sr.seed(db, row)
+    db.commit()
     return _to_read(db, row)
 
 
