@@ -1,2 +1,4 @@
 -r requirements.txt
 pytest>=8.0.0
+# starlette 1.6 TestClient imports httpx2, not httpx; without it every API test fails collection
+httpx2>=2.12.0
