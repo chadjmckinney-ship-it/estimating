@@ -91,6 +91,11 @@ def main() -> int:
         "(for a database that already has them)",
     )
     ap.add_argument("--status", action="store_true", help="what has and hasn't run")
+    ap.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="apply without taking a pg_dump first (the dump is the undo — skip it knowingly)",
+    )
     args = ap.parse_args()
 
     eng = engine()
@@ -151,6 +156,22 @@ def main() -> int:
     if not todo:
         print("nothing to do")
         return 0
+
+    # The dump is the undo. A migration that renames a column or backfills a
+    # table is one transaction, but a wrong idea that COMMITS is not rolled
+    # back by anything — except the dump taken the minute before it ran.
+    # Chad, 2026-09-05: "lets do the pg_dump backups." A backup that cannot be
+    # taken stops the migration; --no-backup is how you say you meant it.
+    if not args.no_backup:
+        from backup_db import backup
+
+        try:
+            backup(label=f"pre-{todo[0].stem[:40]}")
+        except (FileNotFoundError, RuntimeError) as exc:
+            print(f"\nNOT APPLIED — the backup before it failed:\n  {exc}\n"
+                  "  Fix that, or pass --no-backup if you mean to go without one.",
+                  file=sys.stderr)
+            return 1
 
     for p in todo:
         try:

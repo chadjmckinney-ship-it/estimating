@@ -178,8 +178,16 @@ UNION ALL SELECT 'mono_slabs', count(*) FROM mono_slabs;
 3. **Waste factors** are placeholders (5% concrete/sand, 0% rebar).
 4. **PT at 1.0 lb/SF** — confirm; Pricing also has PT as **$/SF** (`POST TENSION CABLES` material) which is a unit-cost, not the quantity rule.
 5. No migration tool (Alembic/Flyway) yet — numbered SQL files only.
-6. No backup job on the laptop DB — dump before big experiments:
+6. ~~No backup job on the laptop DB~~ **Backups, since 2026-09-05** (Chad:
+   "lets do the pg_dump backups"). `backend/backup_db.py` dumps the app's
+   DATABASE_URL with `pg_dump -Fc` to `~/Backups/estimating/`, proves the
+   dump reads with `pg_restore --list`, keeps the newest 30, and can copy
+   each dump to a second disk (`--copy-to`, OneDrive). `apply_sql.py` takes
+   one before every migration it applies (`--no-backup` to go without).
+   `backend/register_backup_task.ps1` registers the daily Task Scheduler job.
 
 ```bash
-pg_dump -d estimating -Fc -f ~/Estimate_Projects/backups/estimating-$(date +%Y%m%d).dump
+python backend/backup_db.py                 # now
+python backend/backup_db.py --list          # what is there
+python backend/backup_db.py --restore-help  # into a NEW database first, look, then swap
 ```
