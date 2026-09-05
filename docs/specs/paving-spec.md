@@ -35,6 +35,11 @@ assemblies** — so the app is buying the right thing, and the only open questio
 is whether $4.995 is a current price. **Awaiting a real invoice figure.** At
 4,546 pieces, every $1 moves this section $4,546.
 
+**Settled 2026-09-05 — Chad: "use the price sheet."** The catalog's $4.995 is
+the default every job pulls; the invoice price goes on that job's price sheet,
+where the 3/4" × 24" row already sits — edited per job, kept through every
+pull. Nothing in the app changes.
+
 The lesson is the one in `docs/specs/design-decisions.md`: a variance is not
 resolved by an explanation that sounds plausible. It is resolved by looking.
 
@@ -49,8 +54,8 @@ catalog. Confirmed against the running database:
 | Line | Sheet types | Live catalog | Verdict |
 |---|---|---|---|
 | Concrete, Mix 3 | $140/CY | **$150** | catalog current |
-| Paving steel, REBAR PAVING | $0.55/lb | **$0.60** | catalog current |
-| 3/4" smooth dowels | $1.90 ea | **$4.995** | **unconfirmed — see above** |
+| Paving steel, REBAR PAVING | $0.55/lb | **$0.60** | catalog current — Chad, 2026-09-05: "use current price" |
+| 3/4" smooth dowels | $1.90 ea | **$4.995** | the default; the job's sheet carries the invoice price — Chad, 2026-09-05: "use the price sheet" |
 
 The sheet was bid at older prices; the app prices at today's. Against the **live**
 catalog the section reads **$1,404,380.20** — **+$77,196.73** over the sheet's

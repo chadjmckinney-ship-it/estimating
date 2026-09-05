@@ -281,6 +281,15 @@ def resolve_rebar(
             mat = _find_material(db, "REBAR PIERS")
             if mat is not None:
                 return mat
+        if kind in DECK_KINDS:
+            # Chad, 2026-09-05: "use rebar GB." The deck sheet points F78 at
+            # REBAR GRADE BEAM ($0.65). Until today the app bought PT-slab bar
+            # for an elevated PT deck ($0.60) on the sql/043 rule, which read
+            # $3,513.21 light on LBJ. A deck buys grade-beam bar whether or
+            # not it is post-tensioned.
+            mat = _find_material(db, "REBAR GRADE BEAM")
+            if mat is not None:
+                return mat
 
     mat = None
     if post_tension:

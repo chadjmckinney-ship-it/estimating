@@ -35,11 +35,12 @@ $952,052.0215. Every piece of the gap below that was named in
   * **RESHORING MATERIAL IS UNPRICED, NOT FREE.** `F83` is blank, so that line
     costs $0 while its labor costs $11,235. The section reports it.
 
-  * **THE BAR IS PT-SLAB BAR.** The sheet points `F78` at `Pricing!D23`, REBAR
-    GRADE BEAM at $0.65. The catalog carries a row named for this exact case —
-    "REBAR PIERS / PT slabs", $0.60 — and sql/043 already resolves a
-    post-tensioned slab to it. An elevated PT deck is a PT slab. **-$3,513.21**,
-    and the only piece of the gap that goes DOWN.
+  * **THE BAR IS GRADE-BEAM BAR, as the sheet says.** `F78` points at
+    `Pricing!D23`, REBAR GRADE BEAM at $0.65. Until 2026-09-05 the app bought
+    "REBAR PIERS / PT slabs" at $0.60 for an elevated PT deck on the sql/043
+    rule — -$3,513.21, the only piece of the gap that went down. Chad, given
+    the choice: "use rebar GB." The app and the sheet agree on the bar, and
+    that piece is gone.
 
   * **MISCELLANEOUS IS A RENTAL.** The sheet's formula for that one equipment
     line ends without `x (1 + tax + fuel)` where the five above it carry it —
@@ -55,9 +56,9 @@ $952,052.0215. Every piece of the gap below that was named in
      +   550.46   MISCELLANEOUS taxed and fuelled like the rental it is
      + 1,676.58   ACCESSORIES at the catalog $0.04, and tax on four lines
                   the sheet leaves untaxed
-     - 3,513.21   bar at the PT-slab price, not the grade-beam price
     -----------
-    956,185.45
+    959,698.67   (the six pieces sum to .66; the cent is rounding across
+                  pieces each stated to the cent, not a decision)
 
 `sheet_mode` restores the workbook's two bar constants so the bid can still be
 reproduced deliberately. It does not restore the beam-slot bug, the one-face
@@ -201,7 +202,7 @@ SHEET = {
 
 # What the APP reads — the sheet plus every difference named in the module
 # docstring above, each of which has its own test.
-GOLDEN_COST = Decimal("956185.45")
+GOLDEN_COST = Decimal("959698.67")
 
 
 def price_the_catalog(db) -> dict:

@@ -339,9 +339,11 @@ There are no slots in the app. A level holds as many beams as it holds.
      +   550.46   MISCELLANEOUS taxed and fuelled like the rental it is
      + 1,676.58   ACCESSORIES at the catalog $0.04, and tax on four lines
                   the sheet leaves untaxed
-     - 3,513.21   bar at the PT-slab price ($0.60), not the grade-beam price
     -----------
-    956,185.45   sale $1,128,298.83 at cost + 18%
+    959,698.67   (the six pieces sum to .66 — the cent is rounding;
+                  until 2026-09-05: 956,185.45, with a seventh piece,
+                  - 3,513.21 for bar at the PT-slab price — gone now that
+                  Chad chose grade-beam bar, and the sheet and the app agree)
 
 Every line of that has its own test. Under `sheet_mode` the concrete
 reconciles to the sheet **exactly** (1,459.8518 CY), and so do the slab mats
@@ -359,11 +361,20 @@ is what makes the differences above arguable rather than guessed at.
 
   It also produced sql/053: settling the crane is what surfaced that **nothing
   in the workbook prices getting it to the job.** See `docs/specs/mobilization.md`.
-* **The bar.** The `-$3,513.21` above. The sheet points `F78` at REBAR GRADE
-  BEAM ($0.65); the app resolves the catalog row named for exactly this case,
-  REBAR PIERS / PT slabs ($0.60), the way sql/043 already resolves a
-  post-tensioned slab.
+* ~~**The bar.**~~ **Settled, 2026-09-05.** Chad: *"use rebar GB."* The sheet
+  points `F78` at REBAR GRADE BEAM ($0.65); until today the app resolved the
+  row named for a PT slab, REBAR PIERS / PT slabs ($0.60), the way sql/043
+  resolves a post-tensioned slab — the `-$3,513.21` above. `resolve_rebar`
+  now sends every deck kind to REBAR GRADE BEAM, PT or not; the golden number
+  moved from 956,185.45 to 959,698.67 and the seventh piece is gone.
 * **Reshoring material.** No rate anywhere. Unpriced until one is typed.
+  **Chad, 2026-09-05: "a SF price with a percentage."** That is the shape the
+  line already has — `reshoring_material_sf` × `reshoring_multiplier` (1.10,
+  the sheet's J83) — and the price is typed where a section's rates are typed:
+  the rates card lists the key, unpriced, until someone puts a number on it
+  for that section. A company default goes in `assembly_rates` the day Chad
+  names one; until then the section keeps reporting the line as unpriced
+  rather than pricing it at nothing.
 
 ## One live bug found on another screen
 

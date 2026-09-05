@@ -319,9 +319,9 @@ def test_a_deck_buys_concrete_bar_and_cable_and_nothing_else(db, deck):
         bar = _rebar_unit_cost(db, True, deck.kind)
         cable = _rate_optional(db, deck.kind, "pt_cable_sf")
     assert bar is not None and cable is not None
-    # An elevated PT deck is a PT slab and buys PT-slab bar (test_cip_deck).
+    # A deck buys grade-beam bar, PT or not — Chad, 2026-09-05 (test_cip_deck).
     assert lines["rebar"]["unit_cost"] == bar
-    assert "PT" in (lines["rebar"]["detail"] or "")
+    assert "GRADE BEAM" in (lines["rebar"]["detail"] or "")
     assert lines["pt"]["unit_cost"] == cable
     assert lines["pt"]["source"] == "rate"
 
