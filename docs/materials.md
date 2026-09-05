@@ -167,7 +167,7 @@ Pricing left-column unit rates (not Whitecap lumber list).
 
 | ID | Name | Unit | Unit cost | Note |
 |---:|------|------|----------:|------|
-| 48 | SAND DELIVERED PER TON | CY | 25.0000 | Excel label says per ton, unit shown /YD |
+| 48 | SAND DELIVERED PER CY | CY | 25.0000 | Renamed 2026-09-05 (`sql/060`): the Excel label said per ton, the unit was /YD, and Chad settled it — sand is per CY |
 | 49 | ROCK DELEVERED PER TON | CY | 40.0000 | Workbook spelling |
 
 ---
@@ -253,7 +253,7 @@ Pricing left-column unit rates (not Whitecap lumber list).
 | 45 | vapor_barrier | RW Medows 15 mil VAPOR MAT | ROLL | 355.0000 | | Whitecap | 2025-05-12 |
 | 46 | foam | FOAM FILL VOID | EA | 22.7600 | 2" x 4 x 8 | Whitecap | 2025-05-12 |
 | 47 | foam | FOAM FILL VOID | CF | 1.6500 | | Whitecap | 2025-05-12 |
-| 48 | aggregate | SAND DELIVERED PER TON | CY | 25.0000 | | | 2025-05-12 |
+| 48 | aggregate | SAND DELIVERED PER CY | CY | 25.0000 | renamed from PER TON, `sql/060` | | 2025-05-12 |
 | 49 | aggregate | ROCK DELEVERED PER TON | CY | 40.0000 | | | 2025-05-12 |
 | 50 | steel | REBAR PIERS | LB | 0.7000 | | | 2025-05-12 |
 | 51 | steel | REBAR GRADE BEAM | LB | 0.7000 | | | 2025-05-12 |

@@ -55,7 +55,7 @@ MIX_UNIT_COST = Decimal("134.00")
 MATERIAL_PRICES = {
     "REBAR PIERS / PT slabs": Decimal("0.6000"),
     "POST TENSION CABLES": Decimal("0.8500"),
-    "SAND DELIVERED PER TON": Decimal("25.0000"),
+    "SAND DELIVERED PER CY": Decimal("25.0000"),  # renamed from "PER TON", sql/060
     "ACCESSORIES": Decimal("0.0400"),
     "10 mil Yellow Guard 14' x 210'": Decimal("340.0000"),
     "Yellow Guard Tape": Decimal("23.6500"),
