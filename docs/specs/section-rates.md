@@ -196,6 +196,14 @@ Now:
   in `ESTIMATE_LEVEL_KEYS` now, on Chad's "supervision ... project specific
   pricing" — set on the price sheet, shown read-only on the card. The DAYS
   per section stay per section (rules).
+* **Mobilization and the equipment day rates moved to the job as well**, an
+  hour later — Chad, after seeing the first seeding take them per section:
+  "mobilization and the equipment day rates are per job." `mobilization_ls`
+  and every `equip_*_day_rate` key are in `ESTIMATE_LEVEL_KEYS`; `sql/064`
+  took their seeded rows back out (25 on the live database, each at the value
+  the section already resolved to, so nothing moved). The DAYS a section
+  needs stay its own. `out_of_town_day_rate` was left section-level — it is
+  neither, and nobody has said.
 * **Rules are never seeded.** Waste, divisors, how the work is computed are
   read live by design (a rule change still reaches a priced estimate); they
   stay section-level and settable, just not frozen.

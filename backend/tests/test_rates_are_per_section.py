@@ -34,6 +34,14 @@ SUPERVISION = {
     "labor_super_day_rate", "labor_foreman_day_rate",
     "labor_pm_day_rate", "labor_expense_day_rate",
 }
+# ...and, Chad, later the same morning: "mobilization and the equipment day
+# rates are per job." The days a section needs stay its own; the day rates
+# do not.
+JOB_LEVEL = SUPERVISION | {
+    "mobilization_ls", "equip_misc_day_rate", "equip_vault_day_rate",
+    "equip_storage_day_rate", "equip_fork_truck_day_rate", "equip_easy_drill_day_rate",
+    "equip_crane_day_rate", "equip_20_ton_lift_day_rate",
+}
 
 
 @pytest.fixture
@@ -82,11 +90,16 @@ def test_a_new_section_owns_every_price_it_reads(client, db, estimate):
         assert D(str(rows[k]["section_value"])) == _fallback(rows[k]), k
 
 
-def test_supervision_day_rates_and_rules_are_not_the_sections_to_own(client, db, estimate):
-    rows = _rates(client, _new_section(client, estimate))
-    for k in SUPERVISION & set(rows):
+def test_supervision_mobilization_equipment_rates_and_rules_are_not_the_sections_to_own(client, db, estimate):
+    sid = _new_section(client, estimate)
+    rows = _rates(client, sid)
+    assert JOB_LEVEL & set(rows) >= {"labor_super_day_rate", "mobilization_ls", "equip_misc_day_rate"}
+    for k in JOB_LEVEL & set(rows):
         assert rows[k]["level"] == "estimate", k
         assert rows[k]["source"] != "section", k
+        # ...and cannot be made the section's by hand either.
+        r = client.put(f"/api/sections/{sid}/rates/{k}", json={"value": "1"})
+        assert r.status_code == 400, (k, r.text)
     for k, v in rows.items():
         if not v["is_price"]:
             assert v["source"] != "section", f"{k} is a rule — read live, never seeded"
@@ -152,7 +165,7 @@ def test_the_backfill_seeds_a_section_that_predates_the_rule_without_moving_it(c
     written = sr.seed(db, section, note="seeded (backfill test)")
     db.flush()
     assert "labor_forming_sf" in written and "labor_footings_sf" in written
-    assert not (set(written) & SUPERVISION)
+    assert not (set(written) & JOB_LEVEL)
 
     assert client.post(f"/api/sections/{section.id}/recalc").status_code == 200
     after = D(str(client.get(f"/api/sections/{section.id}").json()["calc_total_cost"]))

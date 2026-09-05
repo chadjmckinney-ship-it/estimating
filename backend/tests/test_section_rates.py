@@ -472,7 +472,13 @@ def test_the_job_facts_are_not_section_facts(client, db, estimate):
     """Tax follows the project and the fuel uplift follows the company.
     Neither is a property of one section's work."""
     section = _build(db, estimate, "deck_fixture")
-    for key in ("sales_tax_pct", "equip_fuel_maint_pct"):
+    # ...and since 2026-09-05 the supervision day rates, mobilization and the
+    # equipment day rates: "supervision, equipment, materials are all project
+    # specific pricing" — "mobilization and the equipment day rates are per job."
+    for key in (
+        "sales_tax_pct", "equip_fuel_maint_pct",
+        "labor_super_day_rate", "mobilization_ls", "equip_crane_day_rate", "equip_misc_day_rate",
+    ):
         r = client.put(f"/api/sections/{section.id}/rates/{key}", json={"value": "0.1"})
         assert r.status_code == 400, f"{key}: {r.text}"
 

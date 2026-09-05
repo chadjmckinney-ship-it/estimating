@@ -6154,8 +6154,8 @@ function renderSectionRatesCard(rates) {
             that happens to those afterwards moves this section. Change one
             here and it is this section's number; <em>Clear</em> hands it back
             to whatever the job, the assembly or the company says today.
-            <strong>Supervision day rates, materials and equipment day rates
-            are set for the whole job</strong> on the
+            <strong>Supervision day rates, mobilization, equipment day rates
+            and materials are set for the whole job</strong> on the
             <a href="#prices/${esc(rates.estimate_id)}">price sheet</a> —
             they are quoted per job, so they are edited that way.
           </p>

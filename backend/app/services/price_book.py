@@ -455,6 +455,29 @@ ESTIMATE_LEVEL_KEYS: frozenset[str] = frozenset({
     "quote_warn_low_ratio",
     "quote_warn_high_ratio",
     "equip_use_rental_tiers",
+    # Mobilization and the equipment DAY RATES are the job's too. Chad,
+    # 2026-09-05, after the first seeding took them per section: "mobilization
+    # and the equipment day rates are per job." The machine catalog was
+    # already on the job sheet; these are the day rates that live as keys
+    # (assembly rates for the machines only one kind uses, and the company's
+    # misc/vault). How many DAYS a section needs stays the section's — that
+    # is the supervision ladder, a rule.
+    "mobilization_ls",
+    "equip_misc_day_rate",
+    "equip_vault_day_rate",
+    "equip_storage_day_rate",
+    "equip_fork_truck_day_rate",
+    "equip_easy_drill_day_rate",
+    "equip_bobcat_day_rate",
+    "equip_light_tower_day_rate",
+    "equip_skytrack_day_rate",
+    "equip_mini_excavator_day_rate",
+    "equip_hoisting_day_rate",
+    "equip_skid_steer_day_rate",
+    "equip_skid_day_rate",
+    "equip_trencher_day_rate",
+    "equip_crane_day_rate",
+    "equip_20_ton_lift_day_rate",
 })
 
 
