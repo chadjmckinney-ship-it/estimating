@@ -1,0 +1,18 @@
+# Binary files: never convert line endings, never diff as text.
+#
+# Without this, core.autocrlf=true on a Windows checkout rewrote the bytes
+# inside these workbooks on the way to disk, and git then saw them as
+# "modified" the instant they were checked out. That is how checking out main
+# on 2026-09-05 stalled a fast-forward merge with 17 workbooks under
+# workbooks/ reported changed that nobody had touched. Text files keep the
+# default behaviour; only the binaries are named here.
+*.xlsm binary
+*.xlsx binary
+*.xls  binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.zip  binary
+*.dump binary
