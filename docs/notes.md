@@ -125,7 +125,7 @@ Mono Slab first is intentional. A later migration to generic `assemblies` is pos
 - Workbook: `workbooks/Downloads/Updated Estimate Worksheet.xlsm`
 - Sheet: **Pricing**
 - Whitecap lumber/access list dated **2025-05-12**
-- Names kept as in Excel (including spellings like POLSTERS, ROCK DELEVERED)
+- Names kept as in Excel (including spellings like POLSTERS, ROCK DELEVERED) — ROCK DELEVERED became ROCK DELIVERED PER CY on 2026-09-05 (`sql/061`), and the sand row PER CY the same day (`sql/060`)
 
 **Not in `materials` yet:** equipment day rates, Metro saw/joint prices, concrete supplier mix bid grid (Martin Marietta columns, etc.).
 

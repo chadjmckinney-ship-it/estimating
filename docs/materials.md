@@ -11,7 +11,7 @@ Browseable copy of the `materials` table in the **estimating** database.
 | **Last synced** | 2026-07-29 |
 | **Diff notes** | [materials_vs_new_current.md](./materials_vs_new_current.md) |
 
-Names and spellings match the Excel sheet (including POLSTERS, ROCK DELEVERED, RW Medows).
+Names and spellings match the Excel sheet (including POLSTERS and RW Medows). Two exceptions, both renamed on Chad's word on 2026-09-05 for the unit they are priced in: SAND DELIVERED PER CY (`sql/060`, was PER TON) and ROCK DELIVERED PER CY (`sql/061`, was ROCK DELEVERED PER TON — the workbook's spelling went with it).
 
 ```bash
 # Live data
@@ -168,7 +168,7 @@ Pricing left-column unit rates (not Whitecap lumber list).
 | ID | Name | Unit | Unit cost | Note |
 |---:|------|------|----------:|------|
 | 48 | SAND DELIVERED PER CY | CY | 25.0000 | Renamed 2026-09-05 (`sql/060`): the Excel label said per ton, the unit was /YD, and Chad settled it — sand is per CY |
-| 49 | ROCK DELEVERED PER TON | CY | 40.0000 | Workbook spelling |
+| 49 | ROCK DELIVERED PER CY | CY | 45.0000 | Renamed 2026-09-05 (`sql/061`): the workbook's spelling and its per-ton label both went; $45.00 since `sql/007` |
 
 ---
 
@@ -254,7 +254,7 @@ Pricing left-column unit rates (not Whitecap lumber list).
 | 46 | foam | FOAM FILL VOID | EA | 22.7600 | 2" x 4 x 8 | Whitecap | 2025-05-12 |
 | 47 | foam | FOAM FILL VOID | CF | 1.6500 | | Whitecap | 2025-05-12 |
 | 48 | aggregate | SAND DELIVERED PER CY | CY | 25.0000 | renamed from PER TON, `sql/060` | | 2025-05-12 |
-| 49 | aggregate | ROCK DELEVERED PER TON | CY | 40.0000 | | | 2025-05-12 |
+| 49 | aggregate | ROCK DELIVERED PER CY | CY | 45.0000 | renamed from ROCK DELEVERED PER TON, `sql/061`; $45.00 per `sql/007` | | 2021-09-01 |
 | 50 | steel | REBAR PIERS | LB | 0.7000 | | | 2025-05-12 |
 | 51 | steel | REBAR GRADE BEAM | LB | 0.7000 | | | 2025-05-12 |
 | 52 | steel | REBAR PAVING | LB | 0.6500 | | | 2025-05-12 |
