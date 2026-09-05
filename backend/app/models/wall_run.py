@@ -56,9 +56,13 @@ class WallRun(Base):
 
     ftg_width_in: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False, server_default=text("0"))
     ftg_thick_in: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False, server_default=text("0"))
-    ftg_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
-    ftg_size: Mapped[int | None] = mapped_column(Integer)
-    ftg_mats: Mapped[int | None] = mapped_column(Integer)
+    # Two mats, each its own bar set running both directions (sql/059). A mat
+    # with no spacing or no size contributes nothing; a one-mat footing leaves
+    # the top blank. Until 2026-09-05 this was one set times a mat count.
+    ftg_bot_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    ftg_bot_size: Mapped[int | None] = mapped_column(Integer)
+    ftg_top_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    ftg_top_size: Mapped[int | None] = mapped_column(Integer)
 
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))

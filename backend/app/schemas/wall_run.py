@@ -33,9 +33,12 @@ class WallRunBase(BaseModel):
 
     ftg_width_in: Decimal = Field(0, ge=0)
     ftg_thick_in: Decimal = Field(0, ge=0)
-    ftg_spacing_in: Decimal | None = Field(None, ge=0)
-    ftg_size: int | None = Field(None, ge=0, le=20)
-    ftg_mats: int | None = Field(None, ge=0)
+    # Two mats (sql/059), each its own bar set. A mat with no spacing or no
+    # size contributes nothing; a one-mat footing leaves the top blank.
+    ftg_bot_spacing_in: Decimal | None = Field(None, ge=0)
+    ftg_bot_size: int | None = Field(None, ge=0, le=20)
+    ftg_top_spacing_in: Decimal | None = Field(None, ge=0)
+    ftg_top_size: int | None = Field(None, ge=0, le=20)
 
     notes: str | None = None
     sort_order: int = 0
@@ -79,9 +82,10 @@ class WallRunUpdate(BaseModel):
     vert_mats: int | None = Field(None, ge=0)
     ftg_width_in: Decimal | None = Field(None, ge=0)
     ftg_thick_in: Decimal | None = Field(None, ge=0)
-    ftg_spacing_in: Decimal | None = Field(None, ge=0)
-    ftg_size: int | None = Field(None, ge=0, le=20)
-    ftg_mats: int | None = Field(None, ge=0)
+    ftg_bot_spacing_in: Decimal | None = Field(None, ge=0)
+    ftg_bot_size: int | None = Field(None, ge=0, le=20)
+    ftg_top_spacing_in: Decimal | None = Field(None, ge=0)
+    ftg_top_size: int | None = Field(None, ge=0, le=20)
     notes: str | None = None
     sort_order: int | None = None
 

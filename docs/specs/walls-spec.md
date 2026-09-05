@@ -155,6 +155,38 @@ rates, supervision $6,000, and the whole lumber package.
 suite, all passing.** The tests were checked against a deliberately broken
 build: halving the footing steel fails five of them by name.
 
+## 2026-09-05 — the footing's mats can differ (`sql/059`)
+
+Chad, looking at the wall grid freshly split into a wall line and a footing
+line: "there are times with footings when the top and bottom mat are
+different."
+
+The footing had carried **one bar set and a mat count** — `ftg_spacing_in`,
+`ftg_size`, `ftg_mats` — which is the sheet's shape and is right for LBJ, where
+all sixteen rows are #5 @ 12" top and bottom, and wrong for a footing with
+#5 @ 12" on the bottom and #4 @ 18" on top. Now each mat is its own bar set:
+
+| column | meaning |
+|---|---|
+| `ftg_bot_spacing_in`, `ftg_bot_size` | the bottom mat — bar spacing (both directions) and bar size |
+| `ftg_top_spacing_in`, `ftg_top_size` | the top mat — blank on a one-mat footing |
+
+A mat with no spacing or no size contributes nothing (the deck's rule for its
+top and bottom bars). Per mat the steel is unchanged — both directions,
+`E*N/P` each, the "added twice" defended above — and the footing's steel is the
+**sum of its mats**, so two identical mats come to exactly what "2 mats" came
+to and the reconciled 33,727.83 lb stands.
+
+Backfill on the live database: the sixteen LBJ rows (`ftg_mats = 2`) got a top
+mat copied from the bottom; one test row with `ftg_mats = 0` had its bottom
+cleared, since a count of zero contributed nothing. `ftg_mats` is gone. The
+migration refuses to run if any row ever carries more than two mats.
+
+On the grid the footing line puts its **bottom mat under the wall's horizontal
+bars and its top mat under the vertical** (`bot sp"`, `bot #`, `top sp"`,
+`top #`). `services/walls.py` `footing_mat_lb` + `footing_rebar_lb`;
+`backend/tests/test_footing_mats.py`.
+
 ## Left for later
 
 - **Pilasters are untested.** Every LBJ row leaves those columns empty, so the

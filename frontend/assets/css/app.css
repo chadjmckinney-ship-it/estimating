@@ -334,12 +334,13 @@ table.data.grid-entry tr.dirty td:first-child {
    footing line's first cell is a label rather than an input, and hovering the
    wall line lights the footing line with it. */
 table.data.grid-entry th .sub-label {
+  /* As bold and as bright as the wall's label above it. The first cut had
+     this lighter and dimmer, and Chad's eye skipped it — "because the footing
+     info is in smaller font and not bold I didn't really read it." */
   display: block;
   min-height: 1em;
-  font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  opacity: 0.75;
 }
 table.data.grid-entry tr.has-sub td {
   border-bottom: 0;
@@ -351,10 +352,32 @@ table.data.grid-entry tr.sub-line td {
 table.data.grid-entry tr.sub-line td.sub-text {
   color: var(--text-muted);
   font-size: 0.78rem;
+  font-weight: 600;
   padding-left: 0.6rem;
 }
 table.data.grid-entry tr.has-sub:hover + tr.sub-line td {
   background: rgba(255, 255, 255, 0.03);
+}
+/* A second-line input says what it is, right on the line — the header over
+   it belongs to the first line. */
+table.data.grid-entry .tagged {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+table.data.grid-entry .tagged .sub-tag {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+table.data.grid-entry .tagged .sub-tag[title] {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+table.data.grid-entry .tagged input {
+  min-width: 4rem;
 }
 table.data.grid-entry tfoot td {
   font-family: var(--mono);

@@ -1108,16 +1108,14 @@ async function openSectionModal(estimate) {
  * Every editable cell uses step="any". A step of 0.5 once made 24" and 18" bar
  * spacing fail validation, which cost an evening.
  */
-function gridCellHtml(r, col) {
-  if (col.derived) {
-    const title = col.title ? ` title="${esc(col.title(r))}"` : "";
-    return `<td class="derived"${title}>${r.id ? col.derived(r) : "—"}</td>`;
-  }
+/** The control for an editable column: how its <td> opens, and the control. */
+function gridControlHtml(r, col) {
   const v = r[col.f];
   if (col.type === "check") {
-    return `<td style="text-align:center"><input type="checkbox" data-f="${col.f}"${
-      v ? " checked" : ""
-    } /></td>`;
+    return [
+      '<td style="text-align:center">',
+      `<input type="checkbox" data-f="${col.f}"${v ? " checked" : ""} />`,
+    ];
   }
   if (col.type === "select") {
     const opts =
@@ -1130,19 +1128,34 @@ function gridCellHtml(r, col) {
             }>${esc(o.label)}</option>`
         )
         .join("");
-    return `<td><select data-f="${col.f}">${opts}</select></td>`;
+    return ["<td>", `<select data-f="${col.f}">${opts}</select>`];
   }
   if (col.type === "number") {
     // Number() on the way in: the API returns fixed-scale decimals, and
     // "187752.000" in a narrow box reads as a number nobody typed.
     const shown = v == null || v === "" ? "" : Number(v);
-    return `<td><input data-f="${col.f}" type="number" min="0" step="${
-      col.step || "any"
-    }" value="${esc(shown)}" /></td>`;
+    return [
+      "<td>",
+      `<input data-f="${col.f}" type="number" min="0" step="${
+        col.step || "any"
+      }" value="${esc(shown)}" />`,
+    ];
   }
-  return `<td class="name"><input data-f="${col.f}" value="${esc(
-    v == null ? "" : v
-  )}" placeholder="${esc(col.placeholder || "")}" /></td>`;
+  return [
+    '<td class="name">',
+    `<input data-f="${col.f}" value="${esc(v == null ? "" : v)}" placeholder="${esc(
+      col.placeholder || ""
+    )}" />`,
+  ];
+}
+
+function gridCellHtml(r, col) {
+  if (col.derived) {
+    const title = col.title ? ` title="${esc(col.title(r))}"` : "";
+    return `<td class="derived"${title}>${r.id ? col.derived(r) : "—"}</td>`;
+  }
+  const [open, control] = gridControlHtml(r, col);
+  return `${open}${control}</td>`;
 }
 
 /**
@@ -1159,11 +1172,23 @@ function gridCellHtml(r, col) {
  * as one row. The record, the payload and the save are what they always were
  * — this is layout, nothing else. A grid with no `sub` anywhere renders
  * exactly as before.
+ *
+ * An editable cell on the second line carries its own tag (`tag`, falling
+ * back to `label`) with `hint` as its tooltip, because the header over it
+ * belongs to the first line: a 0 under THICK" is the footing's WIDTH, and
+ * Chad's first look at the split said exactly that — "a little confusing on
+ * the rebar mats and dimensions of the footing." Nobody should have to look
+ * up to know what a box is.
  */
 function gridSubCellHtml(r, sub) {
   if (!sub || (!sub.f && !sub.derived && sub.text == null)) return "<td></td>";
   if (sub.text != null) return `<td class="sub-text">${esc(sub.text)}</td>`;
-  return gridCellHtml(r, sub);
+  if (sub.derived) return gridCellHtml(r, sub);
+  const [, control] = gridControlHtml(r, sub);
+  const tagText = sub.tag || sub.label;
+  const hint = sub.hint ? ` title="${esc(sub.hint)}"` : "";
+  const tag = tagText ? `<span class="sub-tag"${hint}>${esc(tagText)}</span>` : "";
+  return `<td><span class="tagged">${tag}${control}</span></td>`;
 }
 
 function gridRowHtml(r, columns) {
@@ -1597,8 +1622,9 @@ function columnColumns(mixes) {
  * since 2026-09-05 it is drawn that way: the wall on one line, the footing on
  * the line below it (the `sub` of each column; see gridRowHtml). Twenty-nine
  * columns became nineteen, and the footing's width sits under the wall's
- * thickness, its bars under the wall's horizontal bars, its SF / CY / steel /
- * $ under the wall's. The row, the payload and the formulas did not move.
+ * thickness, its bottom mat under the wall's horizontal bars and its top mat
+ * under the vertical (sql/059 — the two can differ), its SF / CY / steel / $
+ * under the wall's. The split is layout: one record, one payload, one save.
  *
  * The derived columns worth reading: FORM FT is contact area on ONE face (the
  * sheet computes both and halves), and FTG SF is the footing's plan area,
@@ -1620,13 +1646,25 @@ function wallColumns(mixes) {
       f: "wall_thick_in",
       label: 'Thick"',
       type: "number",
-      sub: { f: "ftg_width_in", label: 'Width"', type: "number" },
+      sub: {
+        f: "ftg_width_in",
+        label: 'Width"',
+        tag: 'W"',
+        type: "number",
+        hint: "Footing width, inches — the trench the wall sits in, and the plan area footing labor is priced per",
+      },
     },
     {
       f: "wall_height_in",
       label: 'Height"',
       type: "number",
-      sub: { f: "ftg_thick_in", label: 'Thick"', type: "number" },
+      sub: {
+        f: "ftg_thick_in",
+        label: 'Thick"',
+        tag: 'T"',
+        type: "number",
+        hint: "Footing thickness, inches",
+      },
     },
     { f: "backfill", label: "Backfill", type: "check" },
     {
@@ -1636,28 +1674,64 @@ function wallColumns(mixes) {
       options: mixOptions(mixes),
       sub: { label: "section ftg mix" },
     },
+    // The footing's two mats (sql/059) sit under the wall's two bar sets:
+    // bottom under horizontal, top under vertical. Each is its own bar set
+    // running both directions; a mat with no spacing or no size is no mat.
     {
       f: "horiz_spacing_in",
       label: 'Horz sp"',
       type: "number",
-      sub: { f: "ftg_spacing_in", label: 'Bar sp"', type: "number" },
+      sub: {
+        f: "ftg_bot_spacing_in",
+        label: 'Bot sp"',
+        tag: 'bot sp"',
+        type: "number",
+        hint: "Bottom mat: bar spacing, inches — the same spacing both directions",
+      },
     },
     {
       f: "horiz_size",
       label: "Horz #",
       type: "number",
       step: "1",
-      sub: { f: "ftg_size", label: "Bar #", type: "number", step: "1" },
+      sub: {
+        f: "ftg_bot_size",
+        label: "Bot #",
+        tag: "bot #",
+        type: "number",
+        step: "1",
+        hint: "Bottom mat: bar size — the same bar both directions",
+      },
+    },
+    { f: "horiz_mats", label: "Horz faces", type: "number", step: "1" },
+    {
+      f: "vert_spacing_in",
+      label: 'Vert sp"',
+      type: "number",
+      sub: {
+        f: "ftg_top_spacing_in",
+        label: 'Top sp"',
+        tag: 'top sp"',
+        type: "number",
+        hint:
+          "Top mat: bar spacing, inches — both directions. Leave the top mat blank " +
+          "on a one-mat footing.",
+      },
     },
     {
-      f: "horiz_mats",
-      label: "Horz faces",
+      f: "vert_size",
+      label: "Vert #",
       type: "number",
       step: "1",
-      sub: { f: "ftg_mats", label: "Mats", type: "number", step: "1" },
+      sub: {
+        f: "ftg_top_size",
+        label: "Top #",
+        tag: "top #",
+        type: "number",
+        step: "1",
+        hint: "Top mat: bar size — a mat with no size or no spacing contributes nothing",
+      },
     },
-    { f: "vert_spacing_in", label: 'Vert sp"', type: "number" },
-    { f: "vert_size", label: "Vert #", type: "number", step: "1" },
     { f: "vert_mats", label: "Vert faces", type: "number", step: "1" },
     {
       label: "Form ft",
@@ -2424,8 +2498,10 @@ async function renderSectionDetail(root) {
               "Each wall type is <strong>two lines</strong>: the wall, and the " +
               "<strong>footing under it</strong> on the line below — they share a " +
               "length, and the footing's width drives the trench the wall sits in. " +
-              "<strong>Faces</strong> is how many curtains of steel: 2 is both faces; " +
-              "the footing's <strong>mats</strong> likewise. <strong>Form ft</strong> " +
+              "<strong>Faces</strong> is how many curtains of wall steel: 2 is both " +
+              "faces. The footing's <strong>bottom and top mats</strong> are each their " +
+              "own bar set running both directions — leave the top blank on a one-mat " +
+              "footing. <strong>Form ft</strong> " +
               "is contact area on <em>one</em> face, which is the convention every " +
               "$/FF rate here is priced against. <strong>Backfill</strong> turns on " +
               "sand, excavation swell and the french drain — leave it off for an " +

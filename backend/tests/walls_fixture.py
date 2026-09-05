@@ -75,7 +75,7 @@ SECTION = dict(
 # ---------------------------------------------------------------- takeoff ---
 # length ft, wall height in. Everything else is identical on all 16 rows:
 # 12" wall, #5 @ 12" both ways both faces, 70" x 12" footing with #5 @ 12"
-# two mats, backfilled.
+# top and bottom (two mats -- since sql/059 each is its own bar set), backfilled.
 RUNS = [
     (135, "36"),    (57, "34.8"),   (28, "61.2"),   (65, "75.48"),
     (32, "70.8"),   (32, "63.6"),   (32, "67.2"),   (32, "75"),
@@ -89,7 +89,8 @@ COMMON = dict(
     horiz_spacing_in=Decimal("12"), horiz_size=5, horiz_mats=2,
     vert_spacing_in=Decimal("12"), vert_size=5, vert_mats=2,
     ftg_width_in=Decimal("70"), ftg_thick_in=Decimal("12"),
-    ftg_spacing_in=Decimal("12"), ftg_size=5, ftg_mats=2,
+    ftg_bot_spacing_in=Decimal("12"), ftg_bot_size=5,
+    ftg_top_spacing_in=Decimal("12"), ftg_top_size=5,
 )
 
 SUPER_DAYS = Decimal("10")

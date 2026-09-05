@@ -13,7 +13,10 @@ Three things in this file look wrong and are not. Each has a test.
    copy-paste duplicate. They are the two directions of a footing mat:
    longitudinal is N/P bars each E ft long; transverse is E*12/P bars each
    N/12 ft long. Both come to E*N/P. Same trap as the pier tie formula, same
-   answer — the sheet is right.
+   answer — the sheet is right. Since sql/059 the footing's two mats are
+   each their own bar set (Chad: "there are times with footings when the top
+   and bottom mat are different"); the doubling is per mat, and the footing's
+   steel is the sum of its mats.
 
 2. FORM FEET IS HALF THE CONTACT AREA. The sheet computes both faces of the
    wall and then halves the result. So "form feet" here means one face. That
@@ -195,22 +198,40 @@ def vert_rebar_lb(db, length_ft, height_in, spacing_in, size, mats, *, sheet=Fal
     )
 
 
-def footing_rebar_lb(db, length_ft, width_in, spacing_in, size, mats, *, sheet=False) -> Decimal:
+def footing_mat_lb(db, length_ft, width_in, spacing_in, size, *, sheet=False) -> Decimal:
     """
-    BOTH directions of the footing mat.
+    ONE mat of footing steel, BOTH directions.
 
     Longitudinal: N/P bars, each E ft long          -> E * N/P
     Transverse:   E*12/P bars, each N/12 ft long    -> E * N/P
 
     Identical expressions, two real quantities. The sheet writes them as two
-    terms and it is right to; see the module docstring.
+    terms and it is right to; see the module docstring. A mat with no spacing
+    or no size is no mat.
     """
     sp = _d(spacing_in)
-    if sp <= 0:
+    if sp <= 0 or not size:
         return Decimal("0")
     w = sheet_bar_lb_per_ft(size) if sheet else bar_lb_per_ft(db, size)
-    one_way = _d(length_ft) * (_d(width_in) / sp) * w * Decimal(int(mats or 0))
+    one_way = _d(length_ft) * (_d(width_in) / sp) * w
     return one_way * Decimal("2")
+
+
+def footing_rebar_lb(
+    db, length_ft, width_in, bot_spacing_in, bot_size, top_spacing_in, top_size, *, sheet=False
+) -> Decimal:
+    """
+    The footing's steel: its bottom mat plus its top mat (sql/059).
+
+    Until 2026-09-05 this was one bar set times a mat count -- the workbook's
+    shape, right for LBJ (#5 @ 12" top and bottom on all 16 rows) and wrong for
+    a footing whose mats differ. Chad: "there are times with footings when the
+    top and bottom mat are different." Two identical mats come to exactly what
+    "2 mats" came to, so the reconciled 33,727.83 lb does not move.
+    """
+    return footing_mat_lb(
+        db, length_ft, width_in, bot_spacing_in, bot_size, sheet=sheet
+    ) + footing_mat_lb(db, length_ft, width_in, top_spacing_in, top_size, sheet=sheet)
 
 
 def lap_rebar_lb(
@@ -280,7 +301,8 @@ def refresh_wall_run_calcs(
         db, L, H, run.vert_spacing_in, run.vert_size, run.vert_mats, sheet=sheet_mode
     )
     foot = footing_rebar_lb(
-        db, L, run.ftg_width_in, run.ftg_spacing_in, run.ftg_size, run.ftg_mats,
+        db, L, run.ftg_width_in,
+        run.ftg_bot_spacing_in, run.ftg_bot_size, run.ftg_top_spacing_in, run.ftg_top_size,
         sheet=sheet_mode,
     )
     lap_ft = _rate_numeric(db, kind, "horiz_lap_ft_per_course", Decimal("4"))

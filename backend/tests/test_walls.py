@@ -122,10 +122,10 @@ def test_footing_steel_counts_both_directions(db):
     """
     one_way = Decimal("135") * (Decimal("70") / Decimal("12"))
     lb_per_ft = wl.sheet_bar_lb_per_ft(5)
-    expected = one_way * lb_per_ft * 2 * Decimal("2")  # 2 mats, 2 directions
+    expected = one_way * lb_per_ft * 2 * Decimal("2")  # 2 directions, top and bottom mats
 
     got = wl.footing_rebar_lb(
-        None, 135, 70, 12, 5, 2, sheet=True
+        None, 135, 70, 12, 5, 12, 5, sheet=True
     )
     assert got == expected
 

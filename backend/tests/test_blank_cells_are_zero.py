@@ -56,8 +56,9 @@ def test_a_wall_with_no_footing_needs_no_zeros(client, db, estimate):
             "horiz_spacing_in": 12, "horiz_size": 5, "horiz_mats": 2,
             "vert_spacing_in": 12, "vert_size": 5, "vert_mats": 2,
             # Every footing cell left blank — the row as the grid sends it.
-            "ftg_width_in": None, "ftg_thick_in": None, "ftg_spacing_in": None,
-            "ftg_size": None, "ftg_mats": None,
+            "ftg_width_in": None, "ftg_thick_in": None,
+            "ftg_bot_spacing_in": None, "ftg_bot_size": None,
+            "ftg_top_spacing_in": None, "ftg_top_size": None,
         }],
     })
     assert r.status_code == 200, r.text
