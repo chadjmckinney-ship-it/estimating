@@ -328,6 +328,34 @@ table.data.grid-entry td.derived {
 table.data.grid-entry tr.dirty td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
+/* Two-line grids — the wall grid, since 2026-09-05. A record is a wall line
+   and the footing line under it (gridRowHtml's `sub`): the header stacks both
+   labels in one cell so it stays sticky, the pair shares one bottom rule, the
+   footing line's first cell is a label rather than an input, and hovering the
+   wall line lights the footing line with it. */
+table.data.grid-entry th .sub-label {
+  display: block;
+  min-height: 1em;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
+table.data.grid-entry tr.has-sub td {
+  border-bottom: 0;
+  padding-bottom: 0.05rem;
+}
+table.data.grid-entry tr.sub-line td {
+  padding-top: 0.05rem;
+}
+table.data.grid-entry tr.sub-line td.sub-text {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding-left: 0.6rem;
+}
+table.data.grid-entry tr.has-sub:hover + tr.sub-line td {
+  background: rgba(255, 255, 255, 0.03);
+}
 table.data.grid-entry tfoot td {
   font-family: var(--mono);
   text-align: right;

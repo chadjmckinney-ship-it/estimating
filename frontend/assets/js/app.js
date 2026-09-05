@@ -1108,60 +1108,94 @@ async function openSectionModal(estimate) {
  * Every editable cell uses step="any". A step of 0.5 once made 24" and 18" bar
  * spacing fail validation, which cost an evening.
  */
-function gridRowHtml(r, columns) {
-  const cell = (col) => {
-    if (col.derived) {
-      const title = col.title ? ` title="${esc(col.title(r))}"` : "";
-      return `<td class="derived"${title}>${r.id ? col.derived(r) : "—"}</td>`;
-    }
-    const v = r[col.f];
-    if (col.type === "check") {
-      return `<td style="text-align:center"><input type="checkbox" data-f="${col.f}"${
-        v ? " checked" : ""
-      } /></td>`;
-    }
-    if (col.type === "select") {
-      const opts =
-        `<option value=""${v ? "" : " selected"}>—</option>` +
-        (col.options || [])
-          .map(
-            (o) =>
-              `<option value="${esc(o.id)}"${
-                String(v) === String(o.id) ? " selected" : ""
-              }>${esc(o.label)}</option>`
-          )
-          .join("");
-      return `<td><select data-f="${col.f}">${opts}</select></td>`;
-    }
-    if (col.type === "number") {
-      // Number() on the way in: the API returns fixed-scale decimals, and
-      // "187752.000" in a narrow box reads as a number nobody typed.
-      const shown = v == null || v === "" ? "" : Number(v);
-      return `<td><input data-f="${col.f}" type="number" min="0" step="${
-        col.step || "any"
-      }" value="${esc(shown)}" /></td>`;
-    }
-    return `<td class="name"><input data-f="${col.f}" value="${esc(
-      v == null ? "" : v
-    )}" placeholder="${esc(col.placeholder || "")}" /></td>`;
-  };
+function gridCellHtml(r, col) {
+  if (col.derived) {
+    const title = col.title ? ` title="${esc(col.title(r))}"` : "";
+    return `<td class="derived"${title}>${r.id ? col.derived(r) : "—"}</td>`;
+  }
+  const v = r[col.f];
+  if (col.type === "check") {
+    return `<td style="text-align:center"><input type="checkbox" data-f="${col.f}"${
+      v ? " checked" : ""
+    } /></td>`;
+  }
+  if (col.type === "select") {
+    const opts =
+      `<option value=""${v ? "" : " selected"}>—</option>` +
+      (col.options || [])
+        .map(
+          (o) =>
+            `<option value="${esc(o.id)}"${
+              String(v) === String(o.id) ? " selected" : ""
+            }>${esc(o.label)}</option>`
+        )
+        .join("");
+    return `<td><select data-f="${col.f}">${opts}</select></td>`;
+  }
+  if (col.type === "number") {
+    // Number() on the way in: the API returns fixed-scale decimals, and
+    // "187752.000" in a narrow box reads as a number nobody typed.
+    const shown = v == null || v === "" ? "" : Number(v);
+    return `<td><input data-f="${col.f}" type="number" min="0" step="${
+      col.step || "any"
+    }" value="${esc(shown)}" /></td>`;
+  }
+  return `<td class="name"><input data-f="${col.f}" value="${esc(
+    v == null ? "" : v
+  )}" placeholder="${esc(col.placeholder || "")}" /></td>`;
+}
 
-  return `<tr data-id="${r.id ? esc(r.id) : ""}">
-    ${columns.map(cell).join("")}
-    <td><button type="button" class="btn danger ghost btn-del-row" data-id="${
-      r.id ? esc(r.id) : ""
-    }">Del</button></td>
+/**
+ * Two lines per record — the wall grid, since 2026-09-05 (Chad: "can we divide
+ * the wall and footing to separate lines?").
+ *
+ * A column may carry a `sub`: what the SECOND line shows in that column. It is
+ * written exactly like a column — an editable field, a derived value — or a
+ * piece of muted text (`{ text: "↳ footing" }`); a `sub` with only a label
+ * puts that label in the header and leaves the cell empty. Any column with a
+ * `sub` turns the whole grid two-line: the header stacks both labels in one
+ * cell (so it stays sticky), every record renders as a `tr.has-sub` with its
+ * `tr.sub-line` right under it, and wireGrid reads, marks and deletes the two
+ * as one row. The record, the payload and the save are what they always were
+ * — this is layout, nothing else. A grid with no `sub` anywhere renders
+ * exactly as before.
+ */
+function gridSubCellHtml(r, sub) {
+  if (!sub || (!sub.f && !sub.derived && sub.text == null)) return "<td></td>";
+  if (sub.text != null) return `<td class="sub-text">${esc(sub.text)}</td>`;
+  return gridCellHtml(r, sub);
+}
+
+function gridRowHtml(r, columns) {
+  const id = r.id ? esc(r.id) : "";
+  const twoLine = columns.some((c) => c.sub);
+  const main = `<tr data-id="${id}"${twoLine ? ' class="has-sub"' : ""}>
+    ${columns.map((c) => gridCellHtml(r, c)).join("")}
+    <td><button type="button" class="btn danger ghost btn-del-row" data-id="${id}">Del</button></td>
   </tr>`;
+  if (!twoLine) return main;
+  return (
+    main +
+    `<tr data-id="${id}" class="sub-line">
+    ${columns.map((c) => gridSubCellHtml(r, c.sub)).join("")}
+    <td></td>
+  </tr>`
+  );
 }
 
 function gridCardHtml({ id, title, blurb, columns, rows, addLabel, saveLabel }) {
+  const twoLine = columns.some((c) => c.sub);
   const body = (rows.length ? rows : [{}]).map((r) => gridRowHtml(r, columns)).join("");
   return `<div class="card" id="${id}">
     <h3 style="margin:0 0 0.25rem">${esc(title)}</h3>
     <p style="color:var(--text-muted);font-size:0.82rem;margin:0 0 0.75rem">${blurb}</p>
     <div class="table-wrap"><table class="data grid-entry">
       <thead><tr>${columns
-        .map((c) => `<th>${esc(c.label)}</th>`)
+        .map((c) =>
+          twoLine
+            ? `<th>${esc(c.label)}<span class="sub-label">${esc(c.sub?.label || "")}</span></th>`
+            : `<th>${esc(c.label)}</th>`
+        )
         .join("")}<th></th></tr></thead>
       <tbody id="${id}-body">${body}</tbody>
     </table></div>
@@ -1185,9 +1219,22 @@ function wireGrid(root, { id, columns, required, save, remove }) {
   const unsaved = $(`#${id}-unsaved`, root);
   let dirty = false;
 
+  // A two-line grid (gridRowHtml's `sub`) is read, marked and deleted a PAIR
+  // at a time — the wall line and the footing line under it are one row. On
+  // every other grid this is just [tr].
+  const linesOf = (tr) => {
+    if (!tr) return [];
+    if (tr.classList.contains("sub-line")) {
+      const main = tr.previousElementSibling;
+      return main ? [main, tr] : [tr];
+    }
+    const next = tr.nextElementSibling;
+    return next && next.classList.contains("sub-line") ? [tr, next] : [tr];
+  };
+
   const markDirty = (tr) => {
     dirty = true;
-    if (tr) tr.classList.add("dirty");
+    for (const line of linesOf(tr)) line.classList.add("dirty");
     if (unsaved) unsaved.textContent = "Unsaved changes";
   };
   bodyEl.addEventListener("input", (e) => markDirty(e.target.closest("tr")));
@@ -1198,10 +1245,10 @@ function wireGrid(root, { id, columns, required, save, remove }) {
     addBtn.onclick = () => {
       const tmp = document.createElement("tbody");
       tmp.innerHTML = gridRowHtml({}, columns);
-      const tr = tmp.querySelector("tr");
-      bodyEl.appendChild(tr);
-      markDirty(tr);
-      const first = tr.querySelector("input");
+      const lines = [...tmp.querySelectorAll("tr")]; // one, or a wall line and its footing line
+      for (const line of lines) bodyEl.appendChild(line);
+      markDirty(lines[0]);
+      const first = lines[0].querySelector("input");
       if (first) first.focus();
     };
   }
@@ -1211,7 +1258,7 @@ function wireGrid(root, { id, columns, required, save, remove }) {
     if (!btn) return;
     const tr = btn.closest("tr");
     if (!btn.dataset.id) {
-      tr.remove(); // never saved — nothing to confirm
+      for (const line of linesOf(tr)) line.remove(); // never saved — nothing to confirm
       markDirty(null);
       return;
     }
@@ -1237,16 +1284,19 @@ function wireGrid(root, { id, columns, required, save, remove }) {
     if (saved) return;
     const rows = [];
     for (const tr of bodyEl.querySelectorAll("tr")) {
+      if (tr.classList.contains("sub-line")) continue; // read with the line above it
       const row = {};
-      tr.querySelectorAll("[data-f]").forEach((el) => {
-        const f = el.dataset.f;
-        if (el.type === "checkbox") {
-          row[f] = el.checked;
-          return;
-        }
-        const raw = el.value.trim();
-        row[f] = raw === "" ? null : el.type === "number" ? Number(raw) : raw;
-      });
+      for (const line of linesOf(tr)) {
+        line.querySelectorAll("[data-f]").forEach((el) => {
+          const f = el.dataset.f;
+          if (el.type === "checkbox") {
+            row[f] = el.checked;
+            return;
+          }
+          const raw = el.value.trim();
+          row[f] = raw === "" ? null : el.type === "number" ? Number(raw) : raw;
+        });
+      }
       const empty = required.every((f) => row[f] == null) && !row.description && !row.label;
       if (empty) continue;
       if (tr.dataset.id) row.id = tr.dataset.id;
@@ -1543,64 +1593,111 @@ function columnColumns(mixes) {
  * producing.
  */
 /**
- * Wall runs (sql/040). One row is a wall type AND the footing under it.
+ * Wall runs (sql/040). One row is a wall type AND the footing under it — and
+ * since 2026-09-05 it is drawn that way: the wall on one line, the footing on
+ * the line below it (the `sub` of each column; see gridRowHtml). Twenty-nine
+ * columns became nineteen, and the footing's width sits under the wall's
+ * thickness, its bars under the wall's horizontal bars, its SF / CY / steel /
+ * $ under the wall's. The row, the payload and the formulas did not move.
  *
  * The derived columns worth reading: FORM FT is contact area on ONE face (the
  * sheet computes both and halves), and FTG SF is the footing's plan area,
  * which is what footing labor is priced per. The two are different numbers
- * doing different jobs and it is easy to reach for the wrong one.
+ * doing different jobs and it is easy to reach for the wrong one. Steel on the
+ * wall line is horizontal + vertical + laps, the footing line its own bars —
+ * the same split services/walls.py costs them on; the two sum to the type.
  */
 function wallColumns(mixes) {
+  const wallSteel = (r) => {
+    const parts = [r.calc_horiz_rebar_lb, r.calc_vert_rebar_lb, r.calc_lap_rebar_lb];
+    if (parts.every((v) => v == null)) return null;
+    return parts.reduce((a, v) => a + Number(v || 0), 0);
+  };
   return [
-    { f: "label", label: "Type", placeholder: "W1" },
-    { f: "length_ft", label: "Length ft", type: "number" },
-    { f: "wall_thick_in", label: 'Thick"', type: "number" },
-    { f: "wall_height_in", label: 'Height"', type: "number" },
+    { f: "label", label: "Type", placeholder: "W1", sub: { label: "Footing", text: "↳ footing" } },
+    { f: "length_ft", label: "Length ft", type: "number", sub: { label: "shared" } },
+    {
+      f: "wall_thick_in",
+      label: 'Thick"',
+      type: "number",
+      sub: { f: "ftg_width_in", label: 'Width"', type: "number" },
+    },
+    {
+      f: "wall_height_in",
+      label: 'Height"',
+      type: "number",
+      sub: { f: "ftg_thick_in", label: 'Thick"', type: "number" },
+    },
     { f: "backfill", label: "Backfill", type: "check" },
-    { f: "mix_design_id", label: "Wall mix", type: "select", options: mixOptions(mixes) },
-    { f: "horiz_spacing_in", label: 'Horz sp"', type: "number" },
-    { f: "horiz_size", label: "Horz #", type: "number", step: "1" },
-    { f: "horiz_mats", label: "Horz faces", type: "number", step: "1" },
+    {
+      f: "mix_design_id",
+      label: "Wall mix",
+      type: "select",
+      options: mixOptions(mixes),
+      sub: { label: "section ftg mix" },
+    },
+    {
+      f: "horiz_spacing_in",
+      label: 'Horz sp"',
+      type: "number",
+      sub: { f: "ftg_spacing_in", label: 'Bar sp"', type: "number" },
+    },
+    {
+      f: "horiz_size",
+      label: "Horz #",
+      type: "number",
+      step: "1",
+      sub: { f: "ftg_size", label: "Bar #", type: "number", step: "1" },
+    },
+    {
+      f: "horiz_mats",
+      label: "Horz faces",
+      type: "number",
+      step: "1",
+      sub: { f: "ftg_mats", label: "Mats", type: "number", step: "1" },
+    },
     { f: "vert_spacing_in", label: 'Vert sp"', type: "number" },
     { f: "vert_size", label: "Vert #", type: "number", step: "1" },
     { f: "vert_mats", label: "Vert faces", type: "number", step: "1" },
-    { f: "ftg_width_in", label: 'Ftg W"', type: "number" },
-    { f: "ftg_thick_in", label: 'Ftg T"', type: "number" },
-    { f: "ftg_spacing_in", label: 'Ftg sp"', type: "number" },
-    { f: "ftg_size", label: "Ftg #", type: "number", step: "1" },
-    { f: "ftg_mats", label: "Ftg mats", type: "number", step: "1" },
     {
       label: "Form ft",
       derived: (r) => num(r.calc_form_ff, 1),
       title: () =>
         "Contact area on ONE face — the sheet computes both faces and halves them. " +
         "Every $/FF rate on this assembly is priced against that convention.",
-    },
-    {
-      label: "Ftg SF",
-      derived: (r) => num(r.calc_footing_sf, 1),
-      title: () => "Footing plan area — what footing labor is priced per, not form feet",
+      sub: {
+        label: "Ftg SF",
+        derived: (r) => num(r.calc_footing_sf, 1),
+        title: () => "Footing plan area — what footing labor is priced per, not form feet",
+      },
     },
     {
       label: "CY",
-      derived: (r) => num(r.calc_concrete_cy, 2),
+      derived: (r) => num(r.calc_wall_concrete_cy, 2),
       title: (r) =>
-        `wall ${num(r.calc_wall_concrete_cy, 2)} + footing ${num(
-          r.calc_footing_concrete_cy,
-          2
-        )} — the footing takes the section's footing mix`,
+        `wall concrete — ${num(r.calc_concrete_cy, 2)} for the type with its footing`,
+      sub: {
+        label: "Ftg CY",
+        derived: (r) => num(r.calc_footing_concrete_cy, 2),
+        title: () => "The footing takes the section's footing mix",
+      },
     },
     {
       label: "Steel lb",
-      derived: (r) => num(r.calc_total_rebar_lb, 0),
+      derived: (r) => num(wallSteel(r), 0),
       title: (r) =>
         `horizontal ${num(r.calc_horiz_rebar_lb, 0)} + vertical ${num(
           r.calc_vert_rebar_lb,
           0
-        )} + footing ${num(r.calc_footing_rebar_lb, 0)} (both directions) + laps ${num(
-          r.calc_lap_rebar_lb,
+        )} + laps ${num(r.calc_lap_rebar_lb, 0)} — ${num(
+          r.calc_total_rebar_lb,
           0
-        )}`,
+        )} for the type with its footing`,
+      sub: {
+        label: "Ftg lb",
+        derived: (r) => num(r.calc_footing_rebar_lb, 0),
+        title: () => "Footing bars, both directions",
+      },
     },
     {
       label: "Earth CY",
@@ -1617,35 +1714,38 @@ function wallColumns(mixes) {
       title: (r) =>
         `cost ${usd(r.calc_wall_cost, 0)} over ${num(r.calc_form_ff, 0)} form ft · ` +
         `sale ${usd(r.calc_wall_sale_per_ff, 2)}/FF`,
+      sub: {
+        label: "Ftg $/SF",
+        derived: (r) => usd(r.calc_footing_cost_per_sf, 2),
+        title: (r) =>
+          `cost ${usd(r.calc_footing_cost, 0)} over ${num(r.calc_footing_sf, 0)} SF of ` +
+          `footing plan area · sale ${usd(r.calc_footing_sale_per_sf, 2)}/SF`,
+      },
     },
     {
       label: "Wall sale/FF",
       derived: (r) => usd(r.calc_wall_sale_per_ff, 2),
       title: () => "Wall cost per form foot × (1 + margin + contingency)",
+      sub: {
+        label: "Ftg sale/SF",
+        derived: (r) => usd(r.calc_footing_sale_per_sf, 2),
+        title: () => "Footing cost per SF of plan area × (1 + margin + contingency)",
+      },
     },
     {
-      label: "Wall total",
+      // Cost on both lines, sale in the tooltip — one column, one meaning.
+      // (Before the split, "Wall total" showed cost and "Ftg total" showed
+      // sale; side by side that was survivable, stacked it would mislead.)
+      label: "Wall cost",
       derived: (r) => usd(r.calc_wall_cost, 0),
       title: (r) => `sale ${usd(r.calc_wall_sale, 0)}`,
-    },
-    {
-      label: "Ftg $/SF",
-      derived: (r) => usd(r.calc_footing_cost_per_sf, 2),
-      title: (r) =>
-        `cost ${usd(r.calc_footing_cost, 0)} over ${num(r.calc_footing_sf, 0)} SF of ` +
-        `footing plan area · sale ${usd(r.calc_footing_sale_per_sf, 2)}/SF`,
-    },
-    {
-      label: "Ftg sale/SF",
-      derived: (r) => usd(r.calc_footing_sale_per_sf, 2),
-      title: () => "Footing cost per SF of plan area × (1 + margin + contingency)",
-    },
-    {
-      label: "Ftg total",
-      derived: (r) => usd(r.calc_footing_sale, 0),
-      title: (r) =>
-        `sale — cost ${usd(r.calc_footing_cost, 0)}. Wall + footing always sum ` +
-        `to the row, so a difference is in the schedule, not the split.`,
+      sub: {
+        label: "Ftg cost",
+        derived: (r) => usd(r.calc_footing_cost, 0),
+        title: (r) =>
+          `sale ${usd(r.calc_footing_sale, 0)} — wall + footing always sum to the ` +
+          `type, so a difference is in the schedule, not the split.`,
+      },
     },
   ];
 }
@@ -2321,16 +2421,18 @@ async function renderSectionDetail(root) {
             id: "wall-runs",
             title: "Wall runs",
             blurb:
-              "One row is a <strong>wall type and the footing under it</strong> — they " +
-              "share a length, and the footing's width drives the trench the wall sits " +
-              "in. <strong>Faces</strong> is how many curtains of steel: 2 is both " +
-              "faces. <strong>Form ft</strong> is contact area on <em>one</em> face, " +
-              "which is the convention every $/FF rate here is priced against. " +
-              "<strong>Backfill</strong> turns on sand, excavation swell and the " +
-              "french drain — leave it off for an interior wall. " +
-              "The wall and the footing are costed <strong>separately</strong>, each on " +
-              "its own driver, so a bad schedule shows up in one rate and not the " +
-              "other. They always sum to the row.",
+              "Each wall type is <strong>two lines</strong>: the wall, and the " +
+              "<strong>footing under it</strong> on the line below — they share a " +
+              "length, and the footing's width drives the trench the wall sits in. " +
+              "<strong>Faces</strong> is how many curtains of steel: 2 is both faces; " +
+              "the footing's <strong>mats</strong> likewise. <strong>Form ft</strong> " +
+              "is contact area on <em>one</em> face, which is the convention every " +
+              "$/FF rate here is priced against. <strong>Backfill</strong> turns on " +
+              "sand, excavation swell and the french drain — leave it off for an " +
+              "interior wall. The wall and the footing are costed " +
+              "<strong>separately</strong>, each on its own driver — the wall per form " +
+              "foot, the footing per SF of plan area — so a bad schedule shows up in " +
+              "one rate and not the other. They always sum to the type.",
             columns: wallColumns(state.mixes),
             rows: wallRows,
             addLabel: "Wall type",
