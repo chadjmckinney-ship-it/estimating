@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.models.estimate_section import (
     COLUMN_KINDS,
+    DECK_KINDS,
     PIER_KINDS,
     WALL_KINDS,
     EstimateSection,
@@ -489,6 +490,102 @@ def _column_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
     return lines
 
 
+# ------------------------------------------------------------------- deck ----
+
+
+def _deck_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
+    """
+    The sixth assembly's purchases: concrete, the bar, and the cable.
+
+    Mirrors `costing._deck_units` line for line — concrete by the level's mix,
+    every pound of mat and beam steel at the PT-slab bar price (an elevated PT
+    deck is a PT slab, and `resolve_rebar(post_tension=True)` says so), and
+    post-tension per square foot of the levels that carry cable, priced through
+    the `pt_cable_sf` rate or a PT quote. Mesh, stud rails and carton forms are
+    forming and labor lines, not purchases on the level, so they are not here —
+    the same rule that keeps plywood off the columns list.
+
+    Shipped without this branch in sql/052: a deck section fell through to the
+    slab reader, found no pours, and reported no money under any of its cards
+    with `rounding` equal to the whole direct cost (audit 2026-09-04, P2 #3).
+    """
+    from app.models.deck_level import DeckLevel
+    from app.services.calc import _rate_optional
+
+    rows = list(
+        db.scalars(
+            select(DeckLevel)
+            .where(DeckLevel.section_id == section.id)
+            .order_by(DeckLevel.sort_order, DeckLevel.created_at)
+        ).all()
+    )
+    quotes = qt.load_quotes(db, section.id)
+    rebar_q = quotes.get(qt.REBAR)
+    pt_q = quotes.get(qt.PT)
+    quoted_lb = rebar_q.per_lb() if rebar_q else None
+    quoted_sf = pt_q.per_sf() if pt_q else None
+    # The rate the level was costed at. `_rate_optional` is the one rung on the
+    # ladder with no code default: None here is UNPRICED, and the line says so.
+    pt_rate = _rate_optional(db, section.kind, "pt_cable_sf")
+
+    concrete = _Acc()
+    rebar = _Acc()
+    pt = _Acc()
+
+    for r in rows:
+        cy = _d(r.calc_concrete_cy)
+        if cy > 0:
+            mix = db.get(MixDesign, r.mix_design_id) if r.mix_design_id else None
+            concrete.add_priced(
+                cy,
+                _mix_unit_cost(db, r.mix_design_id),
+                getattr(mix, "name", None) or getattr(mix, "code", None) or "mix (none chosen)",
+            )
+
+        lb = _d(r.calc_total_rebar_lb)
+        if lb > 0 and not (rebar_q and rebar_q.is_lump):
+            if quoted_lb is not None:
+                rebar.add(lb, lb * quoted_lb)
+            else:
+                mat = resolve_rebar(db, True, section.kind) or {}
+                rebar.add_priced(
+                    lb, _rebar_unit_cost(db, True, section.kind), mat.get("name") or "rebar"
+                )
+        elif lb > 0:
+            rebar.add(lb, _ZERO)
+
+        pt_sf = _d(r.calc_pt_sf)
+        if pt_sf > 0:
+            if pt_q and pt_q.is_lump:
+                pt.add(pt_sf, _ZERO)
+            elif quoted_sf is not None:
+                pt.add(pt_sf, pt_sf * quoted_sf)
+            else:
+                pt.add_priced(pt_sf, pt_rate, "PT cable (pt_cable_sf)")
+
+    lines: list[MaterialLine] = []
+    if concrete.live:
+        lines.append(_from(concrete, "concrete", "Concrete", "CY", detail=_blend_note(concrete)))
+    if rebar.live:
+        if rebar_q and rebar_q.is_lump:
+            lines.append(_quote_line("rebar", "Rebar", rebar_q, rebar.qty, "LB"))
+        else:
+            lines.append(_from(rebar, "rebar", "Rebar", "LB",
+                source="quote" if quoted_lb is not None else "catalog",
+                detail=_blend_note(rebar, "quoted $/lb"),
+            ))
+    if pt.live:
+        if pt_q and pt_q.is_lump:
+            lines.append(_quote_line("pt", "Post-tension", pt_q, pt.qty, "SF"))
+        else:
+            lines.append(_from(pt, "pt", "Post-tension", "SF",
+                source="quote" if quoted_sf is not None else "rate",
+                detail="quoted $/SF" if quoted_sf is not None
+                else "pt_cable_sf — this section's rate, per SF of level with cable",
+            ))
+    return lines
+
+
 # ----------------------------------------------------------------- public ----
 
 
@@ -520,6 +617,8 @@ def _section_material_costs(db: Session, section: EstimateSection) -> dict[str, 
         lines = _wall_lines(db, section)
     elif section.kind in COLUMN_KINDS:
         lines = _column_lines(db, section)
+    elif section.kind in DECK_KINDS:
+        lines = _deck_lines(db, section)
     else:
         lines = _slab_lines(db, section)
 

@@ -508,12 +508,21 @@ def _line(
     override = _assembly_unit_cost(db, kind, code)
     if override is not None:
         unit_cost, price_source = override, "assembly"
-    elif material and material.get("unit_cost") is not None:
-        unit_cost, price_source = _d(material["unit_cost"]), "catalog"
+    elif material:
+        # The catalog has this item, so the catalog's answer is the answer —
+        # even when that answer is "no price". On a sheeted estimate (sql/048)
+        # a row the sheet holds nothing for is UNPRICED and reported as such
+        # (decision 5, sql/047: never copied as zero, never silently priced).
+        # Until 2026-09-04 this branch only claimed the item when it carried a
+        # price, and an unpriced one fell through to the workbook literal
+        # below with `price_source="sheet"` and `missing_price=False` — the
+        # verdict turned back into a silent number (audit P2 #4).
+        if material.get("unit_cost") is not None:
+            unit_cost, price_source = _d(material["unit_cost"]), "catalog"
     elif sheet_unit_cost is not None:
-        # Nothing in the catalog answers to this item. Price it the way the
-        # workbook does and say so, rather than quietly extending it at $0 —
-        # a zero on a real quantity is the kind of hole this project keeps
+        # Nothing in the catalog answers to this item AT ALL. Price it the way
+        # the workbook does and say so, rather than quietly extending it at $0
+        # — a zero on a real quantity is the kind of hole this project keeps
         # finding months later.
         unit_cost, price_source = Decimal(str(sheet_unit_cost)), "sheet"
 

@@ -43,6 +43,9 @@ class EstimateEquipmentLineRead(BaseModel):
     notes: str | None = None
     sort_order: int = 0
     is_manual: bool = False
+    # Which half was typed (sql/058): `is_manual` is the days and the switch,
+    # this is the rate. Typed days keep following the price sheet.
+    rate_is_manual: bool = False
     # Where the rate came from — catalog | rate | default — and whether the
     # line is a placeholder standing where a price belongs (sql/047). A schema
     # that does not name a field drops it; see docs/specs/frontend-parse-and-drivers.md.

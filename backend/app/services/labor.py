@@ -1024,7 +1024,7 @@ def refresh_and_store_labor(db: Session, section_id: UUID) -> dict[str, Any]:
     for ln in lines:
         if ln["code"] in manuals:
             m = manuals[ln["code"]]
-            # keep rate/qty/enabled for manual; refresh formula label
+            # keep qty/enabled for manual; refresh formula label
             m.formula = ln.get("formula")
             # Notes explain the line, not the number, so a manual override
             # should not freeze an explanation that has since changed.
@@ -1033,6 +1033,13 @@ def refresh_and_store_labor(db: Session, section_id: UUID) -> dict[str, Any]:
             m.unit = ln.get("unit") or m.unit
             m.group_name = ln["group_name"]
             m.sort_order = ln["sort_order"]
+            # The RATE follows the ladder unless the rate is what was typed
+            # (sql/058). This branch used to keep it whatever was typed, so a
+            # superintendent whose DAYS were entered — every piers, walls and
+            # deck section — kept billing the day rate of the day the days
+            # went in, and a company or price-sheet change never reached it.
+            if not m.rate_is_manual:
+                m.rate = _d(ln["rate"])
             if m.enabled:
                 m.ext_cost = (_d(m.qty) * _d(m.rate)).quantize(Decimal("0.01"))
             else:
@@ -1165,6 +1172,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "notes": r.notes,
             "sort_order": r.sort_order,
             "is_manual": r.is_manual,
+            "rate_is_manual": bool(getattr(r, "rate_is_manual", False)),
             "subcontracted": bool(getattr(r, "subcontracted", False)),
         }
         for r in rows
@@ -1289,8 +1297,13 @@ def update_labor_line(
     # None leaves the flag as it is, for an enabled-only toggle.
     if mark_manual is True and (rate is not None or qty is not None):
         row.is_manual = True
+        # Only a typed RATE pins the rate (sql/058). A typed quantity pins the
+        # quantity and leaves the price following the sheet.
+        if rate is not None:
+            row.rate_is_manual = True
     elif mark_manual is False:
         row.is_manual = False
+        row.rate_is_manual = False
 
     row.ext_cost = (
         (_d(row.qty) * _d(row.rate)).quantize(Decimal("0.01")) if row.enabled else Decimal("0.00")

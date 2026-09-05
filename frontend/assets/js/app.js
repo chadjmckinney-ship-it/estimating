@@ -2700,23 +2700,33 @@ async function renderSectionDetail(root) {
       const tr = btn.closest("tr");
       if (!tr || !code) return;
       const enabled = tr.querySelector(".labor-enabled")?.checked ?? true;
-      const rate = Number(tr.querySelector(".labor-rate")?.value);
+      const rateEl = tr.querySelector(".labor-rate");
       const qtyEl = tr.querySelector(".labor-qty");
-      // Saving is an explicit override: mark manual so a later refresh (or a
-      // system_settings rate change) does not reset what was typed here.
+      // Saving is an explicit override: mark manual so a later refresh does
+      // not reset what was typed here. Only what CHANGED is sent (sql/058).
+      // This handler used to send the rate box back on every save, touched or
+      // not, and a sent rate is a typed rate: typing the superintendent's days
+      // on piers, walls or a deck froze the day rate beside them, and a later
+      // company or price-sheet change never reached the line.
       // Slab labor qty still comes from pours; supervision qty is editable.
-      const body = { enabled, rate, mark_manual: true };
-      if (qtyEl) {
+      const changed = (el) =>
+        !!el && el.dataset.orig !== undefined && Number(el.value) !== Number(el.dataset.orig);
+      const body = { enabled, mark_manual: true };
+      if (changed(rateEl)) {
+        const rate = Number(rateEl.value);
+        if (Number.isNaN(rate) || rate < 0) {
+          toast("Rate must be ≥ 0", "err");
+          return;
+        }
+        body.rate = rate;
+      }
+      if (changed(qtyEl)) {
         const qty = Number(qtyEl.value);
         if (Number.isNaN(qty) || qty < 0) {
           toast("Qty must be ≥ 0", "err");
           return;
         }
         body.qty = qty;
-      }
-      if (Number.isNaN(rate) || rate < 0) {
-        toast("Rate must be ≥ 0", "err");
-        return;
       }
       btn.disabled = true;
       try {
@@ -2734,9 +2744,12 @@ async function renderSectionDetail(root) {
       const code = cb.dataset.code;
       if (!code) return;
       try {
+        // null leaves the pins alone. `false` HANDS THE LINE BACK — it is the
+        // API's "undo my override" — and this checkbox sent it until
+        // 2026-09-04, so unticking a typed superintendent un-pinned the days.
         await Api.patchLaborLine(section.id, code, {
           enabled: cb.checked,
-          mark_manual: false,
+          mark_manual: null,
         });
         render();
       } catch (err) {
@@ -2788,20 +2801,26 @@ async function renderSectionDetail(root) {
       const tr = btn.closest("tr");
       if (!tr || !code) return;
       const enabled = tr.querySelector(".equip-enabled")?.checked ?? true;
-      const rate = Number(tr.querySelector(".equip-rate")?.value);
-      const days = Number(tr.querySelector(".equip-days")?.value);
-      if (Number.isNaN(rate) || rate < 0 || Number.isNaN(days) || days < 0) {
+      const rateEl = tr.querySelector(".equip-rate");
+      const daysEl = tr.querySelector(".equip-days");
+      // Only what CHANGED is sent (sql/058) — same reason as the labor card:
+      // a sent rate is a typed rate, and giving a machine days must not
+      // freeze its day rate against the price sheet.
+      const changed = (el) =>
+        !!el && el.dataset.orig !== undefined && Number(el.value) !== Number(el.dataset.orig);
+      const body = { enabled, mark_manual: true };
+      if (changed(rateEl)) body.rate = Number(rateEl.value);
+      if (changed(daysEl)) body.days_qty = Number(daysEl.value);
+      if (
+        (body.rate !== undefined && (Number.isNaN(body.rate) || body.rate < 0)) ||
+        (body.days_qty !== undefined && (Number.isNaN(body.days_qty) || body.days_qty < 0))
+      ) {
         toast("Rate and days/qty must be ≥ 0", "err");
         return;
       }
       btn.disabled = true;
       try {
-        await Api.patchEstimateEquipmentLine(section.id, code, {
-          enabled,
-          rate,
-          days_qty: days,
-          mark_manual: true,
-        });
+        await Api.patchEstimateEquipmentLine(section.id, code, body);
         toast(`Saved ${code}`);
         render();
       } catch (err) {
@@ -3591,20 +3610,20 @@ function renderLaborCard(labor) {
               </td>
               <td>
                 <strong>${esc(ln.label)}</strong>
-                ${ln.is_manual ? ` <span class="badge">manual</span>` : ""}
+                ${ln.is_manual ? ` <span class="badge" title="${ln.rate_is_manual ? "Typed — a refresh keeps the quantity and the rate" : "Typed quantity — the rate still follows the price sheet and the rates card"}">${ln.rate_is_manual ? "manual" : "manual qty"}</span>` : ""}
                 ${ln.subcontracted ? ` <span class="badge" title="Subcontracted — this line goes on the sub's sheet, not our crew's">sub</span>` : ""}
                 ${ln.notes ? `<div class="muted">${esc(ln.notes)}</div>` : ""}
               </td>
               <td>
                 <input type="number" class="labor-rate" data-code="${esc(ln.code)}"
-                  min="0" step="0.01" value="${esc(ln.rate)}" style="width:5rem" />
+                  min="0" step="0.01" value="${esc(ln.rate)}" data-orig="${esc(ln.rate)}" style="width:5rem" />
               </td>
               <td class="muted">${esc(ln.unit)}</td>
               <td class="num">
                 ${
                   qtyEditable
                     ? `<input type="number" class="labor-qty" data-code="${esc(ln.code)}"
-                        min="0" step="0.01" value="${esc(ln.qty)}" style="width:6rem" />`
+                        min="0" step="0.01" value="${esc(ln.qty)}" data-orig="${esc(ln.qty)}" style="width:6rem" />`
                     : `<span title="From pours — refresh to update">${num(ln.qty, Number(ln.qty) >= 20 || Number(ln.qty) === 0 ? 0 : 2)}</span>`
                 }
               </td>
@@ -3801,20 +3820,20 @@ function renderEquipmentCard(equip) {
               </td>
               <td>
                 <strong>${esc(ln.label)}</strong>
-                ${ln.is_manual ? ` <span class="badge">manual</span>` : ""}
+                ${ln.is_manual ? ` <span class="badge" title="${ln.rate_is_manual ? "Typed — a refresh keeps the quantity and the rate" : "Typed quantity — the rate still follows the price sheet and the rates card"}">${ln.rate_is_manual ? "manual" : "manual qty"}</span>` : ""}
                 ${ln.subcontracted ? ` <span class="badge" title="Subcontracted — this line goes on the sub's sheet, not our crew's">sub</span>` : ""}
                 ${ln.notes ? `<div class="muted">${esc(ln.notes)}</div>` : ""}
                 <div class="muted" style="font-size:0.75rem">${esc(ln.formula || "")}</div>
               </td>
               <td>
                 <input type="number" class="equip-days" data-code="${esc(ln.code)}"
-                  min="0" step="0.1" value="${esc(ln.days_qty)}" style="width:5.5rem"
+                  min="0" step="0.1" value="${esc(ln.days_qty)}" data-orig="${esc(ln.days_qty)}" style="width:5.5rem"
                   title="${group === "equipment" ? "Calendar days on rent" : "Quantity (CY, SF, …)"}" />
               </td>
               <td class="num muted" title="After Excel rental tiers (week/month caps)">${num(ln.billable_units, 1)}</td>
               <td>
                 <input type="number" class="equip-rate" data-code="${esc(ln.code)}"
-                  min="0" step="0.01" value="${esc(ln.rate)}" style="width:5rem" />
+                  min="0" step="0.01" value="${esc(ln.rate)}" data-orig="${esc(ln.rate)}" style="width:5rem" />
                 ${ln.missing_price
                   ? `<div><span class="badge warn" title="Not on this job's price sheet and no assembly rate — this number is a placeholder from the code, not a price anyone set. Price the machine on the price sheet, or in the catalog and pull.">placeholder rate</span></div>`
                   : ln.price_source === "rate"

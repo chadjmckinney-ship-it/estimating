@@ -262,3 +262,79 @@ def test_a_column_section_buys_concrete_and_bar_and_nothing_else(db, columns):
     assert set(lines) == {"concrete", "rebar"}
     assert lines["concrete"]["unit_cost"] == Decimal("175.0000")
     assert lines["rebar"]["unit_cost"] == Decimal("0.6500")
+
+
+# ------------------------------------------------------------------- deck ----
+
+
+@pytest.fixture
+def deck(db, estimate):
+    from tests import deck_fixture as df
+
+    section = df.build(db, estimate)
+    refresh_pour_costs(db, section)
+    db.flush()
+    return section
+
+
+def test_deck_lines_add_up_to_the_direct_cost(db, deck):
+    """
+    The sixth assembly shipped without a breakdown (sql/052): a deck fell
+    through to the slab reader, found no pours, reported no lines, and put its
+    whole direct cost — the concrete, the bar and the cable — in `rounding`.
+    Every stat card on the deck page showed a quantity and no money, and the
+    endpoint said 200 OK. Audit 2026-09-04, P2 #3.
+    """
+    out = section_material_costs(db, deck)
+    assert out["lines"], "a deck buys things"
+    assert _cents(out["rounding"]) < Decimal("0.20")
+    assert out["total_material_cost"] + out["rounding"] == out["direct_cost"]
+
+
+def test_a_deck_buys_concrete_bar_and_cable_and_nothing_else(db, deck):
+    """
+    What sits on the LEVEL is what `costing._deck_units` prices: concrete by
+    the level's mix, every pound of mat and beam steel at the PT-slab bar
+    price, and post-tension per square foot of the levels that carry cable,
+    through the `pt_cable_sf` rate. Mesh, stud rails and carton forms are
+    forming and labor lines — the same rule that keeps plywood off the
+    columns list.
+    """
+    from app.services import cip_deck as cd
+    from app.services.calc import _rate_optional
+    from app.services.costing import _rebar_unit_cost
+    from app.services.price_book import for_section, priced_as
+    from tests import deck_fixture as df
+
+    lines = _by_key(section_material_costs(db, deck))
+    assert set(lines) == {"concrete", "rebar", "pt"}
+
+    t = cd.section_deck_totals(db, deck.id)
+    assert lines["concrete"]["qty"] == Decimal(str(t["total_concrete_cy"]))
+    assert lines["rebar"]["qty"] == Decimal(str(t["total_rebar_lb"]))
+    assert lines["pt"]["qty"] == Decimal(str(t["total_pt_sf"])) == Decimal("32100")
+
+    assert lines["concrete"]["unit_cost"] == df.MIX_UNIT_COST
+    with priced_as(db, deck.estimate_id), for_section(deck.id):
+        bar = _rebar_unit_cost(db, True, deck.kind)
+        cable = _rate_optional(db, deck.kind, "pt_cable_sf")
+    assert bar is not None and cable is not None
+    # An elevated PT deck is a PT slab and buys PT-slab bar (test_cip_deck).
+    assert lines["rebar"]["unit_cost"] == bar
+    assert "PT" in (lines["rebar"]["detail"] or "")
+    assert lines["pt"]["unit_cost"] == cable
+    assert lines["pt"]["source"] == "rate"
+
+
+def test_a_pt_lump_lands_on_the_pt_line_and_the_bar_keeps_its_rate(db, deck):
+    _quote(db, deck, "pt", "40000.00", "LS", note="PT sub 9/4")
+
+    out = section_material_costs(db, deck)
+    lines = _by_key(out)
+    assert lines["pt"]["cost"] == Decimal("40000.00")
+    assert lines["pt"]["source"] == "quote (lump)"
+    assert lines["pt"]["detail"] == "PT sub 9/4"
+    assert lines["pt"]["qty"] == Decimal("32100"), "the cable area stays on the card"
+    assert lines["rebar"]["source"] == "catalog"
+    assert _cents(out["rounding"]) < Decimal("0.20")
+    assert out["total_material_cost"] + out["rounding"] == out["direct_cost"]

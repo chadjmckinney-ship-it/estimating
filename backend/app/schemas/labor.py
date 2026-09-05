@@ -65,6 +65,10 @@ class LaborLine(BaseModel):
     notes: str | None = None
     sort_order: int = 0
     is_manual: bool = False
+    # Which half was typed (sql/058): `is_manual` is the quantity and the
+    # switch, this is the rate. The badge on the line reads "manual qty" when
+    # only the days were typed, because the rate is still following the sheet.
+    rate_is_manual: bool = False
     # One switch per section (sql/052). The screen shows a `sub` badge on
     # every line carrying it, so the estimator can see at a glance which work
     # is on the sub's sheet and which is ours.

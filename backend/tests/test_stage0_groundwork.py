@@ -367,3 +367,43 @@ def test_a_promoted_line_with_no_catalog_row_is_unpriced_not_priced_from_source(
     assert haul["unit_cost"] is None
     assert haul["missing_price"] is True
     assert haul["price_source"] is None
+
+
+def test_a_catalog_row_the_sheet_has_no_price_for_is_unpriced_not_priced_from_the_workbook(
+    db, estimate
+):
+    """
+    The other half of the rule above, still open on 2026-09-04 (audit P2 #4).
+
+    `forming._line` priced from its workbook literal whenever the resolved row
+    carried no price — and on a sheeted estimate that is exactly what a row
+    the sheet holds nothing for looks like: an item added to the catalog after
+    the pull, or one the master list has no price for. Both are documented as
+    UNPRICED and reported (decision 5). Instead the line extended at a 2025
+    number with price_source="sheet", missing_price=False, and never reached
+    the section's list.
+
+    The 2x4 on the deck: the catalog row is there, this job's sheet says
+    nothing, the literal says $0.859375. The literal loses.
+    """
+    from app.services.forming import calc_forming_materials, refresh_and_store_forming
+
+    section = _build(db, estimate, "deck_fixture")
+    _unprice(db, estimate.id, "material", "label ILIKE '2 X 4%'")
+
+    lines = {ln["code"]: ln for ln in calc_forming_materials(db, section.id)["lines"]}
+    ln = lines["2x4"]
+    assert ln["material_name"], "the catalog row is still there — this is not the no-row case"
+    assert Decimal(str(ln["qty"])) > 0
+    assert ln["unit_cost"] is None and ln["ext_cost"] is None
+    assert ln["missing_price"] is True
+    assert ln["price_source"] is None
+
+    # ...and the section says so, which is the whole point of the list. The
+    # list reads the STORED lines, so store them the way opening the section
+    # does, then re-cost.
+    refresh_and_store_forming(db, section.id)
+    recalc_section(db, section)
+    db.flush()
+    flagged = _unpriced(db, section.id)
+    assert any(f"{ln['label']} — forming" in x for x in flagged), flagged

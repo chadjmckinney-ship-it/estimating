@@ -1189,7 +1189,14 @@ def refresh_and_store_equipment(db: Session, section_id: UUID) -> dict[str, Any]
             m.group_name = ln["group_name"]
             m.sort_order = ln["sort_order"]
             m.equipment_id = ln.get("equipment_id")
-            m.price_source = "manual"
+            if m.rate_is_manual:
+                m.price_source = "manual"
+            else:
+                # Typed days, live rate (sql/058): the ladder's answer today,
+                # and where it came from — so a placeholder rate on a machine
+                # somebody gave days still reads as the placeholder it is.
+                m.rate = _d(ln["rate"])
+                m.price_source = ln.get("price_source")
             # recompute cost from stored days/rate
             if m.unit == "DAY":
                 m.billable_units = rental_billable_units(m.days_qty, use_tiers=use_tiers)
@@ -1319,6 +1326,7 @@ def load_stored_equipment(db: Session, section_id: UUID) -> dict[str, Any] | Non
             "notes": r.notes,
             "sort_order": r.sort_order,
             "is_manual": r.is_manual,
+            "rate_is_manual": bool(getattr(r, "rate_is_manual", False)),
             "price_source": r.price_source,
             "missing_price": (
                 r.price_source == "default" and r.enabled and _d(r.billable_units) > 0
@@ -1399,6 +1407,8 @@ def update_equipment_line(
         row.rate = _d(rate)
         if mark_manual:
             row.is_manual = True
+            # Only a typed RATE pins the rate (sql/058).
+            row.rate_is_manual = True
     if days_qty is not None:
         row.days_qty = _d(days_qty)
         if mark_manual:

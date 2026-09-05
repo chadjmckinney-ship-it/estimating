@@ -45,6 +45,12 @@ class EstimateLaborLine(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # The RATE was typed (sql/058). `is_manual` pins the quantity and the
+    # switch; only this pins the price. A typed day count on piers, walls or
+    # a deck used to freeze the day rate beside it.
+    rate_is_manual: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     # Set from estimate_sections.labor_subcontracted at refresh (sql/052).
     # Costing does not care — subbed labor is still labor, untaxed and
     # carrying no fuel — but the sub has to be told what he is pricing, which

@@ -59,6 +59,12 @@ class EstimateEquipmentLine(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # The RATE was typed (sql/058). `is_manual` pins the days and the switch;
+    # only this pins the price, so a machine given days keeps following the
+    # price sheet.
+    rate_is_manual: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     # catalog | rate | default — where the rate came from (sql/047). "default"
     # on real days is an unpriced line wearing a plausible number.
     price_source: Mapped[str | None] = mapped_column(Text)

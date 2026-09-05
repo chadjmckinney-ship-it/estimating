@@ -152,3 +152,21 @@ def test_the_forming_card_can_describe_a_deck(client, section):
         assert key in d, key
     # An unpriced line has to reach the screen as one, not as a zero.
     assert "reshoring" in body["missing_prices"]
+
+
+def test_the_money_cards_get_their_lines(client, section):
+    """
+    Concrete, steel and PT are the three stat cards on this page that show
+    dollars — `app.js` reads `concrete`, `rebar` and `pt` off this payload.
+    Until 2026-09-04 a deck came back with no lines at all and every card
+    showed a quantity with nothing under it (audit P2 #3).
+    """
+    from decimal import Decimal
+
+    r = client.get(f"/api/sections/{section.id}/material-costs")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] == "cip_deck"
+    assert {"concrete", "rebar", "pt"} <= {ln["key"] for ln in body["lines"]}
+    # ...and they are the section's own money, not a second opinion.
+    assert abs(Decimal(body["rounding"])) < Decimal("0.20")

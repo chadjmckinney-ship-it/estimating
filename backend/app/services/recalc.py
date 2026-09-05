@@ -31,9 +31,11 @@ from app.services.costing import PIER_KINDS, WALL_KINDS
 from app.services.estimate_equipment import refresh_and_store_equipment
 from app.services.forming import refresh_and_store_forming
 from app.services.labor import refresh_and_store_labor
+from app.services.price_book import RULE_KEYS
 
-# Which system_settings keys feed which derivation. Anything unmatched is
-# treated as harmless (no recalc) — see settings_scope().
+# Which system_settings keys feed which derivation. A key nobody has classified
+# is treated as harmless (no recalc) — but a RULE is never that: see
+# settings_scope() and NO_RECALC_KEYS.
 _POUR_KEYS = frozenset(
     {
         "waste_concrete",
@@ -65,6 +67,18 @@ _COSTING_KEYS = frozenset(
         "vapor_tape_rolls_per_barrier_roll",
     }
 )
+# The RULE keys that genuinely feed no stored calculation. The quote band is
+# read when a quote card is drawn, never written anywhere.
+#
+# Every other rule rewrites everything. The lists above name the keys whose
+# reach is known and narrower; a rule they do not name gets the whole sweep
+# rather than nothing, because "nothing" is the failure sql/053 shipped with
+# `mobilization_ls` — a company change that reported "no stored estimate
+# changed" and meant it. On 2026-09-04, 39 of the 56 rule keys were in that
+# position (every pier_*, lumber_*, nails_*, reshoring_*, columns_per_super_week
+# …); none was seeded in system_settings yet, which is the only reason it had
+# not bitten. tests/test_rule_keys_rewrite.py holds this closed.
+NO_RECALC_KEYS = frozenset({"quote_warn_low_ratio", "quote_warn_high_ratio"})
 
 # A bulk recalc — a catalog price change or a company-default change — must not
 # reprice work that is already out the door. A job bid last spring keeps the
@@ -96,6 +110,12 @@ def settings_scope(keys: list[str]) -> dict[str, bool]:
             scope["equipment"] = True
         elif key.startswith("equip_") or key in _EQUIPMENT_KEYS:
             scope["equipment"] = True
+        elif key in RULE_KEYS and key not in NO_RECALC_KEYS:
+            # A rule nobody mapped above. It is how the work is computed, so it
+            # is read live and every stored takeoff may depend on it; the
+            # sweep is what the Recalculate button does anyway. Narrow it
+            # here when you know the reach — never widen the silence.
+            scope.update(pours=True, forming=True, labor=True, equipment=True)
     return scope
 
 
