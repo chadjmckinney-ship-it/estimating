@@ -8,6 +8,13 @@ import { expect, test } from "@playwright/test";
  * The point of these is the console-error assertion: a template-literal typo or
  * a field the API stopped returning shows up as a runtime error that renders a
  * blank card, which no amount of static checking catches.
+ *
+ * Since sections (sql/033-034) the pours, the beam schedule and the three
+ * line-set cards all live on a SECTION page, and /api/mono-slabs lists by
+ * section, not by estimate. This spec was written before that and sat unrun
+ * on this box until 2026-09-05 (no browsers installed); the first run failed
+ * five of seven on a 422 from the old by-estimate lookup. It now finds a mono
+ * slab section with pours and opens that.
  */
 
 /** Collect console errors and page exceptions for the life of a page. */
@@ -20,26 +27,45 @@ function watchErrors(page) {
   return errors;
 }
 
+async function getJson(request, path, label) {
+  const res = await request.get(path);
+  expect(res.ok(), `GET ${path} (${label}) should succeed`).toBeTruthy();
+  return res.json();
+}
+
 /**
- * An estimate that actually has pours, read from the API so no UUID is
- * hard-coded. Picking the newest estimate is not enough — an empty one renders
- * "No mono slabs yet" instead of the table, and every column assertion below
- * would fail for a reason that has nothing to do with the code under test.
+ * A section of the given kind that actually has takeoff rows, read from the
+ * API so no UUID is hard-coded. Picking the newest estimate is not enough —
+ * an empty section renders "No mono slabs yet" instead of the table, and every
+ * column assertion below would fail for a reason that has nothing to do with
+ * the code under test.
  */
-async function estimateWithPours(request) {
-  const res = await request.get("/api/estimates");
-  expect(res.ok(), "GET /api/estimates should succeed").toBeTruthy();
-  const rows = await res.json();
-  for (const e of rows) {
-    const slabs = await request.get(
-      `/api/mono-slabs?estimate_id=${encodeURIComponent(e.id)}`
+async function sectionWithRows(request, kind, rowsPath) {
+  const estimates = await getJson(request, "/api/estimates", "estimates");
+  for (const e of estimates) {
+    const sections = await getJson(
+      request,
+      `/api/estimates/${encodeURIComponent(e.id)}/sections`,
+      `sections of ${e.name}`
     );
-    expect(slabs.ok(), `GET /api/mono-slabs for ${e.name} should succeed`).toBeTruthy();
-    if ((await slabs.json()).length > 0) return e.id;
+    for (const s of sections) {
+      if (s.kind !== kind) continue;
+      const rows = await getJson(
+        request,
+        `${rowsPath}?section_id=${encodeURIComponent(s.id)}`,
+        `${kind} rows of ${s.name}`
+      );
+      if (rows.length > 0) return s.id;
+    }
   }
-  test.skip(true, "no estimate has any mono slab pours to render");
+  test.skip(true, `no ${kind} section has any rows to render`);
   return null;
 }
+
+const monoSlabSectionWithPours = (request) =>
+  sectionWithRows(request, "mono_slab", "/api/mono-slabs");
+const wallsSectionWithRuns = (request) =>
+  sectionWithRows(request, "walls_footings", "/api/wall-runs");
 
 test("dashboard renders with no console errors", async ({ page }) => {
   const errors = watchErrors(page);
@@ -57,13 +83,13 @@ test("projects list renders", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("estimate detail shows the Slab mat column and Recalculate", async ({
+test("mono slab section shows the Slab mat column and Recalculate", async ({
   page,
   request,
 }) => {
   const errors = watchErrors(page);
-  const id = await estimateWithPours(request);
-  await page.goto(`/#estimate/${id}`);
+  const id = await monoSlabSectionWithPours(request);
+  await page.goto(`/#section/${id}`);
 
   // Slab mat column — added with the bar-size/spacing feature.
   await expect(
@@ -84,8 +110,8 @@ test("pour form has bar size + spacing and no Drops input", async ({
   request,
 }) => {
   const errors = watchErrors(page);
-  const id = await estimateWithPours(request);
-  await page.goto(`/#estimate/${id}`);
+  const id = await monoSlabSectionWithPours(request);
+  await page.goto(`/#section/${id}`);
 
   const edit = page.locator("button.btn-edit-slab").first();
   await expect(edit).toBeVisible();
@@ -113,8 +139,8 @@ test("beam modal shows the estimate schedule and per-pour lengths", async ({
   request,
 }) => {
   const errors = watchErrors(page);
-  const id = await estimateWithPours(request);
-  await page.goto(`/#estimate/${id}`);
+  const id = await monoSlabSectionWithPours(request);
+  await page.goto(`/#section/${id}`);
 
   // The GBs button on the first pour that has one.
   const gbButton = page.locator('button.btn-gb[data-kind="grade_beam"]').first();
@@ -139,8 +165,8 @@ test("beam modal shows the estimate schedule and per-pour lengths", async ({
 
 test("forming, labor and equipment cards render", async ({ page, request }) => {
   const errors = watchErrors(page);
-  const id = await estimateWithPours(request);
-  await page.goto(`/#estimate/${id}`);
+  const id = await monoSlabSectionWithPours(request);
+  await page.goto(`/#section/${id}`);
 
   for (const sel of ["#forming-materials", "#labor-supervision", "#estimate-equipment"]) {
     const card = page.locator(sel);
@@ -151,13 +177,13 @@ test("forming, labor and equipment cards render", async ({ page, request }) => {
   expect(errors).toEqual([]);
 });
 
-test("estimate has a beam schedule section listing types", async ({
+test("mono slab section has a beam schedule listing types", async ({
   page,
   request,
 }) => {
   const errors = watchErrors(page);
-  const id = await estimateWithPours(request);
-  await page.goto(`/#estimate/${id}`);
+  const id = await monoSlabSectionWithPours(request);
+  await page.goto(`/#section/${id}`);
 
   const card = page.locator("#beam-schedule");
   await expect(card).toBeVisible();
@@ -177,5 +203,31 @@ test("estimate has a beam schedule section listing types", async ({
   await modal.getByRole("button", { name: "Cancel" }).click();
   await expect(modal).toBeHidden();
 
+  expect(errors).toEqual([]);
+});
+
+test("walls section draws each type as a wall line over its footing line", async ({
+  page,
+  request,
+}) => {
+  // The two-line grid of 2026-09-05: every record is a `tr.has-sub` with a
+  // `tr.sub-line` under it, the header stacks both labels, and each footing
+  // box carries its own tag on the line. Nothing here is clicked.
+  const errors = watchErrors(page);
+  const id = await wallsSectionWithRuns(request);
+  await page.goto(`/#section/${id}`);
+
+  const card = page.locator("#wall-runs");
+  await expect(card).toBeVisible();
+  const wallLines = card.locator("tbody tr.has-sub");
+  const footingLines = card.locator("tbody tr.sub-line");
+  await expect(wallLines.first()).toBeVisible();
+  expect(await footingLines.count()).toBe(await wallLines.count());
+  await expect(card.locator("thead th .sub-label").first()).toHaveText("Footing");
+  await expect(footingLines.first().locator(".sub-text")).toContainText("footing");
+  // The footing's two mats (sql/059), each tagged where it is typed.
+  for (const tag of ['W"', 'T"', 'bot sp"', "bot #", 'top sp"', "top #"]) {
+    await expect(footingLines.first().locator(".sub-tag", { hasText: tag }).first()).toBeVisible();
+  }
   expect(errors).toEqual([]);
 });
