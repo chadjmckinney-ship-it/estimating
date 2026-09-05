@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ColumnTypeBase(BaseModel):
@@ -50,6 +50,23 @@ class ColumnTypeBase(BaseModel):
     notes: str | None = None
     sort_order: int = 0
 
+    # A grid sends an empty cell as null, and on a QUANTITY that is a zero —
+    # a schedule row still being filled in — not a type error. A default only
+    # applies when the key is absent, so an explicit null was a 422 that named
+    # no field (the wall grid's "0 in every footing box", 2026-09-05; the rule
+    # is spelled out in schemas/wall_run.py). A blank face count is the
+    # default, a free-standing column. The bulk route still refuses a new
+    # row with no height.
+    @field_validator("qty", "height_ft", "length_in", "width_in", mode="before")
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
+
+    @field_validator("formed_faces", mode="before")
+    @classmethod
+    def _blank_faces_is_four(cls, v):
+        return 4 if v is None else v
+
 
 class ColumnTypeCreate(ColumnTypeBase):
     section_id: UUID
@@ -79,6 +96,17 @@ class ColumnTypeUpdate(BaseModel):
     dowel_length_ft: Decimal | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None
+
+    # Same rule on a single-row PATCH: these five are NOT NULL in the table.
+    @field_validator("qty", "height_ft", "length_in", "width_in", mode="before")
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
+
+    @field_validator("formed_faces", mode="before")
+    @classmethod
+    def _blank_faces_is_four(cls, v):
+        return 4 if v is None else v
 
 
 class ColumnTypeRead(ColumnTypeBase):

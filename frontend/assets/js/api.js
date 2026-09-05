@@ -36,17 +36,36 @@ async function api(path, options = {}) {
   } catch {
     data = text;
   }
-  if (!res.ok) {
-    const detail = data?.detail;
-    const msg =
-      typeof detail === "string"
-        ? detail
-        : Array.isArray(detail)
-          ? detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
-          : res.statusText || "Request failed";
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(describeFailure(res.statusText, data));
   return data;
+}
+
+/**
+ * The message a failed request throws. FastAPI's 422 is a list of {loc, msg};
+ * until 2026-09-05 the toast showed only msg, so "Decimal input should be an
+ * integer, float, string or Decimal object" never said WHICH cell — that was
+ * the wall grid's "0 in every footing box" (the schemas now take a blank as a
+ * zero; backend/tests/test_blank_cells_are_zero.py). Now body/rows/0/ftg_width_in
+ * reads "row 1 ftg_width_in: …". Exported for frontend/tests/api-errors.test.mjs.
+ */
+export function describeFailure(statusText, data) {
+  const detail = data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map(describeOne).join("; ");
+  return statusText || "Request failed";
+}
+
+const LOC_ROOTS = new Set(["body", "query", "path", "header"]);
+
+function describeOne(d) {
+  const msg = d?.msg || JSON.stringify(d);
+  const loc = Array.isArray(d?.loc) ? d.loc.filter((p, i) => !(i === 0 && LOC_ROOTS.has(p))) : [];
+  if (!loc.length) return msg;
+  if (loc[0] === "rows" && Number.isInteger(loc[1])) {
+    const rest = loc.slice(2).join(".");
+    return `row ${loc[1] + 1}${rest ? ` ${rest}` : ""}: ${msg}`;
+  }
+  return `${loc.join(".")}: ${msg}`;
 }
 
 /** Query string from an object, dropping null/undefined/empty values. */

@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DeckLevelBeamBase(BaseModel):
@@ -14,6 +14,11 @@ class DeckLevelBeamBase(BaseModel):
     length_lf: Decimal = Field(0, ge=0)
     notes: str | None = None
     sort_order: int = 0
+
+    @field_validator("length_lf", mode="before")
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
 
 
 class DeckLevelBeamRead(DeckLevelBeamBase):
@@ -59,6 +64,20 @@ class DeckLevelBase(BaseModel):
     notes: str | None = None
     sort_order: int = 0
 
+    # A grid sends an empty cell as null, and on a QUANTITY that is a zero —
+    # no mesh, no stud rails, no carton forms on this level — not a type
+    # error. A default only applies when the key is absent, so an explicit
+    # null was a 422 that named no field (the wall grid's "0 in every footing
+    # box", 2026-09-05; the rule is spelled out in schemas/wall_run.py). The
+    # bulk route still refuses a new level with no area.
+    @field_validator(
+        "area_sf", "thickness_in", "perm_edge_lf", "mesh_sf", "stud_rail_lb", "carton_form_sf",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
+
 
 class DeckLevelCreate(DeckLevelBase):
     section_id: UUID
@@ -88,6 +107,15 @@ class DeckLevelUpdate(BaseModel):
     # them alone. Same rule as the grid's delete_missing: an absent field is
     # not an instruction to delete.
     beams: list[DeckLevelBeamBase] | None = None
+
+    # Same rule on a single-row PATCH: these six are NOT NULL in the table.
+    @field_validator(
+        "area_sf", "thickness_in", "perm_edge_lf", "mesh_sf", "stud_rail_lb", "carton_form_sf",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
 
 
 class DeckLevelRead(DeckLevelBase):

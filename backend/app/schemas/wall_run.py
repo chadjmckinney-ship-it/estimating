@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class WallRunBase(BaseModel):
@@ -40,6 +40,22 @@ class WallRunBase(BaseModel):
     notes: str | None = None
     sort_order: int = 0
 
+    # A grid sends an empty cell as null, and on a QUANTITY that is a zero —
+    # no footing under this wall — not a type error. A default only applies
+    # when the key is absent, so until 2026-09-05 a blank footing width was a
+    # 422 ("Decimal input should be an integer, float, string or Decimal
+    # object", no field named) and Chad typed a 0 into every footing box of
+    # every wall that had none. Blank means none. The bulk route still refuses
+    # a NEW row with no length, so a blank that mattered is still caught — and
+    # api.js now names the cell.
+    @field_validator(
+        "length_ft", "wall_thick_in", "wall_height_in", "ftg_width_in", "ftg_thick_in",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
+
 
 class WallRunCreate(WallRunBase):
     section_id: UUID
@@ -68,6 +84,16 @@ class WallRunUpdate(BaseModel):
     ftg_mats: int | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None
+
+    # Same rule on a single-row PATCH: these five are NOT NULL in the table,
+    # so an explicit null here was an IntegrityError on the way in.
+    @field_validator(
+        "length_ft", "wall_thick_in", "wall_height_in", "ftg_width_in", "ftg_thick_in",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_zero(cls, v):
+        return 0 if v is None else v
 
 
 class WallRunRead(WallRunBase):
