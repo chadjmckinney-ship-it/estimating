@@ -39,9 +39,17 @@ One thing that IS wrong in the sheet and is not reproduced: the excavation
 divisor. The sheet divides by **3088**, where every other in²·ft to CY
 conversion in the workbook — including the footing concrete two columns over —
 divides by 3888 (12 x 12 x 27). 3088 has no dimensional meaning. Using it
-inflates excavation by 26%: 181 CY against 144, or $444 of excavation labor on
+inflates excavation by 26%: 181 CY against 141, or $480 of excavation labor on
 this job. `EXCAVATE_DIVISOR_SHEET` reproduces the sheet if you ever need the
 bid back exactly.
+
+Settled by Chad on 2026-09-05 with the workbook open: a typo, 3888 stays. The
+evidence: the older template has no 3088 anywhere (its excavation was an
+allocated labor line, not a per-row CY); 3088 arrived with the New Current
+template's per-row excavation cell and was copied to all five walls-type
+sheets by the same fill; every other inch x inch x ft to CY on the sheet is
+3888 (286 cells); and the backfill cell beside it writes its 1.3 swell out
+loud, which is what a deliberate allowance looks like.
 """
 
 from __future__ import annotations

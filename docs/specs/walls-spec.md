@@ -72,6 +72,20 @@ right — divides by **3888** (12 × 12 × 27). 3088 has no dimensional meaning.
 the bid exactly, because a bid that went out is a record and should stay
 checkable; there is a test for that too.
 
+**Confirmed by Chad, 2026-09-05, with the workbook open: a typo. 3888 stays.**
+What the workbooks showed: the cell is `ROUND(N×O/3088×E, 0)` under "Labor
+Sheet / Excavation" — footing width × thickness × length, the neat footing
+volume. Every other inch × inch × feet → CY on the same sheet divides by 3888
+(286 cells, including the footing concrete built from the same three inputs).
+The backfill cell beside it ends in `/27*1.3`: when the template wants a
+factor, it writes one. 3088 sits in the New Current template on all five
+walls-type sheets (03, 06, 06-Footings, both garage sheets), 26 rows each, the
+same fill on every one; LBJ inherited it. The older template (Updated Estimate
+Worksheet) has no 3088 anywhere — its excavation was an allocated labor line,
+not a per-row CY, so there was no cell to mistype until the rework created
+one. Only excavation labor keys on the number; the excavator is per day and
+walls carry no haul-off. The workbook's DD column is Chad's to correct.
+
 ## Two mixes on one section — a first
 
 The wall takes its mix **per row** (every LBJ row is mix 5, 4000 PSI at $145).
