@@ -494,7 +494,6 @@ def split_wall_and_footing(db: Session, section: EstimateSection) -> None:
     exc_rate = r("excavate", "labor_excavate_cy", "12")
     tie_rate = r("tie_steel", "labor_tie_steel_ton", "450")
     rebar_cost = _rebar_price(db, kind)
-    footing_mix = getattr(section, "footing_mix_design_id", None)
 
     footing_direct: list[Decimal] = []
     attributed: list[Decimal] = []
@@ -505,7 +504,7 @@ def split_wall_and_footing(db: Session, section: EstimateSection) -> None:
         ftg_sf = _d(run.calc_footing_sf)
         exc = _d(run.calc_excavate_cy)
 
-        mix_id = footing_mix or run.mix_design_id
+        mix_id = run.footing_mix_for(section)  # row's footing mix, else the section's, else the wall's
         ftg = (
             ftg_cy * _mix_price(db, mix_id) * taxed
             + ftg_steel * rebar_cost * taxed

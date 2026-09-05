@@ -1633,7 +1633,18 @@ function columnColumns(mixes) {
  * wall line is horizontal + vertical + laps, the footing line its own bars —
  * the same split services/walls.py costs them on; the two sum to the type.
  */
-function wallColumns(mixes) {
+function wallColumns(mixes, section = null) {
+  // What a blank footing mix means on this section: the section's footing mix
+  // (the select above the grid) when one is set, else the wall's own.
+  const ftgMixId = section?.footing_mix_design_id;
+  const ftgMix =
+    ftgMixId == null ? null : (mixes || []).find((m) => String(m.id) === String(ftgMixId));
+  const ftgHint =
+    ftgMixId == null
+      ? "This footing's mix. Blank: no footing mix is set on the section, so it follows the wall's."
+      : `This footing's mix. Blank follows the section's footing mix, ${
+          ftgMix ? ftgMix.code || ftgMix.description || ftgMix.id : ftgMixId
+        }.`;
   const wallSteel = (r) => {
     const parts = [r.calc_horiz_rebar_lb, r.calc_vert_rebar_lb, r.calc_lap_rebar_lb];
     if (parts.every((v) => v == null)) return null;
@@ -1672,7 +1683,17 @@ function wallColumns(mixes) {
       label: "Wall mix",
       type: "select",
       options: mixOptions(mixes),
-      sub: { label: "section ftg mix" },
+      // The footing's own mix (sql/062). Blank follows the section's footing
+      // mix — the select above the grid — then the wall's. Chad, 2026-09-05:
+      // "per row footing mix, on the footing line."
+      sub: {
+        f: "footing_mix_design_id",
+        label: "Ftg mix",
+        tag: "mix",
+        type: "select",
+        options: mixOptions(mixes),
+        hint: ftgHint,
+      },
     },
     // The footing's two mats (sql/059) sit under the wall's two bar sets:
     // bottom under horizontal, top under vertical. Each is its own bar set
@@ -2267,6 +2288,26 @@ async function renderSectionDetail(root) {
           }</span>
         </p>
         ${
+          isWalls
+            ? `<p style="margin:0.4rem 0 0;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;font-size:0.85rem">
+                 <label class="muted" for="sec-footing-mix">Footing mix</label>
+                 <select id="sec-footing-mix"
+                   title="One mix for every footing in this section — the sheet's R8. Blank: each footing follows its wall's mix.">
+                   <option value=""${section.footing_mix_design_id == null ? " selected" : ""}>follows the wall's mix</option>
+                   ${mixOptions(state.mixes)
+                     .map(
+                       (o) =>
+                         `<option value="${esc(o.id)}"${
+                           String(section.footing_mix_design_id) === String(o.id) ? " selected" : ""
+                         }>${esc(o.label)}</option>`
+                     )
+                     .join("")}
+                 </select>
+                 <span class="muted" style="color:var(--text-muted);font-size:0.8rem">every footing in this section — each wall's own mix is on its row</span>
+               </p>`
+            : ""
+        }
+        ${
           isGrid
             ? `<p style="margin:0.4rem 0 0;color:var(--text-muted);font-size:0.82rem">
                  No vapor barrier on this assembly — ${
@@ -2509,7 +2550,7 @@ async function renderSectionDetail(root) {
               "<strong>separately</strong>, each on its own driver — the wall per form " +
               "foot, the footing per SF of plan area — so a bad schedule shows up in " +
               "one rate and not the other. They always sum to the type.",
-            columns: wallColumns(state.mixes),
+            columns: wallColumns(state.mixes, section),
             rows: wallRows,
             addLabel: "Wall type",
             saveLabel: "Save wall runs",
@@ -2722,7 +2763,7 @@ async function renderSectionDetail(root) {
     } else if (isWalls) {
       wireGrid(root, {
         id: "wall-runs",
-        columns: wallColumns(state.mixes),
+        columns: wallColumns(state.mixes, section),
         required: ["length_ft", "wall_height_in"],
         save: (rows) => Api.bulkSaveWallRuns(section.id, rows),
         remove: (id) => Api.deleteWallRun(id),
@@ -2946,6 +2987,30 @@ async function renderSectionDetail(root) {
       }
     };
   });
+  // The footing's mix is one per section (sql/040 — the sheet's R8); the
+  // wall's is per row. Until 2026-09-05 the field existed on the API and
+  // nowhere on the screen — Chad: "there is a field to chose mix designs for
+  // walls but not for the footing." The PATCH re-costs the section's runs on
+  // the spot (it is a costing field on the router), so the page re-renders.
+  const selFtgMix = $("#sec-footing-mix");
+  if (selFtgMix) {
+    selFtgMix.onchange = async () => {
+      const v = selFtgMix.value;
+      try {
+        await Api.updateSection(section.id, {
+          footing_mix_design_id: v === "" ? null : Number(v),
+        });
+        toast(
+          v === ""
+            ? "Footings follow each wall's mix again — repriced"
+            : `Footing mix set to ${selFtgMix.selectedOptions[0]?.textContent || v} — footings repriced`
+        );
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  }
   // One switch per section (sql/052). The PATCH rebuilds the labor lines —
   // the flag lives on the line, not just the section, so the sub's sheet can
   // be built from the stored takeoff rather than re-derived.

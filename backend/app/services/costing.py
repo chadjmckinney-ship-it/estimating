@@ -915,10 +915,10 @@ def _wall_units(db: Session, section: EstimateSection) -> list[_Unit]:
     One wall run, weighted by FORM FEET.
 
     The only assembly so far where concrete comes from two mixes: the wall
-    takes the row's mix, the footing takes the section's `footing_mix_design_id`
-    — cheaper concrete in the ground, better concrete in the wall. When the
-    section names no footing mix the row's mix prices both, rather than the
-    footing pricing at nothing.
+    takes the row's mix, the footing its own `footing_mix_design_id` (sql/062),
+    else the section's, else the row's — cheaper concrete in the ground, better
+    concrete in the wall, and a footing never priced at nothing. The ladder is
+    `WallRun.footing_mix_for`, the one rule every costing path uses.
 
     Sand is a direct material here (it goes under the form line), where on a
     slab it is part of the pour. Excavation and backfill are labor, not
@@ -938,7 +938,6 @@ def _wall_units(db: Session, section: EstimateSection) -> list[_Unit]:
     rebar_q = quotes.get(qt.REBAR)
     quoted_lb = rebar_q.per_lb() if rebar_q else None
 
-    footing_mix = getattr(section, "footing_mix_design_id", None)
     from app.services.calc import _rate_numeric
 
     sand_rate = _rate_numeric(db, kind, "sand_unit_cost", _z(_sand_unit_cost(db)))
@@ -953,7 +952,7 @@ def _wall_units(db: Session, section: EstimateSection) -> list[_Unit]:
         if wall_cy > 0:
             materials += wall_cy * _z(_mix_unit_cost(db, r.mix_design_id))
         if ftg_cy > 0:
-            materials += ftg_cy * _z(_mix_unit_cost(db, footing_mix or r.mix_design_id))
+            materials += ftg_cy * _z(_mix_unit_cost(db, r.footing_mix_for(section)))
 
         steel = _d(r.calc_total_rebar_lb)
         if steel > 0 and not (rebar_q and rebar_q.is_lump):
@@ -1203,10 +1202,9 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
     elif kind in WALL_KINDS:
         from app.models.wall_run import WallRun
 
-        footing_mix = getattr(section, "footing_mix_design_id", None)
         for r in db.scalars(select(WallRun).where(WallRun.section_id == section.id)):
             need_mix(r.mix_design_id, r.calc_wall_concrete_cy)
-            need_mix(footing_mix or r.mix_design_id, r.calc_footing_concrete_cy)
+            need_mix(r.footing_mix_for(section), r.calc_footing_concrete_cy)
             if not rebar_quoted:
                 need(rebar_label(False), _rebar_unit_cost(db, False, kind), r.calc_total_rebar_lb)
             need("SAND", _sand_unit_cost(db), getattr(r, "calc_sand_cy", 0))

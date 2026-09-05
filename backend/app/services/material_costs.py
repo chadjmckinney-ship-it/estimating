@@ -378,7 +378,6 @@ def _wall_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
     quotes = qt.load_quotes(db, section.id)
     rebar_q = quotes.get(qt.REBAR)
     quoted_lb = rebar_q.per_lb() if rebar_q else None
-    footing_mix = getattr(section, "footing_mix_design_id", None)
     sand_rate = _rate_numeric(db, section.kind, "sand_unit_cost", _z(_sand_unit_cost(db)))
 
     wall_c = _Acc()
@@ -395,7 +394,7 @@ def _wall_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
 
         ftg_cy = _d(r.calc_footing_concrete_cy)
         if ftg_cy > 0:
-            mid = footing_mix or r.mix_design_id
+            mid = r.footing_mix_for(section)  # row's footing mix, else the section's, else the wall's
             mix = db.get(MixDesign, mid) if mid else None
             ftg_c.add_priced(ftg_cy, _mix_unit_cost(db, mid),
                              getattr(mix, "name", None) or getattr(mix, "code", None) or "footing mix (none chosen)")

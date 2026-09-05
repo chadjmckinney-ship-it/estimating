@@ -201,6 +201,22 @@ bars and its top mat under the vertical** (`bot sp"`, `bot #`, `top sp"`,
 `top #`). `services/walls.py` `footing_mat_lb` + `footing_rebar_lb`;
 `backend/tests/test_footing_mats.py`.
 
+## 2026-09-05 — a footing can name its own mix (`sql/062`)
+
+Chad, right after the section-level "Footing mix" select went onto the walls
+page: "there is no option for me to set the mix if I price walls manually" —
+"per row footing mix, on the footing line."
+
+`wall_runs.footing_mix_design_id`, nullable, the same FK shape as the wall's
+mix. The footing's mix resolves in one ladder, `WallRun.footing_mix_for`: the
+row's footing mix, else the section's `footing_mix_design_id` (R8, one for
+every footing), else the wall's own — so a footing never prices at nothing.
+Every path that prices footing concrete (the wall/footing split, pour costing,
+the materials breakdown, the unpriced check) asks that method. Existing rows
+are NULL and price exactly as before. On the grid the footing line carries a
+mix select under the wall's; the section's select above the grid is the
+default. `backend/tests/test_footing_mix_per_row.py`.
+
 ## Left for later
 
 - **Pilasters are untested.** Every LBJ row leaves those columns empty, so the

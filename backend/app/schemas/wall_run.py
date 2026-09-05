@@ -17,7 +17,11 @@ class WallRunBase(BaseModel):
         False, description="Drives sand, excavation, backfill and the french drain."
     )
     mix_design_id: int | None = Field(
-        None, description="The WALL's mix. Footings take the section's footing mix."
+        None, description="The WALL's mix. The footing has its own below, else the section's, else this."
+    )
+    footing_mix_design_id: int | None = Field(
+        None,
+        description="This footing's mix (sql/062). Blank: the section's footing mix, then the wall's.",
     )
 
     length_ft: Decimal = Field(0, ge=0)
@@ -71,6 +75,7 @@ class WallRunUpdate(BaseModel):
     description: str | None = None
     backfill: bool | None = None
     mix_design_id: int | None = None
+    footing_mix_design_id: int | None = None
     length_ft: Decimal | None = Field(None, ge=0)
     wall_thick_in: Decimal | None = Field(None, ge=0)
     wall_height_in: Decimal | None = Field(None, ge=0)

@@ -42,6 +42,11 @@ class WallRun(Base):
     mix_design_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("mix_designs.id", ondelete="SET NULL")
     )
+    # This footing's own mix (sql/062). NULL follows the section's footing
+    # mix, then the wall's — see footing_mix_for.
+    footing_mix_design_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("mix_designs.id", ondelete="SET NULL")
+    )
 
     length_ft: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, server_default=text("0"))
     wall_thick_in: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False, server_default=text("0"))
@@ -109,3 +114,17 @@ class WallRun(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+    def footing_mix_for(self, section) -> int | None:
+        """
+        The mix this footing is poured from: the row's own footing mix, else
+        the section's (the sheet's R8 — one for every footing), else the
+        wall's, so a footing never prices at nothing. The one rule every
+        costing path uses. Chad, 2026-09-05: "per row footing mix, on the
+        footing line."
+        """
+        return (
+            self.footing_mix_design_id
+            or getattr(section, "footing_mix_design_id", None)
+            or self.mix_design_id
+        )

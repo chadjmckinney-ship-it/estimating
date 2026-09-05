@@ -229,5 +229,16 @@ test("walls section draws each type as a wall line over its footing line", async
   for (const tag of ['W"', 'T"', 'bot sp"', "bot #", 'top sp"', "top #"]) {
     await expect(footingLines.first().locator(".sub-tag", { hasText: tag }).first()).toBeVisible();
   }
+  // Each footing can name its own mix on its line (sql/062)...
+  await expect(
+    footingLines.first().locator('select[data-f="footing_mix_design_id"]')
+  ).toBeVisible();
+  // ...and the section's footing mix (the sheet's R8) has its own select
+  // above the grid since 2026-09-05; blank there means each footing follows
+  // its wall.
+  const ftgMix = page.locator("select#sec-footing-mix");
+  await expect(ftgMix).toBeVisible();
+  await expect(ftgMix.locator("option").first()).toHaveText("follows the wall's mix");
+  expect(await ftgMix.locator("option").count()).toBeGreaterThan(1);
   expect(errors).toEqual([]);
 });

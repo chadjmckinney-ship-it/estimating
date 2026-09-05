@@ -52,6 +52,39 @@ def test_footing_mix_is_writable_through_the_api(client, db, estimate):
     assert client.get(f"/api/sections/{sid}").json()["footing_mix_design_id"] == 3
 
 
+def test_the_footing_mix_select_reprices_the_footings(client, db, estimate):
+    """
+    The "Footing mix" select on the walls page (2026-09-05 — Chad: "there is a
+    field to chose mix designs for walls but not for the footing") sends
+    exactly two shapes: {"footing_mix_design_id": <id>} and
+    {"footing_mix_design_id": None}, the latter being "follows the wall's mix".
+    The fixture's footing is 3500 @ $140 under a 4000 @ $145 wall, so clearing
+    it must make every footing dearer on the spot, and setting it back must
+    land on the same cents — the PATCH re-costs the runs, not just the flag.
+    """
+    s = wf.build(db, estimate)
+    # wf.build stores the takeoff; the wall/footing split costs land on a
+    # costing pass — the same one the page's Recalculate button runs.
+    assert client.post(f"/api/sections/{s.id}/recalc").status_code == 200
+    before = client.get(f"/api/sections/{s.id}").json()["footing_mix_design_id"]
+    assert before is not None  # the sheet's R8
+    rows = client.get(f"/api/wall-runs?section_id={s.id}").json()
+    ftg_before = {r["id"]: Decimal(r["calc_footing_cost"]) for r in rows}
+    assert len(ftg_before) == 16 and sum(ftg_before.values()) > 0
+
+    p = client.patch(f"/api/sections/{s.id}", json={"footing_mix_design_id": None})
+    assert p.status_code == 200, p.text
+    assert p.json()["footing_mix_design_id"] is None
+    for r in client.get(f"/api/wall-runs?section_id={s.id}").json():
+        assert Decimal(r["calc_footing_cost"]) > ftg_before[r["id"]], r["label"]
+
+    p = client.patch(f"/api/sections/{s.id}", json={"footing_mix_design_id": before})
+    assert p.status_code == 200, p.text
+    after = {r["id"]: Decimal(r["calc_footing_cost"])
+             for r in client.get(f"/api/wall-runs?section_id={s.id}").json()}
+    assert after == ftg_before
+
+
 def test_a_typo_on_a_section_patch_is_a_422(client, db, estimate):
     """A silent 200 on an unknown field is how the hole above stayed invisible."""
     r = client.post(
