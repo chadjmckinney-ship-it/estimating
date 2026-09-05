@@ -29,7 +29,7 @@ class SystemSettingRead(BaseModel):
     # here changes what NEW work is priced at and leaves every existing job
     # alone. A RULE is read live, so changing it rewrites every open estimate
     # on the spot. Same screen, opposite consequences — see
-    # claude/estimate-price-sheet-spec.md, "What is a price, and what is a
+    # docs/specs/estimate-price-sheet-spec.md, "What is a price, and what is a
     # rule".
     is_price: bool = False
     # The registry's label and unit for a price ("Superintendent", "DAY").

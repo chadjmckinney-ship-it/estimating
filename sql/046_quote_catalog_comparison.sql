@@ -18,7 +18,7 @@
 --
 -- These are RATIOS, not prices — a rule about how far apart two numbers may be,
 -- which is exactly what `system_settings` is for. See
--- claude/design-decisions.md, "A price comes from the catalog."
+-- docs/specs/design-decisions.md, "A price comes from the catalog."
 --
 -- Override per assembly by adding an `assembly_rates` row with the same key.
 

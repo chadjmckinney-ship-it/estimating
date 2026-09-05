@@ -38,7 +38,7 @@ A failure now says *which block moved*, not just that a total is wrong.
 
 ## The 8 cents
 
-The fixture reads **$671,712.66** where `claude/lbj-workbook-reconciliation.md`
+The fixture reads **$671,712.66** where `docs/specs/lbj-workbook-reconciliation.md`
 says $671,712.74. The difference is a fix, not drift.
 
 Supervision days used to quantize weeks to four decimals and *then* multiply by

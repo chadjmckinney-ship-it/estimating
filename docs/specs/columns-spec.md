@@ -230,7 +230,7 @@ wall sheet's $/FF.
 
 1. `sql/045_columns.sql` — the `column_types` table (qty, mix, height, L, W,
    three vertical sets, tie size/spacing, dowel size/count/length) and 27
-   `assembly_rates` rows. **No prices** — see `claude/design-decisions.md`.
+   `assembly_rates` rows. **No prices** — see `docs/specs/design-decisions.md`.
    (The `assembly_rates` column is `note`, not `notes`.)
 2. `services/columns.py` — the geometry above, with the four decisions applied.
 3. `costing.py` — `_column_units`, `allocation_basis` returning SF, and
@@ -245,7 +245,7 @@ wall sheet's $/FF.
    cards, a 22-column grid spec, and columns branches on the forming, labor and
    equipment card headers. `tests/test_columns_ui_contract.py` guards the field
    names it reads; `frontend/check.mjs` guards the parse. See
-   `claude/frontend-parse-and-drivers.md` — building the screen surfaced three
+   `docs/specs/frontend-parse-and-drivers.md` — building the screen surfaced three
    silent failures, none of which produced an error anywhere.
 
 **Still open: a second columns section called "Pilasters."** Chad, 2026-08-31:
@@ -284,7 +284,7 @@ price after finding the same $0.02 typed over `Pricing!Q14` on the paving sheet.
 between the live section and `tests/columns_fixture.py`, which states the
 sheet's $0.02.
 
-Per `claude/design-decisions.md`, **that is not a finding.** The sheet is
+Per `docs/specs/design-decisions.md`, **that is not a finding.** The sheet is
 deliberately behind; the catalog is the single source. The fixture states $0.02
 so the test still fails when a *rule* changes, and the live section reads the
 current price.

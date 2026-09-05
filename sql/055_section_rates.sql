@@ -50,7 +50,7 @@
 -- we are wasting 8% concrete", which is a job fact, so it sits where the price
 -- sheet sits — and it is deliberately NOT on the sheet, because the sheet
 -- FREEZES what it holds and a rule must stay live (see
--- claude/estimate-price-sheet-spec.md, "What is a price, and what is a rule").
+-- docs/specs/estimate-price-sheet-spec.md, "What is a price, and what is a rule").
 -- An unoverridden rule still reaches every old job on recalc, which is the
 -- whole reason rules are not frozen.
 --

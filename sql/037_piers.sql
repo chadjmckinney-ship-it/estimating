@@ -1,7 +1,7 @@
 -- 037: piers
 --
 -- Phase 3b. Read off 01-Piers in the LBJ workbook; the full derivation is in
--- claude/piers-spec.md. Acceptance is 106 piers / 2,348 LF / 632.6993 CY
+-- docs/specs/piers-spec.md. Acceptance is 106 piers / 2,348 LF / 632.6993 CY
 -- against $295,601.21, taxable at 8.25%, 18% markup.
 --
 -- Piers is the first assembly that is NOT a pour. Paving fitted into

@@ -1,11 +1,11 @@
 # LBJ workbook reconciliation (2026-08-30)
 
-> ## ⚠ Reference moved — read `claude/workbook-reference.md` first (2026-09-01)
+> ## ⚠ Reference moved — read `docs/specs/workbook-reference.md` first (2026-09-01)
 >
 > This document was written against
 > `Estimate_Projects\workbooks\Downloads\Trammel Crow - LBJ Estimate.xlsm`.
 > **The live reference is now `C:\Users\Chad\Estimate_Project\Trammel Crow - LBJ
-> Estimate.xlsm`** — a different, actively-edited copy. `claude/workbook-reference.md`
+> Estimate.xlsm`** — a different, actively-edited copy. `docs/specs/workbook-reference.md`
 > has the current per-sheet figures, the cells to read, and where each variance
 > stands.
 >
@@ -22,13 +22,13 @@
 > `4000-AIR-ASH` is $155/CY against the bid's $145, `3500-AIR-ASH` $150 against
 > $140. `3000-AIR-ASH` is untouched at $134, which is why the slab still
 > reproduces to the penny and piers and walls do not. Catalog drift, not rules —
-> see `claude/price-restore-checklist.md`.
+> see `docs/specs/price-restore-checklist.md`.
 >
 > The golden numbers live in fixtures now, each stating its own prices:
 > `tests/mono_slab_fixture.py` ($671,712.66), `tests/walls_fixture.py`
 > ($200,752.39), `tests/piers_fixture.py` ($297,204.52). **Those are the
 > reference that fails when a rule changes. The workbook is a starting point** —
-> see the first entry in `claude/design-decisions.md`.
+> see the first entry in `docs/specs/design-decisions.md`.
 
 Golden-number check of the app against a real bid, then the fixes it exposed.
 **Complete** — every dollar of the remaining variance is named.
@@ -101,7 +101,7 @@ types — per estimate or per pour — so the constraint that caused the shortcu
 gone, but the data entry is real, and it is **accepted rather than optimised away**:
 a reusable section library was proposed and rejected, because a section carried
 forward is exactly how the padding survived job after job. See
-`claude/design-decisions.md`.
+`docs/specs/design-decisions.md`.
 
 Two smaller structural differences, both deliberate:
 
@@ -279,7 +279,7 @@ not six.
 
 1. **Restore today's prices** — deliberately deferred while the calc engine is
    being built, so LBJ stays a golden-number fixture. Values, risks and the apply
-   steps are in `claude/price-restore-checklist.md`. **Partly overtaken by
+   steps are in `docs/specs/price-restore-checklist.md`. **Partly overtaken by
    events:** `4000-AIR-ASH` and `3500-AIR-ASH` have already moved to $155 / $150,
    which is why live piers and walls read above their fixtures.
 2. The published artifact **"LBJ Bid Reconciliation"** is stale — it predates the
@@ -290,7 +290,7 @@ not six.
    contract, so not urgent.
 
 **Not open — decided against:** a reusable beam-section library
-(`claude/design-decisions.md`).
+(`docs/specs/design-decisions.md`).
 
 ## Process notes
 

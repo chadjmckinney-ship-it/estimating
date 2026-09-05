@@ -52,7 +52,7 @@ COMMENT ON TABLE assembly_rates IS
     'code default. One row per (kind, key).';
 
 -- ---------------------------------------------------------------------------
--- paving: read off 10-PAVING (see claude/paving-spec.md)
+-- paving: read off 10-PAVING (see docs/specs/paving-spec.md)
 -- ---------------------------------------------------------------------------
 
 INSERT INTO assembly_rates (kind, key, value, note) VALUES

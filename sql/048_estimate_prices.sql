@@ -1,6 +1,6 @@
 -- 048 — the estimate price sheet (stage 1: mixes and materials)
 --
--- claude/estimate-price-sheet-spec.md. Chad, 2026-09-02: "I like having a
+-- docs/specs/estimate-price-sheet-spec.md. Chad, 2026-09-02: "I like having a
 -- master list of rough mix prices that we get from suppliers that we update
 -- as we get them, then as we start an estimate, it pulls those numbers and we
 -- can update when a supplier gives us a quote."

@@ -7,7 +7,7 @@
 -- reproduced before any of this was written; the sheet's own nineteen cost
 -- columns sum to $952,052.0214 against its stated $952,052.0215, so the model
 -- is understood rather than approximated. Full derivation in
--- `claude/cip-deck-spec.md`.
+-- `docs/specs/cip-deck-spec.md`.
 --
 -- This is the sixth assembly and the first that HANGS IN THE AIR. The five
 -- before it are all ground-bearing, and four things follow from that which
@@ -300,7 +300,7 @@ ON CONFLICT DO NOTHING;
 
 
 -- ---------------------------------------------------------------------------
--- Rates. NO PRICES -- see sql/044 and claude/design-decisions.md.
+-- Rates. NO PRICES -- see sql/044 and docs/specs/design-decisions.md.
 -- Concrete, steel, PT, lumber and accessories all resolve through the catalog.
 --
 -- Everything here is read off the sheet's own cells, cited. Keys that already

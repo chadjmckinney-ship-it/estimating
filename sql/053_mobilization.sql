@@ -48,7 +48,7 @@
 -- Why this migration carries no number
 -- ---------------------------------------------------------------------------
 --
--- sql/044 and claude/design-decisions.md: prices live in the catalog and on
+-- sql/044 and docs/specs/design-decisions.md: prices live in the catalog and on
 -- the estimate's price sheet, never in a migration. A mobilization figure
 -- committed here would be a second home for a price, and the second home is
 -- the one nobody updates.

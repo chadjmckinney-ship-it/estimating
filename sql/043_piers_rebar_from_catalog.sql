@@ -15,7 +15,7 @@
 -- assembly buys at a price no catalog item carries", and that is now false —
 -- the catalog has an item named for this exact use. Removing the row lets
 -- `resolve_rebar` reach REBAR PIERS / PT slabs, so the price tracks the catalog
--- the way paving already tracks REBAR PAVING (claude/design-decisions.md, "A
+-- the way paving already tracks REBAR PAVING (docs/specs/design-decisions.md, "A
 -- price comes from the catalog; the assembly says which item, or states a
 -- rate"). The companion change is in costing.resolve_rebar.
 --

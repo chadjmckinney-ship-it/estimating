@@ -1,7 +1,7 @@
 """
 The estimate price sheet, and the book every costing pass reads from.
 
-claude/estimate-price-sheet-spec.md. Chad, 2026-09-02:
+docs/specs/estimate-price-sheet-spec.md. Chad, 2026-09-02:
 
     "I like having a master list of rough mix prices that we get from
     suppliers that we update as we get them, then as we start an estimate, it

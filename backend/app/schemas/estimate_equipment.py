@@ -45,7 +45,7 @@ class EstimateEquipmentLineRead(BaseModel):
     is_manual: bool = False
     # Where the rate came from — catalog | rate | default — and whether the
     # line is a placeholder standing where a price belongs (sql/047). A schema
-    # that does not name a field drops it; see claude/frontend-parse-and-drivers.md.
+    # that does not name a field drops it; see docs/specs/frontend-parse-and-drivers.md.
     price_source: str | None = None
     missing_price: bool = False
 

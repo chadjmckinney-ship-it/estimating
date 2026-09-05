@@ -16,7 +16,7 @@ the catalog moves, because it is no longer reading the catalog.
 
 Two equipment day rates were edited in the catalog at 09:35 on 2026-08-31. The
 LBJ mono slab moved **−$4,984.91**, the whole 248-test suite passed, and it took
-a morning to establish that nothing was broken. `claude/price-restore-checklist.md`
+a morning to establish that nothing was broken. `docs/specs/price-restore-checklist.md`
 records it, and its open item was this feature:
 
 > **No audit on catalog edits.** A price change silently reprices every draft

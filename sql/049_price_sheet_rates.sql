@@ -1,6 +1,6 @@
 -- 049 — the estimate price sheet, stage 2: equipment and every monetary rate
 --
--- claude/estimate-price-sheet-spec.md. Stage 1 (048) put mixes and materials
+-- docs/specs/estimate-price-sheet-spec.md. Stage 1 (048) put mixes and materials
 -- on the sheet. This puts on it everything else that is a PRICE and lives in
 -- a table:
 --

@@ -23,7 +23,7 @@ everything.
     accessories   = steel_lb + mesh_sf × 0.75
     slab cure     = ceil(total_sf / 300 / 55)
 
-  PAVING (Excel 10-PAVING, same block; see claude/paving-spec.md)
+  PAVING (Excel 10-PAVING, same block; see docs/specs/paving-spec.md)
 
     2x4 / 2x6 / 2x10 = curb_lf × form%      ← curb, not perimeter
     siding sheets    = ceil(curb_lf × 0.03 / 16)

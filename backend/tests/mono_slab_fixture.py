@@ -3,7 +3,7 @@
 
 This is the fixture that should have existed all along.
 
-`claude/lbj-workbook-reconciliation.md` pinned this section at **$671,712.74**
+`docs/specs/lbj-workbook-reconciliation.md` pinned this section at **$671,712.74**
 and that number lived in a document, asserted nowhere. The catalog was frozen at
 LBJ bid prices to protect it — a hold maintained by intention rather than by
 anything that runs. On 2026-08-31 two equipment day rates were edited, the
@@ -68,7 +68,7 @@ EQUIPMENT_PRICES = {
 }
 
 # Company settings the bid was priced under. Four of these are on the restore
-# list in claude/price-restore-checklist.md — pinning them here is what lets
+# list in docs/specs/price-restore-checklist.md — pinning them here is what lets
 # that list finally be applied.
 SETTINGS = {
     "labor_grading_sf": "0.65",

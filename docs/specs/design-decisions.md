@@ -33,7 +33,7 @@ So, going forward:
   takeoff derives, which lines exist, what drives them, what a formula actually
   computes. That is what 07-COLUMNS needed from it, and what every later
   assembly will need.
-- The variance tables in `claude/workbook-reference.md` and the `*-spec.md`
+- The variance tables in `docs/specs/workbook-reference.md` and the `*-spec.md`
   files are **dated snapshots**, not live checks. They record what was true when
   the rules were verified. Do not re-run them expecting agreement.
 

@@ -7,7 +7,7 @@
 -- until then the tab was empty and columns was going to be the first assembly
 -- built with no golden number. Every formula was read and reproduced to four
 -- decimals against the sheet's own rows before any of this was written. The
--- full derivation is in `claude/columns-spec.md`.
+-- full derivation is in `docs/specs/columns-spec.md`.
 --
 -- ---------------------------------------------------------------------------
 -- What one row is
@@ -121,7 +121,7 @@ COMMENT ON COLUMN column_types.calc_chamfer_lf IS
 
 
 -- ---------------------------------------------------------------------------
--- Rates. NO PRICES -- see sql/044 and claude/design-decisions.md. Concrete,
+-- Rates. NO PRICES -- see sql/044 and docs/specs/design-decisions.md. Concrete,
 -- steel, accessories, chamfer and cure all resolve through the catalog.
 -- ---------------------------------------------------------------------------
 

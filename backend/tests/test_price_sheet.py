@@ -1,7 +1,7 @@
 """
 The estimate price sheet (sql/048) — stage 1: mixes and materials.
 
-claude/estimate-price-sheet-spec.md. Each test below is one line of that spec's
+docs/specs/estimate-price-sheet-spec.md. Each test below is one line of that spec's
 "New tests needed" list, in order, plus the API.
 
 The one that matters most is the first: a pull reproduces the master list

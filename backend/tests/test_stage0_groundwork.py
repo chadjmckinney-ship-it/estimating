@@ -1,7 +1,7 @@
 """
 Price-sheet stage 0: the groundwork, pinned.
 
-claude/estimate-price-sheet-spec.md, "Stage 0, concretely". Five of Chad's
+docs/specs/estimate-price-sheet-spec.md, "Stage 0, concretely". Five of Chad's
 decisions, each with a test that would have failed the day before it landed.
 
 The headline — decision 5, in his words: "I dont like concrete prices starting

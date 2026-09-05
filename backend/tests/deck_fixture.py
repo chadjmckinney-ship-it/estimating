@@ -12,7 +12,7 @@ The prices come from HERE, the way every other fixture states theirs.
 The sheet reads **$952,052.02**, and it reconciles from its own parts to a
 tenth of a cent — summing `BJ50:CC50` gives $952,052.0214 against the stated
 $952,052.0215. Every piece of the gap below that was named in
-`claude/cip-deck-spec.md` and sql/052 before a line of code was written.
+`docs/specs/cip-deck-spec.md` and sql/052 before a line of code was written.
 
   * **GRADE BEAM FORM FEET ARE BOTH FACES.** `U53 = C53/12` is one face. Chad,
     2026-09-04, asked whether a deck grade beam is formed on one side only:

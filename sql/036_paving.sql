@@ -1,7 +1,7 @@
 -- 036: paving
 --
 -- Phase 3. Everything here is read off 10-PAVING in the LBJ workbook; the full
--- derivation, cell by cell, is in claude/paving-spec.md. Acceptance is
+-- derivation, cell by cell, is in docs/specs/paving-spec.md. Acceptance is
 -- $1,327,183.47 on 272,703 SF at 8.25% tax and 18% markup, less the four
 -- named workbook bugs the app deliberately does not reproduce (see the bottom
 -- of this file).
@@ -113,7 +113,7 @@ INSERT INTO assembly_rates (kind, key, value, note) VALUES
     -- Steel deliberately gets NO row: the catalog already carries a REBAR
     -- PAVING item, which is the right place for it, and costing now reaches
     -- for that on a paving section. Worth knowing that the catalog says $0.50
-    -- where the sheet types $0.55 — see claude/paving-spec.md.
+    -- where the sheet types $0.55 — see docs/specs/paving-spec.md.
     ('paving', 'accessories_unit_cost',     0.02,  'Sheet 10-PAVING T80 (catalog: 0.04)'),
 
     -- Contract services priced on the paving sheet.

@@ -5,7 +5,7 @@ applying before the app will start clean — `run` warns about it.
 
 **Source:** `10-PAVING` in the LBJ workbook (live reference:
 `C:\Users\Chad\Estimate_Project\Trammel Crow - LBJ Estimate.xlsm` — see
-`claude/workbook-reference.md`), a filled paving section Chad copied in from
+`docs/specs/workbook-reference.md`), a filled paving section Chad copied in from
 another project on 2026-08-30 so the app has real numbers to build against.
 Every formula below was read from the sheet and re-derived to the cent.
 
@@ -35,7 +35,7 @@ assemblies** — so the app is buying the right thing, and the only open questio
 is whether $4.995 is a current price. **Awaiting a real invoice figure.** At
 4,546 pieces, every $1 moves this section $4,546.
 
-The lesson is the one in `claude/design-decisions.md`: a variance is not
+The lesson is the one in `docs/specs/design-decisions.md`: a variance is not
 resolved by an explanation that sounds plausible. It is resolved by looking.
 
 ---

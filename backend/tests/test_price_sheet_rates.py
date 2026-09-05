@@ -1,7 +1,7 @@
 """
 The estimate price sheet (sql/049) — stage 2: equipment and every monetary rate.
 
-claude/estimate-price-sheet-spec.md, "What is a price, and what is a rule".
+docs/specs/estimate-price-sheet-spec.md, "What is a price, and what is a rule".
 Stage 1 froze mixes and materials per job. This stage freezes the rest of what
 is a PRICE and lives in a table — equipment day rates, the company's labor
 rates, sales tax, the fuel percentage, and each assembly's overrides of those —

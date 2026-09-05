@@ -23,11 +23,11 @@ second was 13 hours newer by clock and older by content. Chad works in the
 
 Live sale **$3,018,489.47**. The estimate header agrees with the sum of its
 sections to the cent (the `refresh_estimate_totals` flush fix — see
-`claude/rollup-flush-and-quote-units.md`).
+`docs/specs/rollup-flush-and-quote-units.md`).
 
 **No difference is a defect in the app.** Each is either the sheet forgetting
 tax, a formula bug in the sheet, or a rule the app deliberately does differently
-— the three-piles framing in `claude/design-decisions.md`.
+— the three-piles framing in `docs/specs/design-decisions.md`.
 
 ---
 

@@ -358,7 +358,7 @@ is what makes the differences above arguable rather than guessed at.
   sheets stay frozen and report it as drift until pulled.
 
   It also produced sql/053: settling the crane is what surfaced that **nothing
-  in the workbook prices getting it to the job.** See `claude/mobilization.md`.
+  in the workbook prices getting it to the job.** See `docs/specs/mobilization.md`.
 * **The bar.** The `-$3,513.21` above. The sheet points `F78` at REBAR GRADE
   BEAM ($0.65); the app resolves the catalog row named for exactly this case,
   REBAR PIERS / PT slabs ($0.60), the way sql/043 already resolves a

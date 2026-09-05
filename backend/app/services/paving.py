@@ -8,7 +8,7 @@ in the joints. Computing it twice from two copies of `ROUNDUP(SF / 60)` is how
 those six lines quietly stop agreeing, so it is computed once, here.
 
 Source: 10-PAVING rows 82–84 and the hidden AT / AU columns. Every formula is
-re-derived in claude/paving-spec.md.
+re-derived in docs/specs/paving-spec.md.
 """
 
 from __future__ import annotations

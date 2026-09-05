@@ -1,6 +1,6 @@
 -- 050 — the estimate price sheet, stage 4: drilling rates by shaft diameter
 --
--- claude/estimate-price-sheet-spec.md. The last table-held price that was
+-- docs/specs/estimate-price-sheet-spec.md. The last table-held price that was
 -- still read live: pier_drill_rates.drill_per_lf, ~20% of a piers section.
 -- One sheet row per diameter (ref_key = the diameter, "24" for 24.00), so a
 -- driller's break on this job's 30" shafts lands on this job and nowhere

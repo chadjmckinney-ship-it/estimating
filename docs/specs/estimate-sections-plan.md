@@ -34,8 +34,8 @@ We reconciled `04-PT Slab on Grade`. That is **one of three** filled sections:
 | Never defaulted by kind | Plenty of paving is not ROW — and the filled 10-PAVING sheet is **taxable**, which is the evidence. |
 | Job per-unit cost | Blank. Sections are EA, SF, FF and LS. |
 | Rates | Per assembly kind, falling back to the company setting. A row in `assembly_rates` means "this assembly differs". |
-| Line sets | Also per assembly kind. A line the sheet does not have is **absent**, not zero. See `claude/design-decisions.md`. |
-| Reusable beam sections | **Rejected** — `claude/design-decisions.md`. |
+| Line sets | Also per assembly kind. A line the sheet does not have is **absent**, not zero. See `docs/specs/design-decisions.md`. |
+| Reusable beam sections | **Rejected** — `docs/specs/design-decisions.md`. |
 
 ## Phase 1a — `sql/033` ✅
 
@@ -91,7 +91,7 @@ means "differs", not "is".
 
 ## Phase 3 — paving ✅ `sql/036`
 
-Full spec, golden numbers, and every named variance: **`claude/paving-spec.md`**.
+Full spec, golden numbers, and every named variance: **`docs/specs/paving-spec.md`**.
 
 The app reads **$1,335,789.97** against the sheet's $1,327,183.47 — +0.65%, with
 every cent accounted for. Four of the five causes are the sheet being wrong.

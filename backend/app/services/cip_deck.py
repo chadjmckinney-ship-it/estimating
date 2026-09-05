@@ -4,7 +4,7 @@ Cast-in-place elevated deck: what a level comes to.
 Source: `08-CIP EL. DECK`, re-derived formula by formula. The sheet's nineteen
 cost columns sum to $952,052.0214 against its stated $952,052.0215, so the
 model below reproduces a understood sheet rather than an approximated one.
-`claude/cip-deck-spec.md` has the full derivation; sql/052 has the decisions.
+`docs/specs/cip-deck-spec.md` has the full derivation; sql/052 has the decisions.
 
 The sixth assembly, and the first that HANGS IN THE AIR. Everything unusual
 about it follows from that: shoring, reshoring, a crane at $3,200/day, and

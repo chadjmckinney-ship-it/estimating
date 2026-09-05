@@ -1,7 +1,7 @@
 """
 The pier cage: concrete, steel, and what it costs to drill the hole.
 
-Source: 01-Piers, re-derived in claude/piers-spec.md. Three things here differ
+Source: 01-Piers, re-derived in docs/specs/piers-spec.md. Three things here differ
 from the workbook on purpose, and all three were asked for:
 
   * every tie hoop carries a hook or lap, which the sheet's bare circumference

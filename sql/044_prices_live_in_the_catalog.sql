@@ -1,6 +1,6 @@
 -- 044: a price lives in the catalog. assembly_rates names a RULE, not a price.
 --
--- `claude/design-decisions.md` already says this — "A price comes from the
+-- `docs/specs/design-decisions.md` already says this — "A price comes from the
 -- catalog; the assembly says which item, or states a rate" — and the
 -- implementation had drifted from it in seventeen places. Every one of those
 -- rows was copied out of a workbook cell by sql/035–040, which means the app

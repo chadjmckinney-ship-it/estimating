@@ -1,6 +1,6 @@
 -- 047 — groundwork for the estimate price sheet (stage 0)
 --
--- See claude/estimate-price-sheet-spec.md. Every decision here is Chad's,
+-- See docs/specs/estimate-price-sheet-spec.md. Every decision here is Chad's,
 -- 2026-09-02, and each block below cites the one it carries out.
 --
 -- Nothing in this file changes a number on any existing estimate. That is
@@ -46,7 +46,7 @@ DELETE FROM assembly_rates
 --
 -- forming.py priced these lines from `sheet_unit_cost` literals because the
 -- catalog had no row for them to land on. A price in source is a price in a
--- migration by another name (claude/design-decisions.md, "A price comes from
+-- migration by another name (docs/specs/design-decisions.md, "A price comes from
 -- the catalog"), and the price sheet cannot pull what the catalog does not
 -- hold. Same promotion sql/044 gave FRENCH DRAIN and WATER STOP.
 --

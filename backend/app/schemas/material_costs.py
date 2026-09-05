@@ -18,7 +18,7 @@ class MaterialCostLine(BaseModel):
     # This field was computed, serialised by MaterialLine.as_dict, and then
     # dropped RIGHT HERE for the first hour of its life — the concrete card
     # rendered "$0" beside 2,205 CY of unpriced concrete. Third instance of the
-    # schema-drop class in two days; see claude/frontend-parse-and-drivers.md.
+    # schema-drop class in two days; see docs/specs/frontend-parse-and-drivers.md.
     unpriced: list[str] = []
 
 

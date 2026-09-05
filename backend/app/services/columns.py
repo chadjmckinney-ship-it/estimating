@@ -4,7 +4,7 @@ Columns: what a cast-in-place column type comes to.
 Source: `07-COLUMNS`, re-derived formula by formula. The sheet's steel
 expression was reproduced in full and reproduces its own rows to four decimals
 (44,825.9163 lb across the four LBJ types), so the model below is understood
-rather than approximated. `claude/columns-spec.md` has the full derivation.
+rather than approximated. `docs/specs/columns-spec.md` has the full derivation.
 
 Three things this file does DIFFERENTLY from the sheet, all three Chad's call
 on 2026-09-01, all three with a test:

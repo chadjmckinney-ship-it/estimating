@@ -1,5 +1,5 @@
 """
-Four audit items (claude/audit-2026-09-02.md #5, #7, #8, #9), fixed together
+Four audit items (docs/specs/audit-2026-09-02.md #5, #7, #8, #9), fixed together
 on 2026-09-02 after the price sheet landed. None was costing the live job
 money; each was a trap for the next section.
 """

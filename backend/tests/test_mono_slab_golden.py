@@ -4,7 +4,7 @@
 **$671,712.66** cost / **$772,469.56** sale, 62,723 SF at $10.7092.
 
 Why this file exists, in one paragraph: that number was reconciled against the
-workbook on 2026-08-30, written into `claude/lbj-workbook-reconciliation.md`,
+workbook on 2026-08-30, written into `docs/specs/lbj-workbook-reconciliation.md`,
 and asserted nowhere. The catalog was frozen at LBJ bid prices to protect it —
 a hold maintained by a document and an intention. On 2026-08-31 two equipment
 day rates were edited in the catalog, the section moved $4,984.91, and all 248
@@ -255,7 +255,7 @@ def test_the_fixture_owns_its_prices(db, slab_section):
     """
     The catalog can hold anything. Change a price after the fixture has built
     and the section must not move until it is re-costed from the new price —
-    which is what frees claude/price-restore-checklist.md to finally be applied.
+    which is what frees docs/specs/price-restore-checklist.md to finally be applied.
     """
     from sqlalchemy import text
 

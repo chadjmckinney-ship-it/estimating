@@ -13,7 +13,7 @@ point, and the reason the LBJ slab's $4,984.91 morning cannot happen again.
 ## What the sheet says, and where this deliberately differs
 
 The sheet reads **$160,746.20**. This fixture will read above it, and every
-piece of the gap was named in `claude/columns-spec.md` before a line of code
+piece of the gap was named in `docs/specs/columns-spec.md` before a line of code
 was written:
 
   * FORM AREA. The sheet's `AZ` is `height x (L x W / 36) / 2` — a
