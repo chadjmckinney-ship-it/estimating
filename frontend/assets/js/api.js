@@ -1,13 +1,23 @@
-/** API client — same origin when served by FastAPI, else localhost:8001 */
-const API_BASE = (() => {
-  if (location.port === "8001" || location.hostname === "127.0.0.1" || location.hostname === "localhost") {
-    // When opened as file:// or different port, hit the API host
-    if (location.protocol === "file:" || location.port !== "8001") {
-      return "http://127.0.0.1:8001/api";
-    }
-  }
-  return "/api";
-})();
+/**
+ * API client.
+ *
+ * Same origin whenever a server is serving this page: FastAPI mounts /api
+ * beside /assets, so "/api" is right on 8001, on `run.ps1 -Port 8002`, on the
+ * office box — anywhere a browser got this file from a server. Only a page
+ * opened straight from disk (file://) has no origin to speak of, and that is
+ * the one case that still points at the dev host.
+ *
+ * Until 2026-09-04 any localhost port other than 8001 was ALSO sent to
+ * 127.0.0.1:8001 — so `-Port 8002`, the natural move when 8001 is busy (which
+ * run.ps1 refuses to share), rendered a page whose every write went to
+ * whatever old process was still on 8001 (audit P2 #10). Exported so
+ * frontend/tests/api-base.test.mjs can pin it without a browser.
+ */
+export function apiBaseFor(loc) {
+  return loc.protocol === "file:" ? "http://127.0.0.1:8001/api" : "/api";
+}
+
+const API_BASE = apiBaseFor(location);
 
 async function api(path, options = {}) {
   const opts = {

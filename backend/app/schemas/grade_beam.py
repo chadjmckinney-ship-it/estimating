@@ -21,6 +21,10 @@ __all__ = [
 class GradeBeamCreate(BaseModel):
     """A pour's use of a beam type: which type, and how much."""
 
+    # extra="forbid" on every write model here (audit 2026-09-04, P2 #8): a
+    # misspelled field is a 422, not a silent 200.
+    model_config = ConfigDict(extra="forbid")
+
     mono_slab_id: UUID
     beam_type_id: UUID
     length_lf: Decimal = Field(..., ge=0, examples=[240])
@@ -29,6 +33,8 @@ class GradeBeamCreate(BaseModel):
 
 
 class GradeBeamUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     beam_type_id: UUID | None = None
     length_lf: Decimal | None = Field(None, ge=0)
     notes: str | None = None
@@ -79,6 +85,8 @@ class GradeBeamRead(BaseModel):
 class GradeBeamBulkItem(BaseModel):
     """One row of a pour's beam list: a type and a length."""
 
+    model_config = ConfigDict(extra="forbid")
+
     beam_type_id: UUID
     length_lf: Decimal = Field(..., ge=0)
     notes: str | None = None
@@ -90,6 +98,8 @@ class GradeBeamBulkReplace(BaseModel):
     Replace a pour's usages for one kind. Rows with length <= 0 are dropped, so
     clearing a length removes that type from the pour.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: BeamKind = "grade_beam"
     beams: list[GradeBeamBulkItem] = Field(default_factory=list)

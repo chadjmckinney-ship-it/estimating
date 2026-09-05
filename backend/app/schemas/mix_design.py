@@ -21,10 +21,14 @@ class MixDesignBase(BaseModel):
 
 
 class MixDesignCreate(MixDesignBase):
-    pass
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field on the
+    # single largest material price in the app is a 422, not a silent 200.
+    model_config = ConfigDict(extra="forbid")
 
 
 class MixDesignUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str | None = Field(None, min_length=1, max_length=64)
     name: str | None = Field(None, min_length=1, max_length=300)
     description: str | None = None

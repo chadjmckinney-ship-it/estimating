@@ -382,6 +382,13 @@ function openProjectModal(existing = null) {
           <input type="date" name="bid_due" value="${esc(existing?.bid_due || "")}" />
         </div>
         <div class="field">
+          <label>Sales tax</label>
+          <select name="tax_exempt" title="A project fact. Every section follows it unless the section says otherwise — ROW paving inside a taxable job, say. Changing it reprices the open estimates on the spot; final and archived ones keep their bid numbers.">
+            <option value="false" ${existing?.tax_exempt ? "" : "selected"}>Taxable</option>
+            <option value="true" ${existing?.tax_exempt ? "selected" : ""}>Exempt — the whole job</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Project types</label>
           <select name="project_types" multiple size="5">
             ${state.projectTypes
@@ -434,6 +441,7 @@ function openProjectModal(existing = null) {
       job_number: fd.get("job_number") || null,
       status: fd.get("status"),
       bid_due: fd.get("bid_due") || null,
+      tax_exempt: fd.get("tax_exempt") === "true",
       project_types: types,
       created_by: fd.get("created_by") || null,
       plans_url: fd.get("plans_url") || null,
@@ -442,7 +450,18 @@ function openProjectModal(existing = null) {
     try {
       if (isEdit) await Api.updateProject(existing.id, body);
       else await Api.createProject(body);
-      toast(isEdit ? "Project updated" : "Project created");
+      // The flag is stored on every section at cost time, so flipping it
+      // reprices the job's open estimates on the server (final and archived
+      // ones keep their bid numbers). Say so — a save that moved money
+      // elsewhere should not read as a rename.
+      const taxFlipped = isEdit && Boolean(existing.tax_exempt) !== body.tax_exempt;
+      toast(
+        isEdit
+          ? taxFlipped
+            ? `Project updated — now ${body.tax_exempt ? "tax exempt" : "taxable"}; open estimates repriced`
+            : "Project updated"
+          : "Project created"
+      );
       backdrop.remove();
       render();
     } catch (err) {
@@ -480,6 +499,7 @@ async function renderProjectDetail(root) {
         <div><div class="k">Bid due</div><div class="v">${esc(project.bid_due || "—")}</div></div>
         <div><div class="k">Bid date</div><div class="v">${esc(project.bid_date || "—")}</div></div>
         <div><div class="k">Bid price</div><div class="v">${project.bid_price != null ? "$" + money(project.bid_price) : "—"}</div></div>
+        <div><div class="k">Sales tax</div><div class="v" title="Sections follow this unless they say otherwise">${project.tax_exempt ? "exempt" : "taxed"}</div></div>
         <div><div class="k">Types</div><div class="v chips">${(project.project_types || []).map((t) => `<span class="chip">${esc(t)}</span>`).join("") || "—"}</div></div>
         <div><div class="k">Plans</div><div class="v">${project.plans_url ? `<a href="${esc(project.plans_url)}" target="_blank" rel="noopener">Open link</a>` : "—"}</div></div>
       </div>
@@ -577,20 +597,13 @@ function openEstimateModal(project, existing = null) {
               .join("")}
           </select>
         </div>
-        <div class="field">
-          <label>Waste concrete</label>
-          <input type="number" step="0.01" min="0" max="1" name="waste_concrete" placeholder="0.05"
-            value="${existing?.waste_concrete != null ? esc(existing.waste_concrete) : ""}" />
-        </div>
-        <div class="field">
-          <label>Waste sand</label>
-          <input type="number" step="0.01" min="0" max="1" name="waste_sand" placeholder="0.05"
-            value="${existing?.waste_sand != null ? esc(existing.waste_sand) : ""}" />
-        </div>
-        <div class="field">
-          <label>Waste rebar</label>
-          <input type="number" step="0.01" min="0" max="1" name="waste_rebar" placeholder="0"
-            value="${existing?.waste_rebar != null ? esc(existing.waste_rebar) : ""}" />
+        <div class="field full">
+          <span class="muted" style="color:var(--text-muted);font-size:0.8rem">
+            Waste factors and form % belong to each section (its own fields) and to
+            <strong>Rules for this job</strong> — not to the estimate. Three waste
+            boxes sat here until 2026-09-04 and saved to nothing. Margin and
+            contingency below are only the defaults a new section starts at.
+          </span>
         </div>
         <div class="field">
           <label>Margin (decimal)</label>
@@ -629,9 +642,6 @@ function openEstimateModal(project, existing = null) {
       version: Number(fd.get("version") || 1),
       status: fd.get("status"),
       estimator_id: fd.get("estimator_id") || null,
-      waste_concrete: num("waste_concrete"),
-      waste_sand: num("waste_sand"),
-      waste_rebar: num("waste_rebar"),
       margin_pct: num("margin_pct") ?? 0.2,
       contingency_pct: num("contingency_pct") ?? 0.03,
       notes: fd.get("notes") || null,

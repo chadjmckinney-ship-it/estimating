@@ -25,6 +25,10 @@ class MaterialRead(BaseModel):
 
 
 class MaterialCreate(BaseModel):
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field on a price
+    # is a 422, not a silent 200 — the catalog is the only home a price has.
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(..., min_length=1)
     category: str = Field(..., min_length=1)
     unit: str = Field(..., min_length=1, examples=["EA", "LF", "SF", "CY", "TON"])
@@ -38,6 +42,8 @@ class MaterialCreate(BaseModel):
 
 
 class MaterialUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(None, min_length=1)
     category: str | None = Field(None, min_length=1)
     unit: str | None = Field(None, min_length=1)

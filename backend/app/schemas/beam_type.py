@@ -43,10 +43,15 @@ class BeamTypeBase(BaseModel):
 
 
 class BeamTypeCreate(BeamTypeBase):
-    pass
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field is a 422,
+    # not a silent 200. Editing a type moves every pour that uses it, so a
+    # field that quietly did not land would be wrong on all of them at once.
+    model_config = ConfigDict(extra="forbid")
 
 
 class BeamTypeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     label: str | None = Field(None, min_length=1, max_length=120)
     kind: BeamKind | None = None
     width_in: Decimal | None = Field(None, ge=0)

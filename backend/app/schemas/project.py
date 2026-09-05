@@ -54,10 +54,15 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field is a 422,
+    # not a silent 200. `tax_exempt` is the one that matters here — it moves
+    # 8.25% of every material and rental dollar on every estimate of the job.
+    model_config = ConfigDict(extra="forbid")
 
 
 class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(None, min_length=1, max_length=500)
     job_number: str | None = None
     location: str | None = None

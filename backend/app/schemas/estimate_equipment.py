@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EquipmentDrivers(BaseModel):
@@ -68,6 +68,10 @@ class EstimateEquipmentRead(BaseModel):
 
 
 class EstimateEquipmentLineUpdate(BaseModel):
+    # extra="forbid" (audit 2026-09-04, P2 #8): `days_qty` misspelled on a
+    # machine is a 422, not a 200 that gave it no days.
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool | None = None
     rate: Decimal | None = Field(None, ge=0)
     days_qty: Decimal | None = Field(None, ge=0)

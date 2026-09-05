@@ -84,6 +84,8 @@ STEEL_ASSEMBLIES = [
     ("piers",   "piers_fixture"),
     ("walls",   "walls_fixture"),
     ("columns", "columns_fixture"),
+    # Absent until 2026-09-04 (audit P2 #9).
+    ("deck",    "deck_fixture"),
 ]
 
 

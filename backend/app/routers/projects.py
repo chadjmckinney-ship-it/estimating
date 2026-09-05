@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.estimate import Estimate
 from app.models.estimator import Estimator
 from app.models.project import Project, ProjectEstimator
 from app.schemas.project import PROJECT_TYPE_OPTIONS, ProjectCreate, ProjectRead, ProjectUpdate
@@ -134,6 +135,9 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db)) -> Projec
         bid_price=body.bid_price,
         rev_date=body.rev_date,
         rev_price=body.rev_price,
+        # Accepted by the schema and dropped here until 2026-09-04, so a
+        # project created exempt was stored taxable (audit P3, with P2 #7).
+        tax_exempt=bool(body.tax_exempt),
         notion_message_id=body.notion_message_id,
         notion_page_id=body.notion_page_id,
     )
@@ -173,6 +177,9 @@ def update_project(
     if "created_by" in data and data["created_by"] is not None:
         if not db.get(Estimator, data["created_by"]):
             raise HTTPException(status_code=400, detail="created_by estimator not found")
+    if "tax_exempt" in data:
+        data["tax_exempt"] = bool(data["tax_exempt"])
+    tax_flipped = "tax_exempt" in data and data["tax_exempt"] != bool(row.tax_exempt)
 
     for key, value in data.items():
         setattr(row, key, value)
@@ -185,6 +192,23 @@ def update_project(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Conflict updating project") from exc
+
+    if tax_flipped:
+        # Tax is stored on every row and section at cost time, and a section
+        # that says nothing about tax inherits THIS flag — so flipping it
+        # here used to leave every estimate on the job at its old calc_tax
+        # until something else recalculated it (audit 2026-09-04, P2 #7).
+        # Only the costing pass is needed (no quantity moved), so the
+        # takeoffs are left alone. Frozen estimates keep their bid numbers,
+        # as they do for every company-level change; their own Recalculate
+        # button is the deliberate override.
+        from app.services.recalc import is_frozen, recalc_estimate
+
+        for est in db.scalars(select(Estimate).where(Estimate.project_id == row.id)).all():
+            if not is_frozen(est):
+                recalc_estimate(
+                    db, est, pours=False, forming=False, labor=False, equipment=False
+                )
     db.refresh(row)
     return _to_read(row)
 

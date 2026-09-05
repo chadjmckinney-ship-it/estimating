@@ -59,6 +59,9 @@ ASSEMBLIES = [
     ("piers",   "piers_fixture",     "pier-groups",  "qty"),
     ("paving",  "paving_fixture",    "mono-slabs",   "square_footage"),
     ("slab",    "mono_slab_fixture", "mono-slabs",   "square_footage"),
+    # Absent until 2026-09-04 (audit P2 #9): the deck — the largest section
+    # on the job — was in none of the four matrices, against the docstring.
+    ("deck",    "deck_fixture",      "deck-levels",  "area_sf"),
 ]
 
 

@@ -37,19 +37,28 @@ class EstimateBase(BaseModel):
 
 
 class EstimateCreate(EstimateBase):
-    pass
+    # extra="forbid": a misspelled field is a 422, not a silent 200 (audit
+    # 2026-09-04, P2 #8). The estimate modal sent three waste fields here for
+    # a week after the columns left the table; nothing said so.
+    model_config = ConfigDict(extra="forbid")
 
 
 class EstimateUpdate(BaseModel):
+    # Waste factors and form % are SECTION fields (sql/033–034) and rules on the
+    # ladder (sql/055); the estimate has carried neither since sql/034. This
+    # schema still declared `waste_concrete` and `form_percent`, and the router
+    # setattr'd them onto an ORM row with no such column — a plain Python
+    # attribute, dropped on commit — so the modal's waste inputs were accepted
+    # and silently discarded (audit 2026-09-04, P2 #6). Gone, and forbidden.
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(None, min_length=1, max_length=200)
     status: EstimateStatus | None = None
     estimator_id: UUID | None = None
     version: int | None = Field(None, ge=1)
+    notes: str | None = None
     # Bounds must match EstimateBase/EstimateRead — a value that passes here but
     # fails on read is persisted first, then 500s every GET of this estimate.
-    waste_concrete: Decimal | None = Field(None, ge=0, le=1)
-    form_percent: Decimal | None = Field(None, ge=0, le=2)
-    notes: str | None = None
     margin_pct: Decimal | None = Field(None, ge=0, le=2)
     contingency_pct: Decimal | None = Field(None, ge=0, le=2)
 

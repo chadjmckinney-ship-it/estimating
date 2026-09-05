@@ -35,10 +35,16 @@ class PierGroupBase(BaseModel):
 
 
 class PierGroupCreate(PierGroupBase):
-    pass
+    # extra="forbid" (audit 2026-09-04, P2 #8). This is the assembly it
+    # happened on: a bulk save silently swallowed misspelled pier fields and
+    # returned zero rebar with a 200 OK. The wall, column and deck schemas got
+    # the guard when they were written; the two oldest takeoffs did not.
+    model_config = ConfigDict(extra="forbid")
 
 
 class PierGroupUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     label: str | None = None
     description: str | None = None
     qty: int | None = Field(None, ge=0)
@@ -67,6 +73,8 @@ class PierGroupBulkRow(PierGroupUpdate):
 
 
 class PierGroupBulkSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     section_id: UUID
     rows: list[PierGroupBulkRow] = Field(default_factory=list, max_length=200)
     delete_missing: bool = Field(

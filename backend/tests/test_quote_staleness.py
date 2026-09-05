@@ -51,6 +51,9 @@ QUOTED_ASSEMBLIES = [
     ("piers",   "piers_fixture",     "pier_groups"),
     ("walls",   "walls_fixture",     "wall_runs"),
     ("columns", "columns_fixture",   "column_types"),
+    # Absent until 2026-09-04 (audit P2 #9). The deck buys the most bar on
+    # the job and takes a rebar lump like the rest.
+    ("deck",    "deck_fixture",      "deck_levels"),
 ]
 
 
@@ -121,9 +124,11 @@ def test_the_badge_goes_stale_when_the_takeoff_moves(client, db, estimate, name,
 
     # Move the takeoff the way an estimator would — through the grid.
     endpoint = {"mono_slabs": "mono-slabs", "pier_groups": "pier-groups",
-                "wall_runs": "wall-runs", "column_types": "column-types"}[table]
+                "wall_runs": "wall-runs", "column_types": "column-types",
+                "deck_levels": "deck-levels"}[table]
     field = {"mono_slabs": "square_footage", "pier_groups": "qty",
-             "wall_runs": "length_ft", "column_types": "qty"}[table]
+             "wall_runs": "length_ft", "column_types": "qty",
+             "deck_levels": "area_sf"}[table]
     rows = client.get(f"/api/{endpoint}?section_id={section.id}").json()
     bump = int(float(rows[0][field]) * 2) if field == "qty" else float(rows[0][field]) * 2
     r = client.patch(f"/api/{endpoint}/{rows[0]['id']}", json={field: bump})

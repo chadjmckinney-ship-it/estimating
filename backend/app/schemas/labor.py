@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LaborDrivers(BaseModel):
@@ -88,6 +88,10 @@ class LaborMaterialsRead(BaseModel):
 
 
 class LaborLineUpdate(BaseModel):
+    # extra="forbid" (audit 2026-09-04, P2 #8): `qty` misspelled on a typed
+    # superintendent is a 422, not a 200 that pinned nothing.
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool | None = None
     rate: Decimal | None = Field(None, ge=0)
     qty: Decimal | None = Field(None, ge=0)

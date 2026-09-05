@@ -54,6 +54,9 @@ ASSEMBLIES = [
     ("piers",   "piers_fixture"),
     ("walls",   "walls_fixture"),
     ("columns", "columns_fixture"),
+    # Absent until 2026-09-04 (audit P2 #9): the largest section on the job
+    # was in none of the four matrices, contrary to the docstring above.
+    ("deck",    "deck_fixture"),
 ]
 
 

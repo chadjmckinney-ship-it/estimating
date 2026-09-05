@@ -82,6 +82,10 @@ class EstimateRulesRead(BaseModel):
 
 
 class EstimateRuleWrite(BaseModel):
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field is a 422,
+    # not a silent 200.
+    model_config = ConfigDict(extra="forbid")
+
     value: Decimal
     note: str | None = Field(
         None,

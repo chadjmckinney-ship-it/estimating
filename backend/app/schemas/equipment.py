@@ -29,10 +29,14 @@ class EquipmentBase(BaseModel):
 
 
 class EquipmentCreate(EquipmentBase):
-    pass
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field on a day
+    # rate is a 422, not a silent 200.
+    model_config = ConfigDict(extra="forbid")
 
 
 class EquipmentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str | None = Field(None, max_length=64)
     name: str | None = Field(None, min_length=1, max_length=200)
     category: EquipmentCategory | None = None

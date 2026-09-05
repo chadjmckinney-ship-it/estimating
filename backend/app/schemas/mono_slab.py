@@ -66,10 +66,17 @@ class MonoSlabBase(BaseModel):
 
 
 class MonoSlabCreate(MonoSlabBase):
-    pass
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field on a money
+    # endpoint is a 422, not a silent 200. The paving grid — twenty-five areas
+    # across sixteen columns, the biggest bulk save in the app — comes through
+    # MonoSlabBulkRow below, and a renamed column in app.js used to be a save
+    # that changed nothing and said it had.
+    model_config = ConfigDict(extra="forbid")
 
 
 class MonoSlabUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     description: str | None = None
     location: str | None = None
     square_footage: Decimal | None = Field(None, ge=0)
@@ -110,6 +117,8 @@ class MonoSlabBulkRow(MonoSlabUpdate):
 
 
 class MonoSlabBulkSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     section_id: UUID
     rows: list[MonoSlabBulkRow] = Field(default_factory=list, max_length=200)
     delete_missing: bool = Field(

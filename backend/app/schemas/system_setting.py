@@ -67,6 +67,10 @@ class SystemSettingUpdate(BaseModel):
     becomes permanent.
     """
 
+    # extra="forbid" (audit 2026-09-04, P2 #8): a misspelled field is a 422,
+    # not a silent 200.
+    model_config = ConfigDict(extra="forbid")
+
     value: Decimal | bool | str | None = Field(..., examples=[0.05, True, "0.50", None])
 
     def as_jsonb(self) -> str:
