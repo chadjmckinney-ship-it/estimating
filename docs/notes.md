@@ -184,7 +184,8 @@ UNION ALL SELECT 'mono_slabs', count(*) FROM mono_slabs;
    dump reads with `pg_restore --list`, keeps the newest 30, and can copy
    each dump to a second disk (`--copy-to`, OneDrive). `apply_sql.py` takes
    one before every migration it applies (`--no-backup` to go without).
-   `backend/register_backup_task.ps1` registers the daily Task Scheduler job.
+   `python backend/register_backup_task.py` registers the daily Task Scheduler
+   job — Python, not PowerShell, so the execution policy is not in the way.
 
 ```bash
 python backend/backup_db.py                 # now
