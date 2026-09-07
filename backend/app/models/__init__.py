@@ -8,6 +8,8 @@ from app.models.material import Material
 from app.models.estimate_price import EstimatePrice
 from app.models.mix_design import ConcreteSupplier, MixDesign
 from app.models.beam_type import EstimateBeamType
+from app.models.column_type import ColumnType
+from app.models.estimate_section import EstimateSection
 from app.models.grade_beam import GradeBeam
 from app.models.deck_level import DeckLevel, DeckLevelBeam
 from app.models.section_quote import SectionQuote
@@ -18,6 +20,8 @@ from app.models.project import Project, ProjectEstimator
 
 __all__ = [
     "Estimator",
+    "EstimateSection",
+    "ColumnType",
     "Project",
     "ProjectEstimator",
     "Estimate",

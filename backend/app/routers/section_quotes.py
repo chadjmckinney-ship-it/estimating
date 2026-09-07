@@ -25,7 +25,9 @@ from app.models.section_quote import SectionQuote
 from app.schemas.section_quote import SectionQuoteRead, SectionQuoteWrite
 from app.services import quotes as qt
 
-router = APIRouter(prefix="/api/sections", tags=["section-quotes"])
+# Mounted with prefix="/api" like every other router (audit P3); the URLs
+# did not change.
+router = APIRouter(prefix="/sections", tags=["section-quotes"])
 
 
 def _section_or_404(db: Session, section_id: UUID) -> EstimateSection:

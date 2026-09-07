@@ -82,7 +82,7 @@ def toggle_forming_line(
     try:
         data = set_forming_line_enabled(db, section_id, code, body.enabled)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404 if "not found" in str(e) else 400, detail=str(e)) from e
     return _to_read(section_id, data)
 
 
@@ -104,5 +104,5 @@ def update_form_percent(
     try:
         data = set_form_percent_and_refresh(db, section_id, Decimal(body.form_percent))
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404 if "not found" in str(e) else 400, detail=str(e)) from e
     return _to_read(section_id, data)

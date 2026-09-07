@@ -159,10 +159,29 @@ def recalc_estimate_endpoint(
 
 
 @router.delete("/{estimate_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_estimate(estimate_id: UUID, db: Session = Depends(get_db)) -> None:
-    """Permanently delete estimate (cascades mono slabs, grade beams, bids)."""
+def delete_estimate(
+    estimate_id: UUID,
+    force: bool = Query(False, description="Delete even when the estimate has sections"),
+    db: Session = Depends(get_db),
+) -> None:
+    """Permanently delete an estimate and everything under it — sections, takeoffs, price sheet."""
+    from sqlalchemy import func, select
+
+    from app.models.estimate_section import EstimateSection
+
     row = db.get(Estimate, estimate_id)
     if not row:
         raise HTTPException(status_code=404, detail="Estimate not found")
+    n = db.scalar(
+        select(func.count()).select_from(EstimateSection).where(EstimateSection.estimate_id == estimate_id)
+    ) or 0
+    if n and not force:
+        # Unguarded until 2026-09-06 (audit P3). Nothing on the screen calls
+        # this, which is exactly when a guard matters: the one caller will be
+        # a script or a curl, and it should have to mean it.
+        raise HTTPException(
+            status_code=409,
+            detail=f"Estimate still has {n} section(s). Re-send with force=true to delete them too.",
+        )
     db.delete(row)
     db.commit()

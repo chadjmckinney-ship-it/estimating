@@ -1521,7 +1521,8 @@ def set_forming_line_enabled(
         )
     ).first()
     if row is None:
-        raise ValueError(f"no forming line {code!r} on this section")
+        # "not found" is the phrase the router maps to a 404 (audit P3).
+        raise ValueError(f"forming line {code!r} not found on this section")
 
     row.enabled = bool(enabled)
     if not row.enabled:

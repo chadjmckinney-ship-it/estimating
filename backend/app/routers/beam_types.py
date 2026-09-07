@@ -86,17 +86,22 @@ def _to_read(db: Session, row: EstimateBeamType) -> BeamTypeRead:
 
 
 def _recalc_section(db: Session, section_id: UUID) -> None:
-    """A type edit moves every pour using it, so redo the whole section."""
-    from app.models.estimate import Estimate
-    from app.services.recalc import recalc_estimate
+    """
+    A type edit moves every pour using it, so redo the whole section — and do
+    it BEFORE the commit. Until 2026-09-06 (audit P3) the routes below
+    committed the type first and recalculated after, so a recalc that failed
+    left the type changed and every pour stale, with the client shown an
+    error for a write that had already happened. `recalc_section` does not
+    commit; it ends in the pour costing that rolls the job up, and the caller
+    commits once, when everything agrees.
+    """
+    from app.services.recalc import recalc_section
 
     section = db.get(EstimateSection, section_id)
     if section is None:
         return
-    # Redo the job: the section reprices, then the estimate rolls up.
-    estimate = db.get(Estimate, section.estimate_id)
-    if estimate is not None:
-        recalc_estimate(db, estimate)
+    recalc_section(db, section)
+    db.flush()
 
 
 @router.get("/sections/{section_id}/beam-types", response_model=list[BeamTypeRead])
@@ -158,11 +163,12 @@ def update_beam_type(
         row.pt_cables_count = None
     row.updated_at = datetime.now(timezone.utc)
     try:
-        db.commit()
+        db.flush()
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="A type with that name already exists") from None
     _recalc_section(db, row.section_id)
+    db.commit()
     db.refresh(row)
     return _to_read(db, row)
 
@@ -191,8 +197,9 @@ def delete_beam_type(
             ),
         )
     db.delete(row)
-    db.commit()
+    db.flush()
     _recalc_section(db, section_id)
+    db.commit()
 
 
 @router.get("/beam-types/{type_id}/usage", response_model=list[dict])

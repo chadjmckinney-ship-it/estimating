@@ -7,6 +7,7 @@ edits made directly in psql there is POST /system-settings/recalc-all.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -143,6 +144,45 @@ def get_setting(key: str, db: Session = Depends(get_db)) -> SystemSettingRead:
     return _row_to_read(row)
 
 
+# A setting is jsonb and the PATCH used to take any JSON for any key (audit
+# P3): "abc" on labor_forming_sf was a 200, and every read of it afterwards
+# quietly landed on the code default. The shape follows the key.
+_FLAG_KEYS = frozenset({"equip_use_rental_tiers", "vapor_barrier_enabled"})
+_ID_KEYS = frozenset({"default_vapor_barrier_material_id", "default_vapor_tape_material_id"})
+
+
+def _check_shape(key: str, value) -> None:
+    if value is None:
+        return  # unset is a state of its own (sql/053), never refused
+    if key in _ID_KEYS:
+        whole = (
+            not isinstance(value, bool)
+            and _numeric(value)
+            and Decimal(str(value)) == Decimal(str(value)).to_integral_value()
+        )
+        if not whole:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{key}' expects a material id (a whole number) or null; got {value!r}",
+            )
+        return
+    if key in _FLAG_KEYS:
+        if isinstance(value, bool) or str(value).strip().lower() in ("0", "1", "true", "false"):
+            return
+        raise HTTPException(status_code=400, detail=f"'{key}' expects true/false (or 1/0); got {value!r}")
+    if key in MONETARY_KEYS or key in RULE_KEYS:
+        if isinstance(value, bool) or not _numeric(value):
+            raise HTTPException(status_code=400, detail=f"'{key}' expects a number; got {value!r}")
+
+
+def _numeric(value) -> bool:
+    try:
+        Decimal(str(value).strip())
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @router.patch("/{key}", response_model=RecalcReport)
 def update_setting(
     key: str,
@@ -161,6 +201,7 @@ def update_setting(
         # Settings are seeded by migration; inventing keys here would create
         # values nothing reads.
         raise HTTPException(status_code=404, detail=f"Unknown setting '{key}'")
+    _check_shape(key, body.value)
 
     db.execute(
         text(

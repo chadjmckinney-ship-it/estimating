@@ -31,15 +31,27 @@ from app.services.pours import BulkSaveError, bulk_save_pours
 router = APIRouter(prefix="/mono-slabs", tags=["mono-slabs"])
 
 
-def _to_read(db: Session, row: MonoSlab) -> MonoSlabRead:
+def _section_rates(db: Session, section_id: UUID) -> tuple[str | None, Decimal, Decimal]:
+    """
+    The section's kind and the two rates every pour of it shows — read once
+    per section, not once per pour. The list read them per row until
+    2026-09-06 (audit P3): three queries a pour, seventeen pours.
+    """
+    kind = section_kind(db, section_id)
+    return (
+        kind,
+        _rate_numeric(db, kind, "support_rebar_lb_per_sf", Decimal("0.1")),
+        _rate_numeric(db, kind, "pt_lb_per_sf", Decimal("1.0")),
+    )
+
+
+def _to_read(db: Session, row: MonoSlab, rates: tuple | None = None) -> MonoSlabRead:
     mix = db.get(MixDesign, row.mix_design_id) if row.mix_design_id else None
     # The effective rates are what the calc actually used, so they resolve the
     # same way it does: this assembly first, then the company (sql/035–036).
     # Paving carries no support steel, and reading 0.1 here would have been a
     # number on screen that no quantity in the section agrees with.
-    kind = section_kind(db, row.section_id)
-    sys_support = _rate_numeric(db, kind, "support_rebar_lb_per_sf", Decimal("0.1"))
-    sys_pt = _rate_numeric(db, kind, "pt_lb_per_sf", Decimal("1.0"))
+    kind, sys_support, sys_pt = rates or _section_rates(db, row.section_id)
     eff_support = (
         Decimal(str(row.support_rebar_lb_per_sf))
         if row.support_rebar_lb_per_sf is not None
@@ -146,7 +158,8 @@ def list_mono_slabs(
         .where(MonoSlab.section_id == section_id)
         .order_by(MonoSlab.sort_order, MonoSlab.created_at)
     )
-    return [_to_read(db, r) for r in db.scalars(stmt).all()]
+    rates = _section_rates(db, section_id)
+    return [_to_read(db, r, rates) for r in db.scalars(stmt).all()]
 
 
 @router.get("/totals", response_model=MonoSlabTotals)

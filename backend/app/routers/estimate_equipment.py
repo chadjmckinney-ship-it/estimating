@@ -71,5 +71,5 @@ def patch_equipment_line(
             mark_manual=body.mark_manual,
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=404 if "not found" in str(e) else 400, detail=str(e)) from e
     return _to_read(section_id, data)

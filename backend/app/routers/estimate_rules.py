@@ -55,6 +55,8 @@ Nothing is stored by the GET. It builds the line sets and throws them away.
 
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -76,6 +78,8 @@ from app.schemas.estimate_rule import (
 )
 from app.services import price_book as pb
 from app.services.calc import _setting_numeric
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/estimates", tags=["estimate-rules"])
 
@@ -148,7 +152,12 @@ def _keys_each_section_reads(
             ):
                 try:
                     fn(db, section.id)
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    # Not silent (audit P3): the screen stays up, the log says why.
+                    log.warning(
+                        "rules screen: section %s (%s) could not build %s — %s",
+                        section.id, section.kind, fn.__name__, exc,
+                    )
                     continue
         out[section.id] = seen
     return out

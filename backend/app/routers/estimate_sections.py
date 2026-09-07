@@ -256,6 +256,15 @@ def update_section(
     data = body.model_dump(exclude_unset=True)
     if "kind" in data and data["kind"] not in SECTION_KINDS:
         raise HTTPException(status_code=400, detail=f"Unknown section kind: {data['kind']}")
+    if "kind" in data and data["kind"] != row.kind and _takeoff_rows(db, section_id):
+        # A kind change recalculated nothing (audit P3), and the takeoff rows
+        # belong to the old kind's tables. Nothing on the screen changes kind;
+        # the API now refuses unless the section is empty.
+        raise HTTPException(
+            status_code=400,
+            detail="This section already has takeoff rows; changing its kind would strand "
+                   "them. Only an empty section can change kind.",
+        )
 
     changed = {k for k, v in data.items() if getattr(row, k) != v}
     for k, v in data.items():
@@ -307,26 +316,51 @@ def recalc_section_endpoint(
     return _to_read(db, row)
 
 
+def _takeoff_rows(db: Session, section_id: UUID) -> dict[str, int]:
+    """How many takeoff rows a section carries, by assembly table."""
+    from sqlalchemy import func
+
+    from app.models.column_type import ColumnType
+    from app.models.deck_level import DeckLevel
+    from app.models.mono_slab import MonoSlab
+    from app.models.pier_group import PierGroup
+    from app.models.wall_run import WallRun
+
+    out: dict[str, int] = {}
+    for name, model in (
+        ("pours", MonoSlab), ("pier groups", PierGroup), ("wall runs", WallRun),
+        ("column types", ColumnType), ("deck levels", DeckLevel),
+    ):
+        n = db.scalar(
+            select(func.count()).select_from(model).where(model.section_id == section_id)
+        ) or 0
+        if n:
+            out[name] = int(n)
+    return out
+
+
 @router.delete("/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_section(
     section_id: UUID,
     force: bool = Query(False, description="Delete even when the section has pours"),
     db: Session = Depends(get_db),
 ) -> None:
-    from app.models.mono_slab import MonoSlab
     from app.services.costing import refresh_estimate_totals
 
     row = db.get(EstimateSection, section_id)
     if not row:
         raise HTTPException(status_code=404, detail="Section not found")
 
-    pours = db.scalar(
-        select(MonoSlab).where(MonoSlab.section_id == section_id).limit(1)
-    )
-    if pours is not None and not force:
+    rows = _takeoff_rows(db, section_id)
+    if rows and not force:
+        # Until 2026-09-06 only mono-slab pours were guarded (audit P3): a
+        # piers, walls, columns or deck section with a full takeoff deleted
+        # without force. Both screens confirm first, so it was inconsistent
+        # rather than dangerous — and now it is neither.
+        what = ", ".join(f"{n} {name}" for name, n in rows.items())
         raise HTTPException(
             status_code=409,
-            detail="Section still has pours. Re-send with force=true to delete them too.",
+            detail=f"Section still has takeoff rows ({what}). Re-send with force=true to delete them too.",
         )
 
     estimate_id = row.estimate_id

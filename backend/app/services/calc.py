@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +22,8 @@ from app.services.price_book import (
     require_book,
 )
 
+_log = logging.getLogger(__name__)
+
 
 def _setting_numeric(db: Session, key: str, default: Decimal) -> Decimal:
     row = db.execute(
@@ -28,9 +32,24 @@ def _setting_numeric(db: Session, key: str, default: Decimal) -> Decimal:
     ).scalar()
     if row is None or row == "":
         return default
+    raw = str(row).strip().strip('"')
+    if raw.lower() in ("true", "false"):
+        # A jsonb boolean (equip_use_rental_tiers is seeded `true`, sql/019)
+        # reads as 1/0 here, so a numeric caller sees the flag rather than
+        # the default. Until 2026-09-06 it fell into the except below.
+        return Decimal(1 if raw.lower() == "true" else 0)
     try:
-        return Decimal(str(row).strip().strip('"'))
-    except Exception:
+        return Decimal(raw)
+    except Exception:  # noqa: BLE001
+        # Not a silent default (audit P3). The PATCH refuses a non-number now,
+        # so this is a row edited around the API; say so, and in strict mode
+        # (tests) refuse outright.
+        from app.services.price_book import _strict
+
+        msg = f"system_settings.{key} holds {row!r}, not a number; the code default {default} is being used"
+        if _strict():
+            raise ValueError(msg)
+        _log.warning(msg)
         return default
 
 
