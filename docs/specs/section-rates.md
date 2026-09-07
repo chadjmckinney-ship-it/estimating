@@ -202,8 +202,11 @@ Now:
   and every `equip_*_day_rate` key are in `ESTIMATE_LEVEL_KEYS`; `sql/064`
   took their seeded rows back out (25 on the live database, each at the value
   the section already resolved to, so nothing moved). The DAYS a section
-  needs stay its own. `out_of_town_day_rate` was left section-level — it is
-  neither, and nobody has said.
+  needs stay its own. `out_of_town_day_rate` was left section-level then —
+  "neither, and nobody has said" — until Chad did, 2026-09-07: "the out of
+  town day rate it is per job." It is in `ESTIMATE_LEVEL_KEYS` now and
+  `sql/070` took its six seeded rows back out, each at the value the section
+  already resolved to.
 * **Rules are never seeded.** Waste, divisors, how the work is computed are
   read live by design (a rule change still reaches a priced estimate); they
   stay section-level and settable, just not frozen.

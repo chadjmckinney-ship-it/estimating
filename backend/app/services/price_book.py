@@ -503,6 +503,11 @@ ESTIMATE_LEVEL_KEYS: frozenset[str] = frozenset({
     "equip_mini_excavator_day_rate",
     "equip_hoisting_day_rate",
     "equip_skid_steer_day_rate",
+    # The out-of-town per diem is the job's as well — a crew is out of town
+    # for the job, not for one of its sections. It was the one day rate left
+    # at section level after sql/064; Chad, 2026-09-07: "the out of town day
+    # rate it is per job." sql/070 took its seeded rows back out.
+    "out_of_town_day_rate",
     "equip_skid_day_rate",
     "equip_trencher_day_rate",
     "equip_crane_day_rate",
