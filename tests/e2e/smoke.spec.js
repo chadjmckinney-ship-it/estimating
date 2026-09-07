@@ -242,3 +242,56 @@ test("walls section draws each type as a wall line over its footing line", async
   expect(await ftgMix.locator("option").count()).toBeGreaterThan(1);
   expect(errors).toEqual([]);
 });
+
+/**
+ * The unload guard follows the grid that is on the page (audit P3, batch 3).
+ *
+ * wireGrid used to add a `beforeunload` listener on every render and never
+ * remove it, so a grid you had dirtied and then navigated away from — inside
+ * the app, by hash — still asked "Leave site?" when the tab closed. Nothing
+ * here is saved: a cell is typed into and the tab is closed.
+ */
+test("a dirty grid still on the page asks before the tab closes", async ({ page, request }) => {
+  const errors = watchErrors(page);
+  const id = await wallsSectionWithRuns(request);
+  await page.goto(`/#section/${id}`);
+  const card = page.locator("#wall-runs");
+  await expect(card).toBeVisible();
+  const cell = card.locator("tbody input").first();
+  await cell.click();
+  await cell.press("End");
+  await cell.type("1");
+  await expect(card.locator("tbody tr.dirty").first()).toBeVisible();
+  const dialog = page.waitForEvent("dialog", { timeout: 2000 }).catch(() => null);
+  await page.close({ runBeforeUnload: true });
+  const d = await dialog;
+  expect(d && d.type()).toBe("beforeunload");
+  await d.accept();
+  expect(errors).toEqual([]);
+});
+
+test("a dirty grid you navigated away from does not ask when the tab closes", async ({
+  page,
+  request,
+}) => {
+  const errors = watchErrors(page);
+  const id = await wallsSectionWithRuns(request);
+  await page.goto(`/#section/${id}`);
+  const card = page.locator("#wall-runs");
+  await expect(card).toBeVisible();
+  const cell = card.locator("tbody input").first();
+  await cell.click();
+  await cell.press("End");
+  await cell.type("1");
+  await expect(card.locator("tbody tr.dirty").first()).toBeVisible();
+  // The app's own navigation: the grid is gone, and so should its guard be.
+  await page.evaluate(() => {
+    location.hash = "#projects";
+  });
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect(page.locator("#wall-runs")).toHaveCount(0);
+  const dialog = page.waitForEvent("dialog", { timeout: 2000 }).catch(() => null);
+  await page.close({ runBeforeUnload: true });
+  expect(await dialog).toBeNull();
+  expect(errors).toEqual([]);
+});

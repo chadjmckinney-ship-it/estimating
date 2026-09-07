@@ -75,6 +75,24 @@ class BeamTypeUpdate(BaseModel):
     sort_order: int | None = None
 
 
+class BeamTypeBulkRow(BeamTypeBase):
+    """
+    One row of the grade-beams modal's schedule: an existing type (id) or a
+    new one. On an existing type only the fields SENT are written — the modal
+    shows a subset (no notes, no L bars, no ledge face), and a save from it
+    must not blank what the type editor set.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID | None = None
+
+
+class BeamTypeBulk(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[BeamTypeBulkRow] = Field(..., max_length=200)
+
+
 class BeamTypeRead(BeamTypeBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -89,3 +107,9 @@ class BeamTypeRead(BeamTypeBase):
     total_pt_cable_lf: Decimal = Decimal("0")
     created_at: datetime
     updated_at: datetime
+
+
+class BeamTypeBulkResult(BaseModel):
+    created: int
+    updated: int
+    rows: list[BeamTypeRead]

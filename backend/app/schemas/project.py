@@ -3,7 +3,28 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl
+
+
+def _plans_url(v: str | None) -> str | None:
+    """
+    A link to the plans, or nothing. It lands in an href on the project page,
+    so it has to be a web address — anything else was escaped for HTML and
+    otherwise trusted (audit P3). Blank is null.
+    """
+    if v is None:
+        return None
+    v = v.strip()
+    if not v:
+        return None
+    if not v.lower().startswith(("http://", "https://")):
+        raise ValueError("Plans link must start with http:// or https://")
+    return v
+
+
+PlansUrl = Annotated[str | None, AfterValidator(_plans_url)]
 
 
 class ProjectStatus(str, Enum):
@@ -38,7 +59,7 @@ class ProjectBase(BaseModel):
     status: ProjectStatus = ProjectStatus.not_started
     bid_due: date | None = None
     bid_date: date | None = None
-    plans_url: str | None = Field(None, examples=["https://app.buildingconnected.com/..."])
+    plans_url: PlansUrl = Field(None, examples=["https://app.buildingconnected.com/..."])
     bid_price: Decimal | None = None
     rev_date: date | None = None
     rev_price: Decimal | None = None
@@ -71,7 +92,7 @@ class ProjectUpdate(BaseModel):
     status: ProjectStatus | None = None
     bid_due: date | None = None
     bid_date: date | None = None
-    plans_url: str | None = None
+    plans_url: PlansUrl = None
     bid_price: Decimal | None = None
     rev_date: date | None = None
     rev_price: Decimal | None = None

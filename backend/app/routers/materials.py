@@ -1,10 +1,12 @@
 """
 The unit-price catalog behind forming, poly, rebar, sand and mesh costing.
 
-Editing a price here does NOT reprice stored estimates: costing reads these
-values at recalc time, so a change lands on the next recalc. Use
-POST /api/system-settings/recalc-all to push prices through the open estimates
-— it deliberately leaves final and archived ones at their bid numbers.
+Editing a price here does NOT reprice stored estimates: every estimate carries
+its own price sheet (sql/048), copied from this list when the job pulls it, and
+costing reads THAT. A change here reaches a job when the job pulls its sheet —
+the price-sheet screen shows the drift until it does. (This docstring pointed
+at recalc-all until 2026-09-06; recalc-all recalculates with what each sheet
+already holds. Audit P3.)
 """
 
 from datetime import datetime, timezone

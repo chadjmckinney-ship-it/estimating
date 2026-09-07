@@ -72,6 +72,18 @@ def equip_days_from_super(super_days: float | Decimal) -> Decimal:
     return Decimal(str(total)).quantize(Decimal("0.0001"))
 
 
+def _use_rental_tiers(db: Session, kind: str | None) -> bool:
+    """
+    The company's rental-tier switch, read through the ladder like every
+    other rate — job rule, then assembly, then the setting. Until 2026-09-06
+    a raw read of system_settings overrode the ladder here (the ladder could
+    not read the jsonb `true` the key is seeded with; since batch 2 it can),
+    so a rule on a job was written, shown on the rules screen, and ignored
+    (audit P3).
+    """
+    return _rate_numeric(db, kind, "equip_use_rental_tiers", Decimal("1")) > 0
+
+
 def rental_billable_units(days: float | Decimal, use_tiers: bool = True) -> Decimal:
     """
     Convert calendar days to billable day-equivalents (Excel tier).
@@ -424,15 +436,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
     kind = section_kind(db, section_id)
     days = float(d["equip_days"])
     cy = float(d["total_concrete_cy"])
-    use_tiers = str(
-        _rate_numeric(db, kind, "equip_use_rental_tiers", Decimal("1"))
-    ) not in ("0", "0.0")
-    # system_settings stores jsonb true as not numeric - handle both
-    tier_raw = db.execute(
-        text("SELECT value #>> '{}' FROM system_settings WHERE key = 'equip_use_rental_tiers'")
-    ).scalar()
-    if tier_raw is not None:
-        use_tiers = str(tier_raw).strip().lower() not in ("false", "0", "no")
+    use_tiers = _use_rental_tiers(db, kind)
 
     vault_rate = float(_rate_numeric(db, kind, "equip_vault_day_rate", Decimal("25")))
     misc_rate = float(_rate_numeric(db, kind, "equip_misc_day_rate", Decimal("55")))
@@ -1421,12 +1425,9 @@ def update_equipment_line(
         if mark_manual:
             row.is_manual = True
 
-    tier_raw = db.execute(
-        text("SELECT value #>> '{}' FROM system_settings WHERE key = 'equip_use_rental_tiers'")
-    ).scalar()
-    use_tiers = True
-    if tier_raw is not None:
-        use_tiers = str(tier_raw).strip().lower() not in ("false", "0", "no")
+    # As one section of its job, so a rule reaches this path too.
+    with priced_as(db, _estimate_id_of(db, section_id)), for_section(section_id):
+        use_tiers = _use_rental_tiers(db, section_kind(db, section_id))
 
     if row.unit == "DAY":
         row.billable_units = rental_billable_units(row.days_qty, use_tiers=use_tiers)

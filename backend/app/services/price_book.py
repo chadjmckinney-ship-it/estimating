@@ -234,6 +234,28 @@ RULE_KEYS: frozenset[str] = frozenset({
     "vapor_tape_rolls_per_barrier_roll", "quote_warn_low_ratio", "quote_warn_high_ratio",
 })
 
+# What a rule may be set to. The section columns have CHECKs (sql/057); a
+# rule on the ladder had none until 2026-09-06 (audit P3): a waste of 150%
+# or a form percent of 50 was accepted and read live. Fractions are 0-1,
+# form% 0-2 (a wall formed on both faces, sql/057), the two switches 0/1;
+# everything else — divisors, coverages, multipliers, a swell of 1.3 — is
+# simply not negative and not absurd.
+_FRACTION = (Decimal("0"), Decimal("1"))
+RULE_BOUNDS: dict[str, tuple[Decimal, Decimal]] = {
+    **{k: _FRACTION for k in (
+        "waste_concrete", "waste_sand", "waste_poly", "waste_rebar", "waste_rebar_beams",
+        "form_waste", "form_rental_percent", "quote_warn_low_ratio",
+        "equip_use_rental_tiers", "vapor_barrier_enabled",
+    )},
+    "form_percent": (Decimal("0"), Decimal("2")),
+}
+RULE_BOUNDS_DEFAULT = (Decimal("0"), Decimal("1000000"))
+
+
+def rule_bounds(key: str) -> tuple[Decimal, Decimal]:
+    return RULE_BOUNDS.get(key, RULE_BOUNDS_DEFAULT)
+
+
 # The categories the screen groups by. Assembly overrides get their own group
 # per assembly so "paving forms at $0.30 against the company's $0.45" reads
 # as what it is.
@@ -807,7 +829,12 @@ def pull_prices(db: Session, estimate_id: UUID, *, apply: bool = True) -> PullRe
             if apply:
                 row.catalog_value = master
                 row.value = master
+                # The row follows the master's name AND its unit and category
+                # (label alone until 2026-09-06, audit P3 — a material re-unit'd
+                # on the catalog kept the old unit on every sheet).
                 row.label = item["label"]
+                row.unit = item["unit"]
+                row.category = item["category"]
                 row.pulled_at = now
 
     for key, row in existing.items():

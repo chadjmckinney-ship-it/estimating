@@ -156,6 +156,8 @@ def test_every_other_write_model_refuses_one_too(client, db, project, estimate, 
         ("POST", f"/api/sections/{slab.id}/beam-types",
          {"label": "X", "width_in": 12, "height_in": 24, "stirrup_szie": 3}),
         ("PATCH", f"/api/beam-types/{bt}", {"stirrup_szie": 3}),
+        ("PUT", f"/api/sections/{slab.id}/beam-types/bulk",
+         {"rows": [{"id": bt, "label": "X", "width_in": 12, "height_in": 24, "stirrup_szie": 3}]}),
         ("POST", "/api/grade-beams",
          {"mono_slab_id": pour, "beam_type_id": bt, "length_lf": 10, "lenght_lf": 10}),
         ("PUT", f"/api/mono-slabs/{pour}/grade-beams",
@@ -291,6 +293,20 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
         "mid_bars_count": None, "mid_bars_size": None, "stirrup_size": 3,
         "stirrup_spacing_in": 18, "pt_cables_count": 2,
     })
+    assert r.status_code == 200, r.text
+
+    # openGradeBeamsModal.saveTypes — one PUT for the whole schedule (audit P3,
+    # batch 3): the existing row by id, plus a new one without.
+    r = client.put(f"/api/sections/{slab.id}/beam-types/bulk", json={"rows": [
+        {"id": bt, "kind": "grade_beam", "label": f"GB {tag}", "width_in": 12, "height_in": 30,
+         "top_bars_count": 2, "top_bars_size": 5, "bottom_bars_count": 2, "bottom_bars_size": 5,
+         "mid_bars_count": None, "mid_bars_size": None, "stirrup_size": 3,
+         "stirrup_spacing_in": 18, "pt_cables_count": 2},
+        {"id": None, "kind": "grade_beam", "label": f"GB {tag} new", "width_in": 12, "height_in": 24,
+         "top_bars_count": 2, "top_bars_size": 5, "bottom_bars_count": 2, "bottom_bars_size": 5,
+         "mid_bars_count": None, "mid_bars_size": None, "stirrup_size": 3,
+         "stirrup_spacing_in": 18, "pt_cables_count": None},
+    ]})
     assert r.status_code == 200, r.text
 
     # openGradeBeamsModal.saveUsages — replaceGradeBeams

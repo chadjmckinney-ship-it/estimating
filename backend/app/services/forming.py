@@ -769,7 +769,7 @@ def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
         L(code="2x10", label="2 X 10 X 16'", qty=qty_2x10, unit="LF",
           formula="curb_lf × form%", material=m_2x10, sheet_unit_cost="1.09375"),
         L(code="siding", label='3/8" X 12" X 16\' SIDING', qty=qty_siding, unit="LNGTH",
-          formula="ceil(curb_lf × form% × 0.03 / 16)", material=m_siding,
+          formula="ceil(curb_lf × 0.03 / 16)", material=m_siding,
           sheet_unit_cost="20"),
         L(code="ply", label='3/4 " FORMING PLY', qty=0, unit="SHEET",
           formula="manual", material=m_ply, sheet_unit_cost="74.75"),

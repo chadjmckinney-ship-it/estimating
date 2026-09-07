@@ -275,6 +275,9 @@ export const Api = {
     api(`/sections/${sectionId}/beam-types`, { method: "POST", body }),
   updateBeamType: (typeId, body) =>
     api(`/beam-types/${typeId}`, { method: "PATCH", body }),
+  // The whole schedule in one request: one recalc, one commit (audit P3).
+  saveBeamTypes: (sectionId, rows) =>
+    api(`/sections/${sectionId}/beam-types/bulk`, { method: "PUT", body: { rows } }),
   deleteBeamType: (typeId, force = false) =>
     api(`/beam-types/${typeId}${force ? "?force=true" : ""}`, { method: "DELETE" }),
   beamTypeUsage: (typeId) => api(`/beam-types/${typeId}/usage`),
@@ -327,9 +330,10 @@ export const Api = {
     }),
   // Catalogs
   //
-  // Editing a price here does NOT reprice stored estimates — costing reads
-  // these values at recalc time. Follow a price change with recalcAllEstimates()
-  // to push it into the open estimates.
+  // Editing a price here does NOT reprice stored estimates: each job carries
+  // its own price sheet (sql/048) and costing reads that. A change lands on a
+  // job when the job pulls its sheet (the price-sheet screen's Pull);
+  // recalcAllEstimates() only recalculates with what each sheet already holds.
   listMixes: (params = {}) => {
     const q = qs(params);
     return api(`/mix-designs${q ? "?" + q : ""}`);

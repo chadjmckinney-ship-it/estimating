@@ -457,7 +457,9 @@ def refresh_mono_slab_calcs(
             Decimal(str(sf)) * Decimal("12") / spacing
         ).quantize(Decimal("0.001"))
     else:
-        slab.calc_pt_slab_lf = Decimal("0") if slab.post_tension else Decimal("0")
+        # No spacing, no one-way cable LF — PT or not. (Both arms of a
+        # conditional here said 0 until 2026-09-06; audit P3.)
+        slab.calc_pt_slab_lf = Decimal("0")
 
     # Refresh each GB with current waste so CY stays in sync
     from sqlalchemy import select

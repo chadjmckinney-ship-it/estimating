@@ -503,7 +503,7 @@ async function renderProjectDetail(root) {
         <div><div class="k">Bid price</div><div class="v">${project.bid_price != null ? "$" + money(project.bid_price) : "—"}</div></div>
         <div><div class="k">Sales tax</div><div class="v" title="Sections follow this unless they say otherwise">${project.tax_exempt ? "exempt" : "taxed"}</div></div>
         <div><div class="k">Types</div><div class="v chips">${(project.project_types || []).map((t) => `<span class="chip">${esc(t)}</span>`).join("") || "—"}</div></div>
-        <div><div class="k">Plans</div><div class="v">${project.plans_url ? `<a href="${esc(project.plans_url)}" target="_blank" rel="noopener">Open link</a>` : "—"}</div></div>
+        <div><div class="k">Plans</div><div class="v">${isWebLink(project.plans_url) ? `<a href="${esc(project.plans_url)}" target="_blank" rel="noopener">Open link</a>` : project.plans_url ? esc(project.plans_url) : "—"}</div></div>
       </div>
       ${project.notes ? `<p class="muted" style="margin:0;color:var(--text-muted)">${esc(project.notes)}</p>` : ""}
     </div>
@@ -1240,6 +1240,38 @@ function gridCardHtml({ id, title, blurb, columns, rows, addLabel, saveLabel }) 
  * Blank stays blank. A column the estimator has not measured is not a zero,
  * and storing it as one would put a $0 curb on an area nobody has walked yet.
  */
+/**
+ * Grid bodies on the page → "is it dirty?". One `beforeunload` guard for the
+ * whole page reads this; a body that has left the document no longer counts.
+ * Until 2026-09-06 every render of every grid added a listener of its own and
+ * never removed it, so a grid you had dirtied and then navigated away from
+ * still asked "Leave site?" when the tab closed (audit P3).
+ */
+const GRID_DIRTY = new Map();
+let unloadGuarded = false;
+function guardUnload() {
+  if (unloadGuarded) return;
+  unloadGuarded = true;
+  window.addEventListener("beforeunload", (e) => {
+    for (const [body, isDirty] of GRID_DIRTY) {
+      if (!body.isConnected) {
+        GRID_DIRTY.delete(body);
+        continue;
+      }
+      if (isDirty()) {
+        e.preventDefault();
+        e.returnValue = "";
+        return;
+      }
+    }
+  });
+}
+
+/** A link the project page may put in an href: a web address, nothing else. */
+function isWebLink(s) {
+  return /^https?:[/][/]/i.test(String(s || ""));
+}
+
 function wireGrid(root, { id, columns, required, save, remove }) {
   const bodyEl = $(`#${id}-body`, root);
   if (!bodyEl) return;
@@ -1351,11 +1383,8 @@ function wireGrid(root, { id, columns, required, save, remove }) {
     }
   };
 
-  window.addEventListener("beforeunload", (e) => {
-    if (!dirty) return;
-    e.preventDefault();
-    e.returnValue = "";
-  });
+  GRID_DIRTY.set(bodyEl, () => dirty);
+  guardUnload();
 }
 
 /** The paving takeoff: areas across, driven by curb LF. */
@@ -2350,6 +2379,8 @@ async function renderSectionDetail(root) {
                   ? "Wall runs"
                   : isColumns
                   ? "Column types"
+                  : isDeck
+                  ? "Deck levels"
                   : "Paving areas"
               }</button>`
             : `<button class="btn primary" id="btn-add-slab">+ Mono slab pour</button>
@@ -3979,7 +4010,10 @@ function renderLaborCard(labor) {
           <button type="button" class="btn" id="btn-refresh-labor">Refresh from pours</button>
         </div>
       </div>
-      ${groupTable("labor", isPie ? "Pier labor" : isPav ? "Paving labor" : "Slab labor")}
+      ${groupTable(
+        "labor",
+        isPie ? "Pier labor" : isCol ? "Column labor" : isWal ? "Wall labor" : isPav ? "Paving labor" : isDck ? "Deck labor" : "Slab labor"
+      )}
       ${groupTable("supervision", "Supervision")}
       <p style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0">
         Toggle <strong>On</strong> and edit <strong>rate</strong>, then <strong>Save</strong>.
@@ -4125,6 +4159,8 @@ function renderEquipmentCard(equip) {
                 ? "06-WALLS EQUIPMENT"
                 : PAVING_KINDS.has(d.kind)
                 ? "10-PAVING EQUIPMENT"
+                : DECK_KINDS.has(d.kind)
+                ? "08-CIP EL. DECK EQUIPMENT"
                 : "04 EQUIPMENT"
             }</strong> — stored in <code>estimate_equipment_lines</code>.
             Super days <strong>${num(d.super_days, 1)}</strong>
@@ -4422,15 +4458,21 @@ async function openGradeBeamsModal(slab, kind = "grade_beam") {
     const btn = $("#type-save", backdrop);
     btn.disabled = true;
     try {
-      for (const r of rows) {
-        const body = { ...r };
-        delete body.id;
-        delete body.pour_count;
-        delete body.total_lf;
-        if (r.id) await Api.updateBeamType(r.id, body);
-        else await Api.createBeamType(slab.section_id, body);
-      }
-      toast("Schedule saved — pours using these types were recalculated");
+      // The whole schedule in one request: one recalc of the section, one
+      // commit, and a bad row saves nothing. Until 2026-09-06 this PATCHed the
+      // types one at a time — five recalcs for five types (audit P3).
+      const res = await Api.saveBeamTypes(
+        slab.section_id,
+        rows.map((r) => {
+          const body = { ...r, id: r.id || null };
+          delete body.pour_count;
+          delete body.total_lf;
+          return body;
+        })
+      );
+      toast(
+        `Schedule saved (${res.created} new, ${res.updated} updated) — pours using these types were recalculated`
+      );
       types = await Api.listBeamTypes(slab.section_id, kind);
       usages = await Api.listGradeBeams(slab.id, kind);
       lengthByType.clear();

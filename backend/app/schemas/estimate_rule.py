@@ -86,7 +86,9 @@ class EstimateRuleWrite(BaseModel):
     # not a silent 200.
     model_config = ConfigDict(extra="forbid")
 
-    value: Decimal
+    # Never negative, never absurd here; the key's own range (a waste is 0-1)
+    # is checked in the router against price_book.RULE_BOUNDS.
+    value: Decimal = Field(..., ge=0, le=1_000_000)
     note: str | None = Field(
         None,
         max_length=200,

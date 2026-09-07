@@ -20,6 +20,8 @@ from app.models.beam_type import EstimateBeamType
 from app.models.estimate_section import EstimateSection
 from app.models.grade_beam import GradeBeam
 from app.schemas.beam_type import (
+    BeamTypeBulk,
+    BeamTypeBulkResult,
     BeamKind,
     BeamTypeCreate,
     BeamTypeRead,
@@ -145,6 +147,67 @@ def create_beam_type(
         ) from None
     db.refresh(row)
     return _to_read(db, row)
+
+
+@router.put("/sections/{section_id}/beam-types/bulk", response_model=BeamTypeBulkResult)
+def save_beam_types(
+    section_id: UUID, body: BeamTypeBulk, db: Session = Depends(get_db)
+) -> BeamTypeBulkResult:
+    """
+    The grade-beams modal's "Save schedule": every row of the schedule in one
+    request — one recalc of the section, one commit, and a bad row saves
+    nothing. Until 2026-09-06 (audit P3) the modal PATCHed the types one at a
+    time: five recalcs for five types, and a failure on the third left the
+    first two saved and the rest not. A row with an id updates that type
+    (only the fields sent); a row without one is created. Nothing is deleted
+    here — that is the type editor's job, with its usage check.
+    """
+    if db.get(EstimateSection, section_id) is None:
+        raise HTTPException(status_code=404, detail="Section not found")
+    # Resolve every row before touching any: a stray id is refused with the
+    # section exactly as it was.
+    existing: dict[int, EstimateBeamType] = {}
+    for i, r in enumerate(body.rows):
+        if r.id is None:
+            continue
+        row = db.get(EstimateBeamType, r.id)
+        if row is None or row.section_id != section_id:
+            raise HTTPException(
+                status_code=400, detail=f"rows.{i}: beam type {r.id} is not on this section"
+            )
+        existing[i] = row
+    created = updated = 0
+    for i, r in enumerate(body.rows):
+        row = existing.get(i)
+        data = r.model_dump(exclude={"id"}, exclude_unset=row is not None)
+        if "label" in data:
+            data["label"] = data["label"].strip()
+        kind = data.get("kind") or (row.kind if row is not None else "grade_beam")
+        if kind != "grade_beam":
+            data["pt_cables_count"] = None  # PT cables only apply to beams poured with the SOG
+        if row is None:
+            db.add(EstimateBeamType(section_id=section_id, **data))
+            created += 1
+            continue
+        for k, v in data.items():
+            setattr(row, k, v)
+        row.updated_at = datetime.now(timezone.utc)
+        updated += 1
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Two types on this section share a name") from None
+    _recalc_section(db, section_id)
+    db.commit()
+    stmt = (
+        select(EstimateBeamType)
+        .where(EstimateBeamType.section_id == section_id)
+        .order_by(EstimateBeamType.sort_order, EstimateBeamType.label)
+    )
+    return BeamTypeBulkResult(
+        created=created, updated=updated, rows=[_to_read(db, x) for x in db.scalars(stmt).all()]
+    )
 
 
 @router.patch("/beam-types/{type_id}", response_model=BeamTypeRead)

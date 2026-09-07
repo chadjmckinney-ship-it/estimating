@@ -349,6 +349,12 @@ def set_estimate_rule(
                 "price_book.RULE_KEYS."
             ),
         )
+    lo, hi = pb.rule_bounds(key)
+    if not (lo <= body.value <= hi):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{_label_for(key)} must be between {lo} and {hi}; got {body.value}",
+        )
     db.execute(
         text(
             "INSERT INTO estimate_rules (estimate_id, key, value, note) "
