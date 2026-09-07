@@ -7,9 +7,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class SectionQuote(Base):
+class SectionQuote(StampedBy, Base):
     """
     A real quote that replaces a computed cost on a section (sql/039).
 

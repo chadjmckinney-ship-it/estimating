@@ -17,9 +17,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class MonoSlab(Base):
+class MonoSlab(StampedBy, Base):
     __tablename__ = "mono_slabs"
 
     id: Mapped[uuid.UUID] = mapped_column(

@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class PierGroup(Base):
+class PierGroup(StampedBy, Base):
     """
     A group of identical drilled piers (sql/037).
 

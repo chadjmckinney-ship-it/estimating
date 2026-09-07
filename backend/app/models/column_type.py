@@ -7,9 +7,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class ColumnType(Base):
+class ColumnType(StampedBy, Base):
     """
     One cast-in-place column type and how many of it there are (sql/045).
 

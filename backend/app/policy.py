@@ -16,6 +16,9 @@ add, delete, users and full control." Each role includes the ones below it:
     admin              also people (the estimators list and their passwords)
                        and deleting a whole estimate or project
 
+The activity feed (/api/audit) is senior_estimator and above, prices being
+what it shows.
+
 `needed(method, path, body_keys)` is the least role a request needs; the
 `authorize` dependency in app/main.py asks it for every API route except
 sign-in. A refusal is a 403 that names both roles, so the toast says why.
@@ -54,6 +57,8 @@ _MARKUP_KEYS = {"margin_pct", "contingency_pct"}
 def needed(method: str, path: str, body_keys: set[str] | frozenset[str] = frozenset()) -> str:
     """The least role that may make this request."""
     method = method.upper()
+    if path.startswith("/api/audit"):
+        return "senior_estimator"  # who changed what, prices included (sql/069)
     if method in ("GET", "HEAD", "OPTIONS"):
         return "user"
     if path.startswith("/api/estimators"):

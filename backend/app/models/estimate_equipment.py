@@ -17,9 +17,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class EstimateEquipmentLine(Base):
+class EstimateEquipmentLine(StampedBy, Base):
     __tablename__ = "estimate_equipment_lines"
     __table_args__ = (
         UniqueConstraint(

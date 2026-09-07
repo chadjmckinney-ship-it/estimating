@@ -7,10 +7,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.models.stamped import StampedBy
 from app.models.beam_type import EstimateBeamType
 
 
-class GradeBeam(Base):
+class GradeBeam(StampedBy, Base):
     """
     How much of a beam type a pour uses.
 

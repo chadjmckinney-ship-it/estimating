@@ -100,6 +100,11 @@ export const Api = {
     api("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => api("/auth/logout", { method: "POST" }),
   me: () => api("/auth/me"),
+  // Who changed what (sql/069); senior estimators and admins.
+  listAudit: (params = {}) => {
+    const q = qs(params);
+    return api(`/audit${q ? "?" + q : ""}`);
+  },
   changePassword: (current_password, new_password) =>
     api("/auth/password", { method: "POST", body: { current_password, new_password } }),
   // Projects

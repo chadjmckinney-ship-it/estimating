@@ -7,8 +7,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app import schema_check
 from app.config import settings
+from app.audit import AuditMiddleware
 from app.policy import authorize
 from app.routers import (
+    audit,
     auth,
     bar_sizes,
     beam_types,
@@ -51,6 +53,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title=settings.api_title, version=settings.api_version, lifespan=lifespan
 )
+# Every write request that reaches the API is recorded (sql/069, app/audit.py).
+app.add_middleware(AuditMiddleware)
 
 # Sign-in is the one API route that needs no session (sql/068).
 app.include_router(auth.router, prefix="/api")
@@ -62,7 +66,7 @@ app.include_router(auth.router, prefix="/api")
 # The CORS middleware is gone: the SPA is served from this same origin, and
 # nothing else is meant to call the API from a browser.
 for _r in (
-    estimators, projects, estimates, estimate_sections, forming, labor, estimate_equipment, mono_slabs, pier_groups, wall_runs, column_types, deck_levels, estimate_prices, section_quotes, section_rates, estimate_rules, grade_beams, beam_types, mix_designs, equipment, materials, system_settings, bar_sizes,
+    estimators, projects, estimates, estimate_sections, forming, labor, estimate_equipment, mono_slabs, pier_groups, wall_runs, column_types, deck_levels, estimate_prices, section_quotes, section_rates, estimate_rules, grade_beams, beam_types, mix_designs, equipment, materials, system_settings, bar_sizes, audit,
 ):
     app.include_router(_r.router, prefix="/api", dependencies=[Depends(authorize)])
 

@@ -11,6 +11,7 @@ from app.models.beam_type import EstimateBeamType
 from app.models.column_type import ColumnType
 from app.models.estimate_section import EstimateSection
 from app.models.session import LoginSession
+from app.models.audit_log import AuditLog
 from app.models.grade_beam import GradeBeam
 from app.models.deck_level import DeckLevel, DeckLevelBeam
 from app.models.section_quote import SectionQuote
@@ -23,6 +24,7 @@ __all__ = [
     "Estimator",
     "EstimateSection",
     "LoginSession",
+    "AuditLog",
     "ColumnType",
     "Project",
     "ProjectEstimator",

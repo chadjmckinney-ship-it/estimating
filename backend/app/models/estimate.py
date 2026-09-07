@@ -7,9 +7,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class Estimate(Base):
+class Estimate(StampedBy, Base):
     __tablename__ = "estimates"
 
     id: Mapped[uuid.UUID] = mapped_column(

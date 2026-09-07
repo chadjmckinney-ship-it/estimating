@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 # The workbook's per-sheet level. One job (estimate) has many.
 SECTION_KINDS = (
@@ -66,7 +67,7 @@ DEFAULT_UNIT_BY_KIND = {
 }
 
 
-class EstimateSection(Base):
+class EstimateSection(StampedBy, Base):
     """
     One assembly of a job (sql/033–034).
 

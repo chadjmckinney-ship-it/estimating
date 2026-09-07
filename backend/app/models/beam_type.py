@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class EstimateBeamType(Base):
+class EstimateBeamType(StampedBy, Base):
     """
     One grade beam / exposed GB / drop section on an estimate.
 

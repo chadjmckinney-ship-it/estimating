@@ -5,9 +5,10 @@ from sqlalchemy import Boolean, DateTime, Integer, Numeric, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class MixDesign(Base):
+class MixDesign(StampedBy, Base):
     """
     The master list of mix prices.
 
@@ -42,7 +43,7 @@ class MixDesign(Base):
     )
 
 
-class ConcreteSupplier(Base):
+class ConcreteSupplier(StampedBy, Base):
     __tablename__ = "concrete_suppliers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

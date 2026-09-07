@@ -27,6 +27,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.models.estimator import Estimator
 from app.models.session import LoginSession
@@ -163,4 +164,5 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> Estimator:
             headers={"WWW-Authenticate": "Cookie"},
         )
     request.state.user = user
+    audit.set_actor(db, user.id)  # who the flush hook and the raw-SQL writers stamp (sql/069)
     return user

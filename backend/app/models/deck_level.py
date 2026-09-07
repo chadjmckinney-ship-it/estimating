@@ -17,10 +17,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.models.stamped import StampedBy
 from app.models.beam_type import EstimateBeamType
 
 
-class DeckLevel(Base):
+class DeckLevel(StampedBy, Base):
     """
     One level of a cast-in-place elevated deck (sql/052).
 
@@ -124,7 +125,7 @@ class DeckLevel(Base):
     )
 
 
-class DeckLevelBeam(Base):
+class DeckLevelBeam(StampedBy, Base):
     """
     How much of a beam type runs through a level.
 

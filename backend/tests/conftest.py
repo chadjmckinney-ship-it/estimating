@@ -20,6 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from fastapi import Request  # module level: `from __future__ import annotations` makes the hint a string
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
@@ -127,7 +128,13 @@ def as_role(db):
     from app.db import get_db
     from app.main import app
 
-    app.dependency_overrides[get_db] = lambda: db
+    def _db_for_tests(request: Request):
+        # The audit middleware writes through this test's rolled-back session
+        # rather than one of its own (sql/069, app/audit.py).
+        request.state.audit_db = db
+        return db
+
+    app.dependency_overrides[get_db] = _db_for_tests
     opened = []
 
     def _as(role: str, *, username: str | None = None) -> TestClient:

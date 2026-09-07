@@ -17,9 +17,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class EstimateFormingLine(Base):
+class EstimateFormingLine(StampedBy, Base):
     """Persisted forming / lumber line on an estimate."""
 
     __tablename__ = "estimate_forming_lines"

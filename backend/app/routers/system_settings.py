@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.schemas.system_setting import (
     RecalcReport,
@@ -205,10 +206,10 @@ def update_setting(
 
     db.execute(
         text(
-            "UPDATE system_settings SET value = CAST(:v AS jsonb), updated_at = :t "
-            "WHERE key = :k"
+            "UPDATE system_settings SET value = CAST(:v AS jsonb), updated_at = :t, "
+            "updated_by = :u WHERE key = :k"
         ),
-        {"k": key, "v": body.as_jsonb(), "t": datetime.now(timezone.utc)},
+        {"k": key, "v": body.as_jsonb(), "t": datetime.now(timezone.utc), "u": audit.actor(db)},
     )
     db.commit()
 

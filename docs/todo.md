@@ -188,7 +188,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Estimators table + API (no passwords yet)
 - [x] Login / session — sql/068, `app/auth.py`, sessions table, 12 h idle / 30 d
 - [x] Roles: admin · senior estimator · estimator · user — `app/policy.py` (2026-09-07)
-- [ ] Audit who changed what
+- [x] Audit who changed what — sql/069: `audit_log` of every write request (the Activity page) and `updated_by` on every input table (2026-09-07)
 - [ ] Seed remaining estimator people (names TBD)
 
 ---

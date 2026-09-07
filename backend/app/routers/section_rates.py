@@ -49,6 +49,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.models.estimate_section import EstimateSection
 from app.schemas.section_rate import (
@@ -133,14 +134,15 @@ def set_section_rate(
         )
     db.execute(
         text(
-            "INSERT INTO section_rates (section_id, key, value, note) "
-            "VALUES (:s, :k, :v, :n) "
+            "INSERT INTO section_rates (section_id, key, value, note, updated_by) "
+            "VALUES (:s, :k, :v, :n, :u) "
             "ON CONFLICT (section_id, key) DO UPDATE "
-            "SET value = excluded.value, note = excluded.note, updated_at = :t"
+            "SET value = excluded.value, note = excluded.note, updated_at = :t, "
+            "updated_by = excluded.updated_by"
         ),
         {
             "s": str(section_id), "k": key, "v": body.value, "n": body.note,
-            "t": datetime.now(timezone.utc),
+            "t": datetime.now(timezone.utc), "u": audit.actor(db),
         },
     )
     db.flush()

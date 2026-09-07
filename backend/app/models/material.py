@@ -5,9 +5,10 @@ from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, Text, func, te
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class Material(Base):
+class Material(StampedBy, Base):
     __tablename__ = "materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

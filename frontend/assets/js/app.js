@@ -744,6 +744,133 @@ async function renderEstimators(root) {
   });
 }
 
+// ---------- Activity: who changed what (sql/069) ----------
+
+function fmtWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+const singular = (t) => t.replace("-", " ").replace(/s$/, "");
+
+/** A route and a method, as a sentence. The fallback is the route itself. */
+const ACTIONS = [
+  [/^\/api\/auth\/login$/, (m, e) => (e.status === 200 ? "signed in" : "failed to sign in")],
+  [/^\/api\/auth\/logout$/, () => "signed out"],
+  [/^\/api\/auth\/password$/, () => "changed their password"],
+  [/^\/api\/estimators\/[^/]+\/password$/, () => "set someone's password"],
+  [/^\/api\/estimators$/, () => "added a person"],
+  [/^\/api\/estimators\/[^/]+$/, (m) => (m === "DELETE" ? "deactivated a person" : "changed a person")],
+  [/^\/api\/projects$/, () => "added a project"],
+  [/^\/api\/projects\/[^/]+$/, (m) => (m === "DELETE" ? "deleted a project" : "changed a project")],
+  [/^\/api\/estimates$/, () => "added an estimate"],
+  [/^\/api\/estimates\/[^/]+\/recalc$/, () => "recalculated an estimate"],
+  [/^\/api\/estimates\/[^/]+\/prices\/pull$/, () => "pulled the master list onto a price sheet"],
+  [/^\/api\/estimates\/[^/]+\/prices\/[^/]+$/, () => "changed a price on a job's sheet"],
+  [/^\/api\/estimates\/[^/]+\/rules\/([^/]+)$/, (m, e, k) => `${m === "DELETE" ? "cleared" : "set"} the job rule ${k}`],
+  [/^\/api\/estimates\/[^/]+\/sections$/, () => "added a section"],
+  [/^\/api\/estimates\/[^/]+$/, (m) => (m === "DELETE" ? "deleted an estimate" : "changed an estimate")],
+  [/^\/api\/sections\/[^/]+\/recalc$/, () => "recalculated a section"],
+  [/^\/api\/sections\/[^/]+\/beam-types/, () => "saved the beam schedule"],
+  [/^\/api\/sections\/[^/]+\/quotes\/([^/]+)$/, (m, e, k) => `${m === "DELETE" ? "cleared" : "set"} the ${k} quote`],
+  [/^\/api\/sections\/[^/]+\/rates\/([^/]+)$/, (m, e, k) => `${m === "DELETE" ? "cleared" : "set"} the section rate ${k}`],
+  [/^\/api\/sections\/[^/]+\/(labor|equipment|forming-materials)\/lines\/([^/]+)$/, (m, e, set, code) => `changed the ${set.replace("-materials", "")} line ${code}`],
+  [/^\/api\/sections\/[^/]+\/forming-materials\/form-percent$/, () => "set the form percent"],
+  [/^\/api\/sections\/[^/]+\/(labor|equipment|forming-materials)\/refresh$/, (m, e, set) => `refreshed ${set.replace("-materials", "")}`],
+  [/^\/api\/sections\/[^/]+$/, (m) => (m === "DELETE" ? "deleted a section" : "changed a section")],
+  [/^\/api\/mono-slabs\/bulk$/, () => "saved the pours"],
+  [/^\/api\/mono-slabs\/[^/]+\/grade-beams$/, () => "saved beam lengths on a pour"],
+  [/^\/api\/mono-slabs\/[^/]+\/recalc$/, () => "recalculated a pour"],
+  [/^\/api\/mono-slabs$/, () => "added a pour"],
+  [/^\/api\/mono-slabs\/[^/]+$/, (m) => (m === "DELETE" ? "deleted a pour" : "changed a pour")],
+  [/^\/api\/(pier-groups|wall-runs|column-types|deck-levels)\/bulk$/, (m, e, t) => `saved the ${t.replace("-", " ")}`],
+  [/^\/api\/(pier-groups|wall-runs|column-types|deck-levels)$/, (m, e, t) => `added a ${singular(t)}`],
+  [/^\/api\/(pier-groups|wall-runs|column-types|deck-levels)\/[^/]+$/, (m, e, t) => `${m === "DELETE" ? "deleted" : "changed"} a ${singular(t)}`],
+  [/^\/api\/beam-types\/[^/]+$/, (m) => (m === "DELETE" ? "deleted a beam type" : "changed a beam type")],
+  [/^\/api\/grade-beams/, () => "changed a beam on a pour"],
+  [/^\/api\/(mix-designs|materials|equipment|concrete-suppliers)$/, (m, e, t) => `added a ${singular(t)}`],
+  [/^\/api\/(mix-designs|materials|equipment|concrete-suppliers)\/([^/]+)$/, (m, e, t, id) => `${m === "DELETE" ? "retired" : "changed"} ${singular(t)} ${id}`],
+  [/^\/api\/system-settings\/recalc-all$/, () => "recalculated every open estimate"],
+  [/^\/api\/system-settings\/([^/]+)$/, (m, e, k) => `changed the company setting ${k}`],
+];
+
+function describeAction(e) {
+  for (const [re, fn] of ACTIONS) {
+    const m = e.path.match(re);
+    if (m) return fn(e.method, e, ...m.slice(1));
+  }
+  return `${e.method} ${e.path}`;
+}
+
+async function renderActivity(root) {
+  root.innerHTML = `<div class="loading">Loading…</div>`;
+  const draw = async (filters) => {
+    let rows;
+    try {
+      rows = await Api.listAudit({ limit: 300, ...filters });
+    } catch (err) {
+      root.innerHTML = `<div class="error-banner">${esc(err.message)}</div>`;
+      return;
+    }
+    root.innerHTML = `
+      <div class="page-header">
+        <div>
+          <h1>Activity</h1>
+          <p>Every change anyone made through the app — who, what, when. Newest first.</p>
+        </div>
+      </div>
+      <div class="toolbar" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem">
+        <input id="act-user" placeholder="username" value="${esc(filters.username || "")}" style="width:10rem" />
+        <input id="act-path" placeholder="route contains… (a section id, mix-designs)" value="${esc(filters.path || "")}" style="width:22rem" />
+        <button type="button" class="btn" id="act-go">Filter</button>
+        <span class="muted" style="font-size:0.85rem">${rows.length} shown</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>When</th><th>Who</th><th>What</th><th>Status</th><th>Sent</th></tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (e) => `<tr>
+                  <td class="muted" style="white-space:nowrap">${esc(fmtWhen(e.at))}</td>
+                  <td><strong>${esc(e.username || "—")}</strong></td>
+                  <td>${esc(describeAction(e))}<div class="muted" style="font-size:0.75rem">${esc(e.method)} ${esc(e.path)}</div></td>
+                  <td>${
+                    e.status < 300
+                      ? `<span class="badge ok">${e.status}</span>`
+                      : `<span class="badge warn" title="refused or failed">${e.status}</span>`
+                  }</td>
+                  <td>${
+                    e.body == null
+                      ? '<span class="muted">—</span>'
+                      : `<details><summary class="muted" style="cursor:pointer">body</summary><pre style="margin:0.25rem 0 0;font-size:0.75rem;white-space:pre-wrap">${esc(
+                          JSON.stringify(e.body, null, 1)
+                        )}</pre></details>`
+                  }</td>
+                </tr>`
+              )
+              .join("") || `<tr><td colspan="5" class="muted">Nothing yet.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+    $("#act-go", root).onclick = () =>
+      draw({ username: $("#act-user", root).value.trim(), path: $("#act-path", root).value.trim() });
+    for (const id of ["#act-user", "#act-path"]) {
+      $(id, root).onkeydown = (ev) => {
+        if (ev.key === "Enter") $("#act-go", root).click();
+      };
+    }
+  };
+  await draw({});
+}
+
 function roleOptions(current) {
   return ["user", "estimator", "senior_estimator", "admin"]
     .map((r) => `<option value="${r}"${r === current ? " selected" : ""}>${ROLE_LABELS[r]}</option>`)
@@ -6505,6 +6632,7 @@ async function render() {
     else if (state.route === "materials") await renderMaterials(root);
     else if (state.route === "equipment") await renderEquipment(root);
     else if (state.route === "settings") await renderSettings(root);
+    else if (state.route === "activity") await renderActivity(root);
     else {
       root.innerHTML = `<div class="error-banner">Unknown page: ${esc(state.route)}</div>`;
     }
@@ -6617,7 +6745,11 @@ function applyRole() {
   $$(".nav button").forEach((b) => {
     b.disabled = false;
     const need =
-      b.dataset.route === "estimators" ? "admin" : b.dataset.route === "settings" ? "senior_estimator" : null;
+      b.dataset.route === "estimators"
+        ? "admin"
+        : b.dataset.route === "settings" || b.dataset.route === "activity"
+        ? "senior_estimator"
+        : null;
     b.classList.toggle("hidden", !!need && !canAct(need));
   });
 }

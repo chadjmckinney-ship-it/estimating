@@ -35,6 +35,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.models.estimate_section import EstimateSection
 from app.schemas.section_rate import SectionRateRead
 from app.services import price_book as pb
@@ -185,11 +186,12 @@ def seed(db: Session, section: EstimateSection, *, note: str | None = None) -> l
             continue
         db.execute(
             text(
-                "INSERT INTO section_rates (section_id, key, value, note) "
-                "VALUES (:s, :k, :v, :n) "
+                "INSERT INTO section_rates (section_id, key, value, note, updated_by) "
+                "VALUES (:s, :k, :v, :n, :u) "
                 "ON CONFLICT (section_id, key) DO NOTHING"
             ),
-            {"s": str(section.id), "k": r.key, "v": r.value, "n": f"{stamp} from the {r.source}"},
+            {"s": str(section.id), "k": r.key, "v": r.value, "n": f"{stamp} from the {r.source}",
+             "u": audit.actor(db)},
         )
         written.append(r.key)
     return written

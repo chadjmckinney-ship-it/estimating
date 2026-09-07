@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.models.stamped import StampedBy
 
 
-class Project(Base):
+class Project(StampedBy, Base):
     __tablename__ = "projects"
 
     id: Mapped[uuid.UUID] = mapped_column(

@@ -66,6 +66,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.db import get_db
 from app.models.estimate import Estimate
 from app.models.estimate_section import EstimateSection
@@ -357,14 +358,15 @@ def set_estimate_rule(
         )
     db.execute(
         text(
-            "INSERT INTO estimate_rules (estimate_id, key, value, note) "
-            "VALUES (:e, :k, :v, :n) "
+            "INSERT INTO estimate_rules (estimate_id, key, value, note, updated_by) "
+            "VALUES (:e, :k, :v, :n, :u) "
             "ON CONFLICT (estimate_id, key) DO UPDATE "
-            "SET value = excluded.value, note = excluded.note, updated_at = :t"
+            "SET value = excluded.value, note = excluded.note, updated_at = :t, "
+            "updated_by = excluded.updated_by"
         ),
         {
             "e": str(estimate_id), "k": key, "v": body.value, "n": body.note,
-            "t": datetime.now(timezone.utc),
+            "t": datetime.now(timezone.utc), "u": audit.actor(db),
         },
     )
     db.flush()
