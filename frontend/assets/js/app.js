@@ -5,6 +5,8 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 const state = {
   route: "home",
+  // Who is signed in (sql/068): {id, username, full_name, role}, or null.
+  user: null,
   projectId: null,
   estimateId: null,
   // The section the estimate page is currently editing (sql/033-034). Set when
@@ -680,17 +682,31 @@ async function renderEstimators(root) {
     </div>
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Title</th><th>Phone</th><th>Active</th></tr></thead>
+        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Title</th><th>Phone</th><th>Active</th>${
+          canAct("admin") ? "<th>Sign-in</th>" : ""
+        }</tr></thead>
         <tbody>
           ${people
             .map(
-              (e) => `<tr>
+              (e) => `<tr data-person="${esc(e.id)}">
               <td><strong>${esc(e.full_name)}</strong></td>
               <td class="muted">${esc(e.username)}</td>
-              <td>${statusBadge(e.role)}</td>
+              <td>${
+                canAct("admin")
+                  ? `<select data-role="${esc(e.id)}" title="Each role includes the ones below it">${roleOptions(e.role)}</select>`
+                  : esc(ROLE_LABELS[e.role] || e.role)
+              }</td>
               <td class="muted">${esc(e.title || "—")}</td>
               <td class="muted">${esc(e.phone || "—")}</td>
               <td>${e.is_active ? '<span class="badge ok">yes</span>' : '<span class="badge">no</span>'}</td>
+              ${
+                canAct("admin")
+                  ? `<td style="white-space:nowrap">
+                      <button type="button" class="btn ghost" data-pw="${esc(e.id)}">Set password</button>
+                      ${e.is_active ? `<button type="button" class="btn ghost" data-off="${esc(e.id)}">Deactivate</button>` : ""}
+                    </td>`
+                  : ""
+              }
             </tr>`
             )
             .join("")}
@@ -698,6 +714,77 @@ async function renderEstimators(root) {
       </table>
     </div>`;
   $("#btn-new").onclick = () => openEstimatorModal();
+  const byId = new Map(people.map((e) => [e.id, e]));
+  $$("[data-role]", root).forEach((sel) => {
+    sel.onchange = async () => {
+      try {
+        await Api.updateEstimator(sel.dataset.role, { role: sel.value });
+        toast(`${byId.get(sel.dataset.role)?.full_name || "Role"} is now ${ROLE_LABELS[sel.value]}`);
+      } catch (err) {
+        toast(err.message, "err");
+        render();
+      }
+    };
+  });
+  $$("[data-pw]", root).forEach((btn) => {
+    btn.onclick = () => openSetPasswordModal(byId.get(btn.dataset.pw));
+  });
+  $$("[data-off]", root).forEach((btn) => {
+    btn.onclick = async () => {
+      const who = byId.get(btn.dataset.off);
+      if (!confirm(`Deactivate ${who.full_name}? They are signed out everywhere and cannot sign in.`)) return;
+      try {
+        await Api.deactivateEstimator(btn.dataset.off);
+        toast(`${who.full_name} deactivated`);
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  });
+}
+
+function roleOptions(current) {
+  return ["user", "estimator", "senior_estimator", "admin"]
+    .map((r) => `<option value="${r}"${r === current ? " selected" : ""}>${ROLE_LABELS[r]}</option>`)
+    .join("");
+}
+
+/** An admin sets someone's password (sql/068). Their open sessions end. */
+function openSetPasswordModal(person) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Set password — ${esc(person.full_name)}</h2>
+      <form id="setpw-form" class="form-grid" style="grid-template-columns:1fr">
+        <div class="field"><label>New password (8+ characters)</label>
+          <input name="password" type="password" autocomplete="new-password" minlength="8" required /></div>
+        <div class="field"><label>Again</label>
+          <input name="again" type="password" autocomplete="new-password" minlength="8" required /></div>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="cancel">Cancel</button>
+          <button type="submit" class="btn primary">Set</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#cancel", backdrop).onclick = () => backdrop.remove();
+  $("#setpw-form", backdrop).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    if (fd.get("password") !== fd.get("again")) {
+      toast("The two passwords differ", "err");
+      return;
+    }
+    try {
+      await Api.setEstimatorPassword(person.id, String(fd.get("password")));
+      toast(`Password set for ${person.full_name} — their open sessions were signed out`);
+      backdrop.remove();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
 }
 
 function openEstimatorModal() {
@@ -713,11 +800,7 @@ function openEstimatorModal() {
         <div class="field"><label>Phone</label><input name="phone" /></div>
         <div class="field"><label>Title</label><input name="title" value="Estimator" /></div>
         <div class="field"><label>Role</label>
-          <select name="role">
-            <option value="estimator">estimator</option>
-            <option value="admin">admin</option>
-            <option value="viewer">viewer</option>
-          </select>
+          <select name="role">${roleOptions("estimator")}</select>
         </div>
         <div class="modal-actions" style="grid-column:1/-1">
           <button type="button" class="btn ghost" id="cancel">Cancel</button>
@@ -6443,11 +6526,158 @@ function syncNavActive() {
   });
 }
 
-function init() {
+// ---------- Sign-in (sql/068) ----------
+//
+// Every API route but sign-in needs a session, and the role decides what the
+// session may write (backend/app/policy.py). The API is the gate; here the
+// nav just stops offering what the role cannot do, and a 403 shows as the
+// server's own sentence in a toast.
+
+const ROLE_RANK = { user: 0, estimator: 1, senior_estimator: 2, admin: 3 };
+const ROLE_LABELS = {
+  user: "user",
+  estimator: "estimator",
+  senior_estimator: "senior estimator",
+  admin: "admin",
+};
+
+/** Is the signed-in person at least this role? */
+function canAct(role) {
+  return !!state.user && (ROLE_RANK[state.user.role] ?? -1) >= (ROLE_RANK[role] ?? 99);
+}
+
+function renderSignIn() {
+  closeAllModals();
+  $$(".nav button").forEach((b) => {
+    b.disabled = true;
+  });
+  paintUserFoot();
+  const root = $("#app");
+  root.innerHTML = `
+    <div class="card" style="max-width:24rem;margin:4rem auto">
+      <h2 style="margin-top:0">Sign in</h2>
+      <p style="color:var(--text-muted);font-size:0.9rem;margin-top:0">
+        Your S&amp;S Estimating username and password.
+      </p>
+      <form id="signin-form" class="form-grid" style="grid-template-columns:1fr">
+        <div class="field"><label>Username</label>
+          <input name="username" autocomplete="username" required autofocus /></div>
+        <div class="field"><label>Password</label>
+          <input name="password" type="password" autocomplete="current-password" required /></div>
+        <div id="signin-error" class="error-banner hidden"></div>
+        <div class="modal-actions"><button type="submit" class="btn primary">Sign in</button></div>
+      </form>
+    </div>`;
+  $("#signin-form", root).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      state.user = await Api.login(String(fd.get("username")).trim(), String(fd.get("password")));
+      enter();
+    } catch (err) {
+      const box = $("#signin-error", root);
+      box.textContent = err.message;
+      box.classList.remove("hidden");
+      btn.disabled = false;
+    }
+  };
+}
+
+function paintUserFoot() {
+  const el = $("#user-foot");
+  if (!el) return;
+  if (!state.user) {
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = `Signed in as <strong>${esc(state.user.full_name)}</strong> · ${esc(
+    ROLE_LABELS[state.user.role] || state.user.role
+  )}<br /><a href="#" id="btn-password">change password</a> · <a href="#" id="btn-signout">sign out</a>`;
+  $("#btn-signout", el).onclick = async (e) => {
+    e.preventDefault();
+    try {
+      await Api.logout();
+    } catch {
+      // the cookie is gone either way
+    }
+    state.user = null;
+    renderSignIn();
+  };
+  $("#btn-password", el).onclick = (e) => {
+    e.preventDefault();
+    openPasswordModal();
+  };
+}
+
+/** The nav offers what the role can do; everything else is the API's 403. */
+function applyRole() {
+  paintUserFoot();
+  $$(".nav button").forEach((b) => {
+    b.disabled = false;
+    const need =
+      b.dataset.route === "estimators" ? "admin" : b.dataset.route === "settings" ? "senior_estimator" : null;
+    b.classList.toggle("hidden", !!need && !canAct(need));
+  });
+}
+
+function openPasswordModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Change password</h2>
+      <form id="pw-form" class="form-grid" style="grid-template-columns:1fr">
+        <div class="field"><label>Current password</label>
+          <input name="current" type="password" autocomplete="current-password" required /></div>
+        <div class="field"><label>New password (8+ characters)</label>
+          <input name="next" type="password" autocomplete="new-password" minlength="8" required /></div>
+        <div class="field"><label>Again</label>
+          <input name="again" type="password" autocomplete="new-password" minlength="8" required /></div>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" id="cancel">Cancel</button>
+          <button type="submit" class="btn primary">Change</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#cancel", backdrop).onclick = () => backdrop.remove();
+  $("#pw-form", backdrop).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    if (fd.get("next") !== fd.get("again")) {
+      toast("The two new passwords differ", "err");
+      return;
+    }
+    try {
+      await Api.changePassword(String(fd.get("current")), String(fd.get("next")));
+      toast("Password changed — your other sessions were signed out");
+      backdrop.remove();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
+}
+
+/** Signed in: read the hash and render it. */
+function enter() {
+  applyRole();
+  const p = parseHash();
+  state.route = p.route;
+  state.projectId = p.projectId;
+  state.estimateId = p.estimateId;
+  state.sectionId = p.sectionId || null;
+  syncNavActive();
+  render();
+}
+
+async function init() {
   $$(".nav button").forEach((btn) => {
     btn.addEventListener("click", () => setRoute(btn.dataset.route));
   });
   window.addEventListener("hashchange", () => {
+    if (!state.user) return; // the sign-in screen stays until there is a session
     closeAllModals();
     const p = parseHash();
     state.route = p.route;
@@ -6457,14 +6687,25 @@ function init() {
     syncNavActive();
     render();
   });
-  const p = parseHash();
-  state.route = p.route;
-  state.projectId = p.projectId;
-  state.estimateId = p.estimateId;
-  state.sectionId = p.sectionId || null;
-  syncNavActive();
+  // A 401 from any request (the session expired, or a password reset ended
+  // it) brings the sign-in screen back; the hash is kept, so signing in
+  // returns to the same page.
+  window.addEventListener("estimating:signin", () => {
+    if (state.user === null) return;
+    state.user = null;
+    renderSignIn();
+  });
   checkHealth();
-  render();
+  try {
+    state.user = await Api.me();
+  } catch {
+    state.user = null;
+  }
+  if (!state.user) {
+    renderSignIn();
+    return;
+  }
+  enter();
 }
 
 init();

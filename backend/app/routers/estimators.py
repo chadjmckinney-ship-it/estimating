@@ -2,10 +2,12 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import auth
 from app.db import get_db
 from app.models.estimator import Estimator
 from app.schemas.estimator import EstimatorCreate, EstimatorRead, EstimatorUpdate
@@ -16,7 +18,7 @@ router = APIRouter(prefix="/estimators", tags=["estimators"])
 @router.get("", response_model=list[EstimatorRead])
 def list_estimators(
     active_only: bool = Query(False, description="If true, only is_active=true"),
-    role: str | None = Query(None, description="Filter by role: admin|estimator|viewer"),
+    role: str | None = Query(None, description="Filter by role: admin|senior_estimator|estimator|user"),
     db: Session = Depends(get_db),
 ) -> list[Estimator]:
     stmt = select(Estimator).order_by(Estimator.full_name)
@@ -96,6 +98,29 @@ def update_estimator(
     return row
 
 
+class PasswordReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(..., min_length=8, max_length=200)
+
+
+@router.post("/{estimator_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+def set_password(estimator_id: UUID, body: PasswordReset, db: Session = Depends(get_db)) -> None:
+    """
+    An admin sets someone's password (sql/068; /api/estimators is admin's in
+    app/policy.py). Every open session of that person ends. The first
+    password of all is set from the command line — backend/set_password.py —
+    because nobody can reach this screen before someone can sign in.
+    """
+    row = db.get(Estimator, estimator_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estimator not found")
+    row.password_hash = auth.hash_password(body.password)
+    row.updated_at = datetime.now(timezone.utc)
+    auth.end_other_sessions(db, row, None)
+    db.commit()
+
+
 @router.delete("/{estimator_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_estimator(estimator_id: UUID, db: Session = Depends(get_db)) -> None:
     """Soft-delete: set is_active=false (keeps FK history)."""
@@ -104,4 +129,5 @@ def deactivate_estimator(estimator_id: UUID, db: Session = Depends(get_db)) -> N
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estimator not found")
     row.is_active = False
     row.updated_at = datetime.now(timezone.utc)
+    auth.end_other_sessions(db, row, None)  # signed out everywhere, now
     db.commit()

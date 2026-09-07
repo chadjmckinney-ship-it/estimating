@@ -6,9 +6,17 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class EstimatorRole(str, Enum):
+    """
+    Each role includes the ones below it (sql/068, app/policy.py). Chad,
+    2026-09-07: admin, senior estimator, estimator and user — "senior
+    estimator can change pricing, user can only view. admin has access to
+    add, delete, users and full control."
+    """
+
     admin = "admin"
+    senior_estimator = "senior_estimator"
     estimator = "estimator"
-    viewer = "viewer"
+    user = "user"
 
 
 class EstimatorBase(BaseModel):

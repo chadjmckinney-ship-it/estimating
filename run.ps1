@@ -9,11 +9,11 @@
 # backend/ has to be the import root. `uvicorn backend.app.main:app` fails with
 # ModuleNotFoundError: No module named 'app'.
 #
-# -Lan binds 0.0.0.0 instead of the default 127.0.0.1. The app has no login:
-# anyone who reaches the URL can change catalog prices, recalculate, or delete
-# an estimate, and two people saving the same section overwrite each other with
-# no warning. That is a fine trade in a small trusted office. It is not
-# something to leave listening on a network you do not control.
+# -Lan binds 0.0.0.0 instead of the default 127.0.0.1. Since sql/068 every
+# request needs a sign-in (set the first passwords with
+# backend\set_password.py <username>), so -Lan is how the office reaches it.
+# Two people saving the same section still overwrite each other with no
+# warning; the connection is plain http on the LAN.
 
 param(
     [int]$Port = 8001,

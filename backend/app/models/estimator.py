@@ -23,6 +23,8 @@ class Estimator(Base):
     title: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'estimator'"))
     notes: Mapped[str | None] = mapped_column(Text)
+    # scrypt$N$r$p$salt$key (app/auth.py, sql/068). NULL: cannot sign in yet.
+    password_hash: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

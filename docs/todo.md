@@ -186,8 +186,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 ### Auth & multi-user
 
 - [x] Estimators table + API (no passwords yet)
-- [ ] Login / session
-- [ ] Admin can edit rates & assemblies; Estimator cannot break formulas
+- [x] Login / session — sql/068, `app/auth.py`, sessions table, 12 h idle / 30 d
+- [x] Roles: admin · senior estimator · estimator · user — `app/policy.py` (2026-09-07)
 - [ ] Audit who changed what
 - [ ] Seed remaining estimator people (names TBD)
 
@@ -201,8 +201,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Deploy path to **office Fedora** + Postgres — migrations `001`–`023` must be
       applied in order; `022` is destructive (drops `mono_slabs.drops_ff`)
 - [ ] HTTPS / LAN access for estimators
-- [ ] **CORS is `allow_origins=["*"]` with no auth** (`backend/app/main.py`) — any
-      site visited while the server runs can drive the API. Tighten with auth.
+- [x] ~~CORS is `allow_origins=["*"]` with no auth~~ — the middleware is gone and every
+      route needs a session (sql/068, 2026-09-07)
 
 ---
 

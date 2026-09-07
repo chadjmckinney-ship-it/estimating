@@ -17,6 +17,14 @@ import { expect, test } from "@playwright/test";
  * slab section with pours and opens that.
  */
 
+// Since sql/068 every page needs a sign-in. global-setup.js signs in with
+// E2E_USERNAME / E2E_PASSWORD (any role; nothing here writes) and hands the
+// session cookie to every test through storageState.
+test.skip(
+  !process.env.E2E_USERNAME || !process.env.E2E_PASSWORD,
+  "set E2E_USERNAME and E2E_PASSWORD to run the smoke suite"
+);
+
 /** Collect console errors and page exceptions for the life of a page. */
 function watchErrors(page) {
   const errors = [];

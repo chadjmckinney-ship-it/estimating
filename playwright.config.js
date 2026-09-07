@@ -14,11 +14,16 @@ const PORT = process.env.ESTIMATING_PORT || "8001";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // Since sql/068 every page needs a sign-in. global-setup.js signs in with
+  // E2E_USERNAME / E2E_PASSWORD and stores the session cookie; the spec skips
+  // itself when they are not set.
+  globalSetup: "./tests/e2e/global-setup.js",
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
+    storageState: process.env.E2E_USERNAME ? "tests/e2e/.auth/state.json" : undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

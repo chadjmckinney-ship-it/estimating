@@ -5,7 +5,8 @@
  * beside /assets, so "/api" is right on 8001, on `run.ps1 -Port 8002`, on the
  * office box — anywhere a browser got this file from a server. Only a page
  * opened straight from disk (file://) has no origin to speak of, and that is
- * the one case that still points at the dev host.
+ * the one case that still points at the dev host — and, since sign-in
+ * (sql/068), the one case that cannot work: the session cookie is same-origin.
  *
  * Until 2026-09-04 any localhost port other than 8001 was ALSO sent to
  * 127.0.0.1:8001 — so `-Port 8002`, the natural move when 8001 is busy (which
@@ -28,6 +29,11 @@ async function api(path, options = {}) {
     opts.body = JSON.stringify(opts.body);
   }
   const res = await fetch(`${API_BASE}${path}`, opts);
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    // The session ended — 12 idle hours, 30 days, a password reset. The app
+    // shows the sign-in screen; this request still fails below.
+    window.dispatchEvent(new Event("estimating:signin"));
+  }
   if (res.status === 204) return null;
   const text = await res.text();
   let data = null;
@@ -86,6 +92,16 @@ export const Api = {
   },
   createEstimator: (body) => api("/estimators", { method: "POST", body }),
   updateEstimator: (id, body) => api(`/estimators/${id}`, { method: "PATCH", body }),
+  deactivateEstimator: (id) => api(`/estimators/${id}`, { method: "DELETE" }),
+  setEstimatorPassword: (id, password) =>
+    api(`/estimators/${id}/password`, { method: "POST", body: { password } }),
+  // Sign-in (sql/068). The cookie does the rest; a same-origin fetch sends it.
+  login: (username, password) =>
+    api("/auth/login", { method: "POST", body: { username, password } }),
+  logout: () => api("/auth/logout", { method: "POST" }),
+  me: () => api("/auth/me"),
+  changePassword: (current_password, new_password) =>
+    api("/auth/password", { method: "POST", body: { current_password, new_password } }),
   // Projects
   listProjects: (params = {}) => {
     const q = new URLSearchParams();

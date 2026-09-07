@@ -20,7 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -46,10 +46,15 @@ os.environ["DATABASE_URL"] = TEST_URL.render_as_string(hide_password=False)
 # that failure has to be a red test, not a surprise in March. See
 # services/price_book.py, "Why a context rather than a parameter".
 os.environ["ESTIMATING_STRICT_PRICES"] = "1"
+# Sign-in (sql/068): the suite signs in on every test. At production strength
+# (2**15) that is ~50 ms a time, a minute over the run; the stored hash carries
+# its own N, so a weaker N here verifies the same code path.
+os.environ.setdefault("ESTIMATING_SCRYPT_N", "1024")
 
 from app.models.beam_type import EstimateBeamType  # noqa: E402
 from app.models.estimate import Estimate
 from app.models.estimate_section import EstimateSection  # noqa: E402
+from app.models.estimator import Estimator  # noqa: E402
 from app.models.grade_beam import GradeBeam  # noqa: E402
 from app.models.mono_slab import MonoSlab  # noqa: E402
 from app.models.project import Project  # noqa: E402
@@ -108,22 +113,53 @@ def db(engine):
 
 
 @pytest.fixture
-def client(db):
+def as_role(db):
     """
-    The app, talking to this test's session. Every request a test makes runs
-    inside the same rolled-back transaction as its fixtures, so a route that
-    commits commits to a savepoint. Copied into 33 files until 2026-09-06
-    (audit P3, batch 4); one here now.
+    A signed-in client for any role (sql/068): `as_role("estimator")`. The
+    person is created in this test's transaction with the password
+    "test-password", and the client carries the session cookie from then on.
+    Every request runs inside the same rolled-back transaction as the
+    fixtures, so a route that commits commits to a savepoint.
     """
     from fastapi.testclient import TestClient
 
+    from app import auth
     from app.db import get_db
     from app.main import app
 
     app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
+    opened = []
+
+    def _as(role: str, *, username: str | None = None) -> TestClient:
+        name = username or f"test_{role}"
+        person = db.scalars(select(Estimator).where(Estimator.username == name)).first()
+        if person is None:
+            person = Estimator(
+                username=name, full_name=f"Test {role.replace('_', ' ')}", role=role,
+                password_hash=auth.hash_password("test-password"),
+            )
+            db.add(person)
+            db.flush()
+        c = TestClient(app)
+        c.__enter__()
+        opened.append(c)
+        r = c.post("/api/auth/login", json={"username": name, "password": "test-password"})
+        assert r.status_code == 200, r.text
+        return c
+
+    yield _as
+    for c in opened:
+        c.__exit__(None, None, None)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(as_role):
+    """
+    The app, signed in as a test admin. Copied into 33 files until 2026-09-06
+    (audit P3, batch 4); one here now, and since sql/068 it signs in first.
+    """
+    return as_role("admin")
 
 
 @pytest.fixture

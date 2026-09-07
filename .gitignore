@@ -84,3 +84,6 @@ COMMIT_MSG_DRAFT
 # opened and mean nothing to anyone cloning this.
 .obsidian/
 Daily/
+
+# Playwright's signed-in session (tests/e2e/global-setup.js)
+tests/e2e/.auth/

@@ -6,6 +6,7 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth import current_user
 from app.db import get_db
 from app.models.estimate import Estimate
 from app.models.estimator import Estimator
@@ -116,7 +117,11 @@ def get_project(project_id: UUID, db: Session = Depends(get_db)) -> ProjectRead:
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
-def create_project(body: ProjectCreate, db: Session = Depends(get_db)) -> ProjectRead:
+def create_project(
+    body: ProjectCreate,
+    db: Session = Depends(get_db),
+    user: Estimator = Depends(current_user),
+) -> ProjectRead:
     if body.created_by and not db.get(Estimator, body.created_by):
         raise HTTPException(status_code=400, detail="created_by estimator not found")
 
@@ -125,7 +130,8 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db)) -> Projec
         job_number=body.job_number,
         location=body.location,
         notes=body.notes,
-        created_by=body.created_by,
+        # Who made it: the signed-in person unless the form named someone (sql/068).
+        created_by=body.created_by or user.id,
         gc=body.gc,
         project_types=body.project_types or [],
         status=body.status.value,
