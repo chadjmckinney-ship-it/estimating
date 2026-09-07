@@ -56,9 +56,15 @@ class AllocateTests(unittest.TestCase):
         self.assertEqual(parts[2], Decimal("3.34"))
         self.assertEqual(sum(parts), Decimal("10.00"))
 
-    def test_zero_weights_dump_on_last(self):
+    def test_zero_weights_split_evenly(self):
+        # Until 2026-09-06 this was [0.00, 5.00]: the whole amount on the last
+        # row, which is right for leftover cents and wrong for a CY-driven
+        # line on a section whose rows all carry 0 CY (audit P3). Even, now —
+        # and the cent still goes last so the pieces still sum.
         parts = allocate_amount(Decimal("5.00"), [Decimal("0"), Decimal("0")])
-        self.assertEqual(parts, [Decimal("0.00"), Decimal("5.00")])
+        self.assertEqual(parts, [Decimal("2.50"), Decimal("2.50")])
+        parts = allocate_amount(Decimal("10.00"), [Decimal("0"), Decimal("0"), Decimal("0")])
+        self.assertEqual(parts, [Decimal("3.33"), Decimal("3.33"), Decimal("3.34")])
 
     def test_off_line_is_zero(self):
         parts = allocate_amount(Decimal("0.00"), [Decimal("10"), Decimal("90")])

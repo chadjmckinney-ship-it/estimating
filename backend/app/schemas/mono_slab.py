@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.bar_sizes import BarSize
+
 
 class MonoSlabBase(BaseModel):
     section_id: UUID
@@ -17,8 +19,8 @@ class MonoSlabBase(BaseModel):
     perimeter_edge_lf: Decimal | None = Field(None, ge=0, examples=[500])
     wire_mesh: bool = False
     # Slab mat — plan call-out like #4 @ 18" O.C.E.W. Both required to price a mat.
-    slab_bar_size: int | None = Field(
-        None, ge=3, le=11, examples=[4], description="Slab mat bar size #3–#11"
+    slab_bar_size: BarSize | None = Field(
+        None, examples=[4], description="Slab mat bar size #3–#11"
     )
     slab_bar_spacing_in: Decimal | None = Field(
         None,
@@ -86,7 +88,7 @@ class MonoSlabUpdate(BaseModel):
     sand_thickness_in: Decimal | None = Field(None, ge=0)
     perimeter_edge_lf: Decimal | None = Field(None, ge=0)
     wire_mesh: bool | None = None
-    slab_bar_size: int | None = Field(None, ge=3, le=11)
+    slab_bar_size: BarSize | None = None
     slab_bar_spacing_in: Decimal | None = Field(None, gt=0)
     support_rebar_lb_per_sf: Decimal | None = Field(None, ge=0)
     pt_lb_per_sf: Decimal | None = Field(None, ge=0)

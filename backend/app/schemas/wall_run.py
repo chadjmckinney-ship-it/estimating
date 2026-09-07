@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.bar_sizes import BarSize
+
 
 class WallRunBase(BaseModel):
     # extra="forbid" everywhere below. A bulk save that silently swallowed a
@@ -29,10 +31,10 @@ class WallRunBase(BaseModel):
     wall_height_in: Decimal = Field(0, ge=0)
 
     horiz_spacing_in: Decimal | None = Field(None, ge=0)
-    horiz_size: int | None = Field(None, ge=0, le=20)
+    horiz_size: BarSize | None = None
     horiz_mats: int | None = Field(None, ge=0, description="Faces — 2 is both.")
     vert_spacing_in: Decimal | None = Field(None, ge=0)
-    vert_size: int | None = Field(None, ge=0, le=20)
+    vert_size: BarSize | None = None
     vert_mats: int | None = Field(None, ge=0)
 
     ftg_width_in: Decimal = Field(0, ge=0)
@@ -40,9 +42,9 @@ class WallRunBase(BaseModel):
     # Two mats (sql/059), each its own bar set. A mat with no spacing or no
     # size contributes nothing; a one-mat footing leaves the top blank.
     ftg_bot_spacing_in: Decimal | None = Field(None, ge=0)
-    ftg_bot_size: int | None = Field(None, ge=0, le=20)
+    ftg_bot_size: BarSize | None = None
     ftg_top_spacing_in: Decimal | None = Field(None, ge=0)
-    ftg_top_size: int | None = Field(None, ge=0, le=20)
+    ftg_top_size: BarSize | None = None
 
     notes: str | None = None
     sort_order: int = 0
@@ -80,17 +82,17 @@ class WallRunUpdate(BaseModel):
     wall_thick_in: Decimal | None = Field(None, ge=0)
     wall_height_in: Decimal | None = Field(None, ge=0)
     horiz_spacing_in: Decimal | None = Field(None, ge=0)
-    horiz_size: int | None = Field(None, ge=0, le=20)
+    horiz_size: BarSize | None = None
     horiz_mats: int | None = Field(None, ge=0)
     vert_spacing_in: Decimal | None = Field(None, ge=0)
-    vert_size: int | None = Field(None, ge=0, le=20)
+    vert_size: BarSize | None = None
     vert_mats: int | None = Field(None, ge=0)
     ftg_width_in: Decimal | None = Field(None, ge=0)
     ftg_thick_in: Decimal | None = Field(None, ge=0)
     ftg_bot_spacing_in: Decimal | None = Field(None, ge=0)
-    ftg_bot_size: int | None = Field(None, ge=0, le=20)
+    ftg_bot_size: BarSize | None = None
     ftg_top_spacing_in: Decimal | None = Field(None, ge=0)
-    ftg_top_size: int | None = Field(None, ge=0, le=20)
+    ftg_top_size: BarSize | None = None
     notes: str | None = None
     sort_order: int | None = None
 

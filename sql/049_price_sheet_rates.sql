@@ -74,6 +74,7 @@ INSERT INTO monetary_keys (key, label, unit) VALUES
     ('equip_20_ton_lift_day_rate', '20 ton lift', 'DAY'),
     ('out_of_town_day_rate', 'Out of town', 'DAY'),
     ('mobilization_ls', 'Mobilization', 'LS'),
+    ('misc_contract_ls', 'Miscellaneous contract', 'LS'),
     ('concrete_pump_cy', 'Concrete pump', 'CY'),
     ('haul_off_cy', 'Haul off', 'CY'),
     ('cure_sf', 'Cure', 'SF'),

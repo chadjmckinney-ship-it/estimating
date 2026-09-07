@@ -623,7 +623,8 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             ),
             qty_line(
                 code="misc_contract", label="MISCELLANEOUS",
-                rate=1000, qty=0, unit="LS", formula="lump sum (manual)", order=150,
+                rate=float(_rate_numeric(db, kind, "misc_contract_ls", Decimal("1000"))),
+                qty=0, unit="LS", formula="lump sum (manual)", order=150,
             ),
         ]
         lines.append(mobilization)
@@ -747,7 +748,10 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = [
             day_line(
                 code="skytrack", label="SKY TRACK",
-                **_priced(db, kind, sky, "equip_fork_truck_day_rate", 425),
+                # Its own key. Until 2026-09-06 this read the FORK TRUCK's
+                # rate (audit P3) — dormant while the catalog priced the
+                # machine, wrong the day it did not.
+                **_priced(db, kind, sky, "equip_skytrack_day_rate", 425),
                 equipment_id=sky["id"] if sky else None, order=10,
             ),
             day_line(
@@ -902,7 +906,8 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             ),
             qty_line(
                 code="misc_contract", label="MISCELLANEOUS",
-                rate=1000, qty=0, unit="LS", formula="lump sum (manual)", order=160,
+                rate=float(_rate_numeric(db, kind, "misc_contract_ls", Decimal("1000"))),
+                qty=0, unit="LS", formula="lump sum (manual)", order=160,
             ),
         ]
         lines.append(mobilization)
@@ -1087,7 +1092,9 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
         qty_line(
             code="haul_off",
             label="HAUL OFF",
-            rate=Decimal("12.5000"),
+            # A rate since 2026-09-06 (sql/065, audit P3): piers and columns
+            # already read haul_off_cy at their own rates; the slab typed $12.50.
+            rate=_rate_numeric(db, kind, "haul_off_cy", Decimal("12.5")),
             qty=0,
             unit="CY",
             formula="dirt CY (manual / later)",
@@ -1099,7 +1106,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
         qty_line(
             code="engineering",
             label="ENGINEERING",
-            rate=Decimal("0.2000"),
+            rate=_rate_numeric(db, kind, "engineering_sf", Decimal("0.20")),
             qty=d["total_sf"],
             unit="/SF",
             formula="total_sf × rate (off by default)",

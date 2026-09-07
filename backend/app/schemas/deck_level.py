@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.bar_sizes import BarSize
+
 
 class DeckLevelBeamBase(BaseModel):
     """One beam type and how much of it runs through a level."""
@@ -52,9 +54,9 @@ class DeckLevelBase(BaseModel):
 
     # A mat with no size or no spacing contributes nothing, rather than a
     # zero-weight bar over the whole deck.
-    top_bar_size: int | None = Field(None, ge=0, le=20)
+    top_bar_size: BarSize | None = None
     top_bar_spacing_in: Decimal | None = Field(None, ge=0)
-    bot_bar_size: int | None = Field(None, ge=0, le=20)
+    bot_bar_size: BarSize | None = None
     bot_bar_spacing_in: Decimal | None = Field(None, ge=0)
 
     mesh_sf: Decimal = Field(0, ge=0)
@@ -94,9 +96,9 @@ class DeckLevelUpdate(BaseModel):
     has_cable: bool | None = None
     mix_design_id: int | None = None
     perm_edge_lf: Decimal | None = Field(None, ge=0)
-    top_bar_size: int | None = Field(None, ge=0, le=20)
+    top_bar_size: BarSize | None = None
     top_bar_spacing_in: Decimal | None = Field(None, ge=0)
-    bot_bar_size: int | None = Field(None, ge=0, le=20)
+    bot_bar_size: BarSize | None = None
     bot_bar_spacing_in: Decimal | None = Field(None, ge=0)
     mesh_sf: Decimal | None = Field(None, ge=0)
     stud_rail_lb: Decimal | None = Field(None, ge=0)

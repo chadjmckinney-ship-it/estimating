@@ -46,13 +46,17 @@ _POUR_KEYS = frozenset(
         "pt_lb_per_sf",
     }
 )
-_FORMING_KEYS = frozenset({"form_percent", "form_waste"})
+_FORMING_KEYS = frozenset({
+    "form_percent", "form_waste",
+    # The older sets' divisors (sql/065-era, audit P3): forming quantities only.
+    "tie_wire_sf_per_roll", "haul_off_cy_per_load",
+})
 # Keys that feed the EQUIPMENT lines without being named `equip_`. Mobilization
 # is one (sql/053): it seeds a contract-services line on every assembly, so a
 # change to it has to rewrite them, and the prefix rule below would have said
 # "this key feeds no stored calculation" — which is how a company rate change
 # reaches nothing and nobody notices.
-_EQUIPMENT_KEYS = frozenset({"mobilization_ls"})
+_EQUIPMENT_KEYS = frozenset({"mobilization_ls", "misc_contract_ls"})
 # Priced at cost time from stored quantities, so a change only needs the costing
 # pass — but that runs inside the pour refresh, so ask for pours.
 _COSTING_KEYS = frozenset(

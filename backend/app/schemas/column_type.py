@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.bar_sizes import BarSize
+
 
 class ColumnTypeBase(BaseModel):
     # extra="forbid" everywhere below. A bulk save that silently swallowed a
@@ -34,17 +36,17 @@ class ColumnTypeBase(BaseModel):
     # Three vertical sets, because the sheet carries three. A set with no count
     # or no size contributes nothing rather than a zero-weight bar.
     vert1_count: int | None = Field(None, ge=0)
-    vert1_size: int | None = Field(None, ge=0, le=20)
+    vert1_size: BarSize | None = None
     vert2_count: int | None = Field(None, ge=0)
-    vert2_size: int | None = Field(None, ge=0, le=20)
+    vert2_size: BarSize | None = None
     vert3_count: int | None = Field(None, ge=0)
-    vert3_size: int | None = Field(None, ge=0, le=20)
+    vert3_size: BarSize | None = None
 
-    tie_size: int | None = Field(None, ge=0, le=20)
+    tie_size: BarSize | None = None
     tie_spacing_in: Decimal | None = Field(None, ge=0)
 
     dowel_count: int | None = Field(None, ge=0)
-    dowel_size: int | None = Field(None, ge=0, le=20)
+    dowel_size: BarSize | None = None
     dowel_length_ft: Decimal | None = Field(None, ge=0)
 
     notes: str | None = None
@@ -84,15 +86,15 @@ class ColumnTypeUpdate(BaseModel):
     width_in: Decimal | None = Field(None, ge=0)
     formed_faces: int | None = Field(None, ge=2, le=4)
     vert1_count: int | None = Field(None, ge=0)
-    vert1_size: int | None = Field(None, ge=0, le=20)
+    vert1_size: BarSize | None = None
     vert2_count: int | None = Field(None, ge=0)
-    vert2_size: int | None = Field(None, ge=0, le=20)
+    vert2_size: BarSize | None = None
     vert3_count: int | None = Field(None, ge=0)
-    vert3_size: int | None = Field(None, ge=0, le=20)
-    tie_size: int | None = Field(None, ge=0, le=20)
+    vert3_size: BarSize | None = None
+    tie_size: BarSize | None = None
     tie_spacing_in: Decimal | None = Field(None, ge=0)
     dowel_count: int | None = Field(None, ge=0)
-    dowel_size: int | None = Field(None, ge=0, le=20)
+    dowel_size: BarSize | None = None
     dowel_length_ft: Decimal | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None

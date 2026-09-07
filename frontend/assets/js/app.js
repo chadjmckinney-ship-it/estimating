@@ -14,6 +14,8 @@ const state = {
   projectTypes: [],
   projectStatuses: [],
   mixes: [],
+  // The bar catalog (sql/066), loaded with the mixes; BAR_SIZES is the fallback.
+  barSizes: [],
 };
 
 function toast(msg, kind = "ok") {
@@ -1366,7 +1368,7 @@ function pavingColumns(mixes) {
     { f: "thick_edge_lf", label: "Thick edge LF", type: "number" },
     { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
     { f: "sand_thickness_in", label: 'Sand"', type: "number" },
-    { f: "slab_bar_size", label: "Bar #", type: "number", step: "1" },
+    { f: "slab_bar_size", label: "Bar #", type: "select", options: barSizeChoices() },
     { f: "slab_bar_spacing_in", label: 'Spacing"', type: "number" },
     { f: "mesh_gauge", label: "Mesh ga", type: "number", step: "1" },
     { f: "demo_lf", label: "Demo LF", type: "number" },
@@ -1398,13 +1400,13 @@ function pierColumns(mixes) {
     { f: "bell_size_in", label: 'Bell"', type: "number" },
     { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
     { f: "vert_bars_count", label: "Vert n", type: "number", step: "1" },
-    { f: "vert_bars_size", label: "Vert #", type: "number", step: "1" },
-    { f: "tie_size", label: "Tie #", type: "number", step: "1" },
+    { f: "vert_bars_size", label: "Vert #", type: "select", options: barSizeChoices() },
+    { f: "tie_size", label: "Tie #", type: "select", options: barSizeChoices() },
     { f: "tie_spacing_in", label: 'Tie sp"', type: "number" },
     { f: "band_tie_count", label: "Band n", type: "number", step: "1" },
     { f: "band_spacing_in", label: 'Band sp"', type: "number" },
     { f: "dowels_count", label: "Dowel n", type: "number", step: "1" },
-    { f: "dowels_size", label: "Dowel #", type: "number", step: "1" },
+    { f: "dowels_size", label: "Dowel #", type: "select", options: barSizeChoices() },
     { f: "dowels_length_ft", label: "Dowel ft", type: "number" },
     {
       label: "Depth",
@@ -1472,9 +1474,9 @@ function deckColumns(mixes) {
     { f: "has_cable", label: "PT", type: "check" },
     { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
     { f: "perm_edge_lf", label: "Edge LF", type: "number" },
-    { f: "top_bar_size", label: "Top #", type: "number", step: "1" },
+    { f: "top_bar_size", label: "Top #", type: "select", options: barSizeChoices() },
     { f: "top_bar_spacing_in", label: 'Top sp"', type: "number" },
-    { f: "bot_bar_size", label: "Bot #", type: "number", step: "1" },
+    { f: "bot_bar_size", label: "Bot #", type: "select", options: barSizeChoices() },
     { f: "bot_bar_spacing_in", label: 'Bot sp"', type: "number" },
     { f: "mesh_sf", label: "Mesh SF", type: "number" },
     { f: "stud_rail_lb", label: "Stud lb", type: "number" },
@@ -1553,15 +1555,15 @@ function columnColumns(mixes) {
     },
     { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
     { f: "vert1_count", label: "V1 n", type: "number", step: "1" },
-    { f: "vert1_size", label: "V1 #", type: "number", step: "1" },
+    { f: "vert1_size", label: "V1 #", type: "select", options: barSizeChoices() },
     { f: "vert2_count", label: "V2 n", type: "number", step: "1" },
-    { f: "vert2_size", label: "V2 #", type: "number", step: "1" },
+    { f: "vert2_size", label: "V2 #", type: "select", options: barSizeChoices() },
     { f: "vert3_count", label: "V3 n", type: "number", step: "1" },
-    { f: "vert3_size", label: "V3 #", type: "number", step: "1" },
-    { f: "tie_size", label: "Tie #", type: "number", step: "1" },
+    { f: "vert3_size", label: "V3 #", type: "select", options: barSizeChoices() },
+    { f: "tie_size", label: "Tie #", type: "select", options: barSizeChoices() },
     { f: "tie_spacing_in", label: 'Tie sp"', type: "number" },
     { f: "dowel_count", label: "Dowel n", type: "number", step: "1" },
-    { f: "dowel_size", label: "Dowel #", type: "number", step: "1" },
+    { f: "dowel_size", label: "Dowel #", type: "select", options: barSizeChoices() },
     { f: "dowel_length_ft", label: "Dowel ft", type: "number" },
     {
       label: "Form SF",
@@ -1713,14 +1715,14 @@ function wallColumns(mixes, section = null) {
     {
       f: "horiz_size",
       label: "Horz #",
-      type: "number",
-      step: "1",
+      type: "select",
+      options: barSizeChoices(),
       sub: {
         f: "ftg_bot_size",
         label: "Bot #",
         tag: "bot #",
-        type: "number",
-        step: "1",
+        type: "select",
+        options: barSizeChoices(),
         hint: "Bottom mat: bar size — the same bar both directions",
       },
     },
@@ -1742,14 +1744,14 @@ function wallColumns(mixes, section = null) {
     {
       f: "vert_size",
       label: "Vert #",
-      type: "number",
-      step: "1",
+      type: "select",
+      options: barSizeChoices(),
       sub: {
         f: "ftg_top_size",
         label: "Top #",
         tag: "top #",
-        type: "number",
-        step: "1",
+        type: "select",
+        options: barSizeChoices(),
         hint: "Top mat: bar size — a mat with no size or no spacing contributes nothing",
       },
     },
@@ -2172,6 +2174,9 @@ function unpricedBannerHtml(section) {
 async function renderSectionDetail(root) {
   root.innerHTML = `<div class="loading">Loading section…</div>`;
   if (!state.mixes.length) state.mixes = await Api.listMixes({ active_only: true });
+  if (!state.barSizes.length) {
+    state.barSizes = (await Api.listBarSizes().catch(() => [])).map((b) => b.size);
+  }
 
   // One assembly of a job (sql/033-034). Everything on this page — pours, beam
   // types, forming, labor, equipment, markup, the vapor barrier — belongs to
@@ -4155,7 +4160,14 @@ function renderEquipmentCard(equip) {
     </div>`;
 }
 
-const BAR_SIZES = [3, 4, 5, 6, 7, 8, 9, 10, 11];
+// Fallback only — the catalog (sql/066, GET /api/bar-sizes) is the truth and
+// is loaded into state.barSizes; #14 and #18 joined it on 2026-09-05.
+const BAR_SIZES = [3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 18];
+
+/** The bar catalog as grid select options: #3 … #18, blank meaning none. */
+function barSizeChoices() {
+  return (state.barSizes.length ? state.barSizes : BAR_SIZES).map((s) => ({ id: s, label: `#${s}` }));
+}
 
 /** Excel 04 pour roles — same bar-schedule shape, different kind */
 const BEAM_KIND_META = {
@@ -4192,7 +4204,7 @@ const BEAM_KIND_META = {
 function barSizeOptions(selected) {
   return (
     `<option value="">—</option>` +
-    BAR_SIZES.map(
+    (state.barSizes.length ? state.barSizes : BAR_SIZES).map(
       (s) =>
         `<option value="${s}" ${Number(selected) === s ? "selected" : ""}>#${s}</option>`
     ).join("")

@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.bar_sizes import BarSize
+
 BeamKind = Literal["grade_beam", "exposed", "drop", "brick_ledge"]
 BEAM_KINDS = ("grade_beam", "exposed", "drop", "brick_ledge")
 
@@ -25,15 +27,15 @@ class BeamTypeBase(BaseModel):
         examples=[8],
     )
     top_bars_count: int | None = Field(None, ge=0, examples=[2])
-    top_bars_size: int | None = Field(None, ge=3, le=11, examples=[5])
+    top_bars_size: BarSize | None = Field(None, examples=[5])
     bottom_bars_count: int | None = Field(None, ge=0)
-    bottom_bars_size: int | None = Field(None, ge=3, le=11)
+    bottom_bars_size: BarSize | None = None
     mid_bars_count: int | None = Field(None, ge=0)
-    mid_bars_size: int | None = Field(None, ge=3, le=11)
-    stirrup_size: int | None = Field(None, ge=3, le=11, examples=[3])
+    mid_bars_size: BarSize | None = None
+    stirrup_size: BarSize | None = Field(None, examples=[3])
     stirrup_spacing_in: Decimal | None = Field(None, gt=0, examples=[24])
     l_bars_count: int | None = Field(None, ge=0)
-    l_bars_size: int | None = Field(None, ge=3, le=11)
+    l_bars_size: BarSize | None = None
     l_bars_spacing_in: Decimal | None = Field(None, gt=0)
     pt_cables_count: int | None = Field(
         None, ge=0, description="Cables through this section (grade_beam only); LF = count × length"
@@ -58,15 +60,15 @@ class BeamTypeUpdate(BaseModel):
     height_in: Decimal | None = Field(None, ge=0)
     form_face_in: Decimal | None = Field(None, ge=0)
     top_bars_count: int | None = Field(None, ge=0)
-    top_bars_size: int | None = Field(None, ge=3, le=11)
+    top_bars_size: BarSize | None = None
     bottom_bars_count: int | None = Field(None, ge=0)
-    bottom_bars_size: int | None = Field(None, ge=3, le=11)
+    bottom_bars_size: BarSize | None = None
     mid_bars_count: int | None = Field(None, ge=0)
-    mid_bars_size: int | None = Field(None, ge=3, le=11)
-    stirrup_size: int | None = Field(None, ge=3, le=11)
+    mid_bars_size: BarSize | None = None
+    stirrup_size: BarSize | None = None
     stirrup_spacing_in: Decimal | None = Field(None, gt=0)
     l_bars_count: int | None = Field(None, ge=0)
-    l_bars_size: int | None = Field(None, ge=3, le=11)
+    l_bars_size: BarSize | None = None
     l_bars_spacing_in: Decimal | None = Field(None, gt=0)
     pt_cables_count: int | None = Field(None, ge=0)
     notes: str | None = None

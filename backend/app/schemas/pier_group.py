@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.bar_sizes import BarSize
+
 
 class PierGroupBase(BaseModel):
     section_id: UUID
@@ -17,8 +19,8 @@ class PierGroupBase(BaseModel):
     mix_design_id: int | None = None
 
     vert_bars_count: int | None = Field(None, ge=0, examples=[8])
-    vert_bars_size: int | None = Field(None, ge=3, le=11, examples=[8])
-    tie_size: int | None = Field(None, ge=3, le=11, examples=[3])
+    vert_bars_size: BarSize | None = Field(None, examples=[8])
+    tie_size: BarSize | None = Field(None, examples=[3])
     tie_spacing_in: Decimal | None = Field(None, gt=0, examples=[10])
     band_tie_count: int | None = Field(
         None, ge=0, examples=[3],
@@ -27,7 +29,7 @@ class PierGroupBase(BaseModel):
     )
     band_spacing_in: Decimal | None = Field(None, gt=0, examples=[3])
     dowels_count: int | None = Field(None, ge=0, examples=[4])
-    dowels_size: int | None = Field(None, ge=3, le=11, examples=[6])
+    dowels_size: BarSize | None = Field(None, examples=[6])
     dowels_length_ft: Decimal | None = Field(None, ge=0, examples=[8])
 
     notes: str | None = None
@@ -54,13 +56,13 @@ class PierGroupUpdate(BaseModel):
     bell_size_in: Decimal | None = Field(None, ge=0)
     mix_design_id: int | None = None
     vert_bars_count: int | None = Field(None, ge=0)
-    vert_bars_size: int | None = Field(None, ge=3, le=11)
-    tie_size: int | None = Field(None, ge=3, le=11)
+    vert_bars_size: BarSize | None = None
+    tie_size: BarSize | None = None
     tie_spacing_in: Decimal | None = Field(None, gt=0)
     band_tie_count: int | None = Field(None, ge=0)
     band_spacing_in: Decimal | None = Field(None, gt=0)
     dowels_count: int | None = Field(None, ge=0)
-    dowels_size: int | None = Field(None, ge=3, le=11)
+    dowels_size: BarSize | None = None
     dowels_length_ft: Decimal | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None

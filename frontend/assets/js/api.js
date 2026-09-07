@@ -334,6 +334,9 @@ export const Api = {
     const q = qs(params);
     return api(`/mix-designs${q ? "?" + q : ""}`);
   },
+  // The bar catalog (sql/066): the sizes every grid's pick-list offers and
+  // the only sizes the database accepts.
+  listBarSizes: () => api("/bar-sizes"),
   createMix: (body) => api("/mix-designs", { method: "POST", body }),
   updateMix: (id, body) => api(`/mix-designs/${id}`, { method: "PATCH", body }),
   deactivateMix: (id) => api(`/mix-designs/${id}`, { method: "DELETE" }),

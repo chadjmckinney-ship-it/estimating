@@ -100,6 +100,13 @@ def allocate_amount(amount: Decimal, weights: list[Decimal]) -> list[Decimal]:
     """
     Split `amount` across pours by weight. Last pour takes the remainder so
     the pieces always sum to the original (no silent leftover cents).
+
+    Every weight zero: split EVENLY. Until 2026-09-06 the whole amount landed
+    on the last row — right for leftover cents, wrong for a CY-driven line on
+    a section whose rows all carry 0 CY, the trap the EA allocation basis
+    fixed for SF one axis over (audit 2026-09-04, P3). When the driver says
+    nothing, no row is more that line's than another. Lump quotes never
+    reach this branch: _apply_lump_quotes leaves an all-zero lump alone.
     """
     amount = _d(amount).quantize(_Q2)
     n = len(weights)
@@ -109,9 +116,8 @@ def allocate_amount(amount: Decimal, weights: list[Decimal]) -> list[Decimal]:
         return [_ZERO] * n
     total_w = sum((_d(w) for w in weights), Decimal("0"))
     if total_w <= 0:
-        out = [_ZERO] * n
-        out[-1] = amount
-        return out
+        weights = [Decimal("1")] * n
+        total_w = Decimal(n)
     out: list[Decimal] = []
     remaining = amount
     for i, w in enumerate(weights):

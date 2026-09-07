@@ -54,7 +54,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "concrete_pump_cy", "haul_off_cy", "cure_sf", "saw_cutting_lf",
         "joint_", "demo_lf", "stamping_sf", "slip_form_sf", "surveying_ea",
         "waterproofing_sf", "barricades_", "engineering_sf", "freight_load",
-        "form_rental_", "rock_cy",
+        "form_rental_", "rock_cy", "misc_contract_ls",
     )),
     ("Forming quantities", (
         "form_percent", "form_waste", "lumber_", "nails_", "stakes_",

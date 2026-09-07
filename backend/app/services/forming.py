@@ -565,6 +565,14 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     ledge = float(d["ledge_lf"])
     ledge_face = float(d["ledge_face_sf"])
 
+    # Divisors through the ladder since 2026-09-06 (audit P3): columns and
+    # the deck already read these keys; the slab typed them as literals, so
+    # a company rule for them reached only the newer sets.
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("500")))
+    chair_sf = float(_rate_numeric(db, kind, "chairs_sf_per_bag", Decimal("15000")))
+    tie_sf = float(_rate_numeric(db, kind, "tie_wire_sf_per_roll", Decimal("15000")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_gal", Decimal("300")))
+
     qty_2x6 = p * form_pct
     qty_2x4 = (qty_2x6 * 3 + drops) * form_pct
     qty_2x10 = p * form_pct * 2
@@ -575,12 +583,12 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
 
     qty_brace = 3.0 * drops
     qty_stakes = _round0(qty_2x10 / 25.0) if qty_2x10 > 0 else 0
-    qty_nails = _ceil(p * 1.25 / 500.0) if p > 0 else 0
+    qty_nails = _ceil(p * 1.25 / n16) if p > 0 and n16 else 0
     qty_anchors = p / 150.0 if p > 0 else 0.0
-    qty_chairs = _ceil(sf / 15000.0) if sf > 0 else 0
-    qty_tie = sf / 15000.0 if sf > 0 else 0.0
+    qty_chairs = _ceil(sf / chair_sf) if sf > 0 and chair_sf else 0
+    qty_tie = sf / tie_sf if sf > 0 and tie_sf else 0.0
     qty_access = rebar + mesh * 0.75
-    qty_cure = _ceil(sf / 300.0 / 55.0) if sf > 0 else 0
+    qty_cure = _ceil(sf / cure_sf / 55.0) if sf > 0 and cure_sf else 0
 
     m_2x4 = _find_material(db, "2 X 4")
     m_2x6 = _find_material(db, "2 X 6")
@@ -635,11 +643,11 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           formula="round(2x10_LF / 25) — follows 2x10 qty", material=m_stakes,
           notes="Derived from 2x10 (indirectly follows form%)"),
         L(code="16p", label="16p NAILS DUPLEX", qty=qty_nails, unit="BOX",
-          formula="ceil(perimeter_lf × 1.25 / 500)", material=m_16p),
+          formula=f"ceil(perimeter_lf × 1.25 / {n16:g})", material=m_16p),
         L(code="8p", label="8p DUPLEX", qty=qty_nails, unit="BOX",
-          formula="ceil(perimeter_lf × 1.25 / 500)", material=m_8p),
+          formula=f"ceil(perimeter_lf × 1.25 / {n16:g})", material=m_8p),
         L(code="20p", label="20p NAILS", qty=qty_nails, unit="BOX",
-          formula="ceil(perimeter_lf × 1.25 / 500)", material=m_16p or m_6p,
+          formula=f"ceil(perimeter_lf × 1.25 / {n16:g})", material=m_16p or m_6p,
           notes="No 20p in catalog — priced as 16p if available"),
         L(code="anchors", label="ANCHOR BOLTS", qty=qty_anchors, unit="BOX",
           formula="perimeter_lf / 150", material=m_anchor),
@@ -653,13 +661,13 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
         L(code="rw8", label="1 X 8 RED WOOD", qty=0, unit="LF", formula="manual",
           material=m_rw8),
         L(code="chairs", label="SLAB CHAIRS", qty=qty_chairs, unit="BAG",
-          formula="ceil(total_sf / 15000)", material=m_chairs),
+          formula=f"ceil(total_sf / {chair_sf:g})", material=m_chairs),
         L(code="tie_wire", label="TIE WIRE", qty=qty_tie, unit="ROLL",
-          formula="total_sf / 15000", material=m_tie),
+          formula=f"total_sf / {tie_sf:g}", material=m_tie),
         L(code="accessories", label="ACCESSORIES", qty=qty_access, unit="LB",
           formula="total_rebar_lb + mesh_sf × 0.75", material=m_acc),
         L(code="cure", label="SLAB CURE", qty=qty_cure, unit="DRUM",
-          formula="ceil(total_sf / 300 / 55)", material=m_cure),
+          formula=f"ceil(total_sf / {cure_sf:g} / 55)", material=m_cure),
         L(code="form_release", label="FORM RELEASE", qty=0, unit="DRUM",
           formula="manual (usually 0 for SOG)", material=m_release),
     ]
@@ -677,6 +685,14 @@ def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     """
     kind = d["kind"]
     curb = float(d["curb_lf"])
+
+    # Divisors through the ladder since 2026-09-06 (audit P3). The paving
+    # module's constants are the defaults, so nothing moves until a rule says.
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", pv.NAILS_16P_LF_PER_BOX))
+    n8 = float(_rate_numeric(db, kind, "nails_8p_per_sf", pv.NAILS_8P_LF_PER_BOX))
+    chair_sf = float(_rate_numeric(db, kind, "chairs_sf_per_bag", Decimal("15000")))
+    tie_sf = float(_rate_numeric(db, kind, "tie_wire_sf_per_roll", Decimal("15000")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_gal", pv.CURE_COVERAGE_SF_PER_GAL))
     sf = float(d["total_sf"])
     form_pct = float(d["form_percent"])
     waste = d["form_waste"]
@@ -697,11 +713,11 @@ def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     # with the sheet only because this sheet forms 100%.
     qty_siding = _ceil(curb * 0.03 / 16.0) if curb > 0 else 0
     qty_stakes = _round0(qty_2x10 / 25.0) if qty_2x10 > 0 else 0
-    qty_16p = _ceil(curb * 1.25 / float(pv.NAILS_16P_LF_PER_BOX)) if curb > 0 else 0
-    qty_8p = _ceil(curb * 1.25 / float(pv.NAILS_8P_LF_PER_BOX)) if curb > 0 else 0
-    qty_chairs = _ceil(sf / 15000.0) if sf > 0 else 0
-    qty_tie = sf / 15000.0 if sf > 0 else 0.0
-    qty_cure = pv.cure_drums(d["total_sf"])
+    qty_16p = _ceil(curb * 1.25 / n16) if curb > 0 and n16 else 0
+    qty_8p = _ceil(curb * 1.25 / n8) if curb > 0 and n8 else 0
+    qty_chairs = _ceil(sf / chair_sf) if sf > 0 and chair_sf else 0
+    qty_tie = sf / tie_sf if sf > 0 and tie_sf else 0.0
+    qty_cure = _ceil(sf / cure_sf / float(pv.CURE_GAL_PER_DRUM)) if sf > 0 and cure_sf else 0
 
     m_2x4 = _find_material(db, "2 X 4")
     m_2x6 = _find_material(db, "2 X 6")
@@ -760,11 +776,11 @@ def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
         L(code="stakes", label="2 x 2 x 30 STAKES", qty=qty_stakes, unit="BUNDLE",
           formula="round(2x10_LF / 25)", material=m_stakes, sheet_unit_cost="24"),
         L(code="16p", label="16p NAILS DUPLEX", qty=qty_16p, unit="BOX",
-          formula="ceil(curb_lf × 1.25 / 1500)", material=m_16p,
+          formula=f"ceil(curb_lf × 1.25 / {n16:g})", material=m_16p,
           sheet_unit_cost="68.2",
           notes="Paving runs three times the curb per box the slab sheet does"),
         L(code="8p", label="8p DUPLEX", qty=qty_8p, unit="BOX",
-          formula="ceil(curb_lf × 1.25 / 3000)", material=m_8p, sheet_unit_cost="68.2"),
+          formula=f"ceil(curb_lf × 1.25 / {n8:g})", material=m_8p, sheet_unit_cost="68.2"),
         L(code="6p", label="6p NAILS", qty=qty_8p, unit="BOX",
           formula="= 8p boxes", material=m_6p, sheet_unit_cost="68.2"),
         L(code="anchors", label="ANCHOR BOLTS", qty=0, unit="BOX",
@@ -788,9 +804,9 @@ def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           formula="manual", material=m_haul, taxable=False,
           notes="Hauling is a service, not a purchase — not taxed"),
         L(code="chairs", label="3-1/4 PAVING CHAIRS", qty=qty_chairs, unit="BAG",
-          formula="ceil(total_sf / 15000)", material=m_chairs, sheet_unit_cost="27"),
+          formula=f"ceil(total_sf / {chair_sf:g})", material=m_chairs, sheet_unit_cost="27"),
         L(code="tie_wire", label="TIE WIRE", qty=qty_tie, unit="ROLL",
-          formula="total_sf / 15000", material=m_tie, sheet_unit_cost="37.8"),
+          formula=f"total_sf / {tie_sf:g}", material=m_tie, sheet_unit_cost="37.8"),
         L(code="accessories", label="ACCESSORIES", qty=rebar, unit="LB",
           formula="total steel lb (no mesh term on paving)", material=m_acc,
           sheet_unit_cost="0.02"),
@@ -800,7 +816,7 @@ def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           formula="construction joint LF", material=m_dowels, sheet_unit_cost="1.9",
           notes="The sheet leaves this untaxed; it is a purchased material, so it is taxed here"),
         L(code="cure", label="SLAB CURE", qty=qty_cure, unit="DRUM",
-          formula="ceil(total_sf / 350 / 55)", material=m_cure, sheet_unit_cost="567.5",
+          formula=f"ceil(total_sf / {cure_sf:g} / 55)", material=m_cure, sheet_unit_cost="567.5",
           notes="Paving cure covers 350 SF/gal against the slab sheet's 300. "
                 "The sheet leaves it untaxed; it is taxed here"),
         L(code="form_release", label="FORM RELEASE", qty=0, unit="DRUM",
@@ -825,6 +841,12 @@ def _pier_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     steel = float(d["total_rebar_lb"])
     waste = d["form_waste"]
 
+    # Divisors through the ladder since 2026-09-06 (audit P3).
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("15000")))
+    n8 = float(_rate_numeric(db, kind, "nails_8p_per_sf", Decimal("1600")))
+    haul_load = float(_rate_numeric(db, kind, "haul_off_cy_per_load", Decimal("300")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_gal", Decimal("300")))
+
     m_2x4 = _find_material(db, "2 X 4")
     m_2x6 = _find_material(db, "2 X 6")
     m_stakes = _find_material(db, "2 x 2", "Stake") or _find_material(db, "2 x 2")
@@ -848,15 +870,15 @@ def _pier_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           formula="= 2x4", material=m_2x6, sheet_unit_cost="1.4453125"),
         L(code="stakes", label="2 x 2 x 30 STAKES", qty=_ceil(n / 12.5), unit="BUNDLE",
           formula="ceil(piers / 12.5)", material=m_stakes, sheet_unit_cost="24"),
-        L(code="16p", label="16p NAILS DUPLEX", qty=_ceil(steel / 15000.0), unit="BOX",
-          formula="ceil(steel lb / 15000)", material=m_16p, sheet_unit_cost="68.2",
+        L(code="16p", label="16p NAILS DUPLEX", qty=_ceil(steel / n16) if n16 else 0, unit="BOX",
+          formula=f"ceil(steel lb / {n16:g})", material=m_16p, sheet_unit_cost="68.2",
           notes="Driven by the weight of steel, not by any perimeter"),
-        L(code="8p", label="8p DUPLEX", qty=_ceil(n / 1600.0), unit="BOX",
-          formula="ceil(piers / 1600)", material=m_8p, sheet_unit_cost="68.2"),
-        L(code="6p", label="6p NAILS", qty=_ceil(n / 1600.0), unit="BOX",
+        L(code="8p", label="8p DUPLEX", qty=_ceil(n / n8) if n8 else 0, unit="BOX",
+          formula=f"ceil(piers / {n8:g})", material=m_8p, sheet_unit_cost="68.2"),
+        L(code="6p", label="6p NAILS", qty=_ceil(n / n8) if n8 else 0, unit="BOX",
           formula="= 8p boxes", material=m_6p, sheet_unit_cost="68.2"),
-        L(code="haul_off", label="CONCRETE HAUL OFF", qty=cy / 300.0 if cy > 0 else 0,
-          unit="LOADS", formula="concrete CY / 300", material=m_haul,
+        L(code="haul_off", label="CONCRETE HAUL OFF", qty=cy / haul_load if cy > 0 and haul_load else 0,
+          unit="LOADS", formula=f"concrete CY / {haul_load:g}", material=m_haul,
           taxable=False,
           notes="Hauling is a service, not a purchase — not taxed. Separate from "
                 "the spoil haul-off, which is priced per CY in contract services"),
@@ -866,8 +888,8 @@ def _pier_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           formula="piers × 4", material=m_boots, sheet_unit_cost="3.25"),
         L(code="accessories", label="ACCESSORIES", qty=steel, unit="LB",
           formula="total steel lb", material=m_acc, sheet_unit_cost="0.04"),
-        L(code="cure", label="SLAB CURE", qty=_ceil(n / 300.0 / 55.0), unit="DRUM",
-          formula="ceil(piers / 300 / 55)", material=m_cure, sheet_unit_cost="567.5"),
+        L(code="cure", label="SLAB CURE", qty=_ceil(n / cure_sf / 55.0) if cure_sf else 0, unit="DRUM",
+          formula=f"ceil(piers / {cure_sf:g} / 55)", material=m_cure, sheet_unit_cost="567.5"),
         L(code="form_release", label="FORM RELEASE", qty=0, unit="DRUM",
           formula="manual", material=m_release, sheet_unit_cost="542"),
     ]
@@ -1179,6 +1201,12 @@ def _wall_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     pct = float(d["form_percent"])
     waste = d["form_waste"]
 
+    # Divisors through the ladder since 2026-09-06 (audit P3).
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("1800")))
+    n8 = float(_rate_numeric(db, kind, "nails_8p_per_sf", Decimal("1000")))
+    haul_load = float(_rate_numeric(db, kind, "haul_off_cy_per_load", Decimal("300")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_gal", Decimal("300")))
+
     ply_rate = float(_rate_numeric(db, kind, "lumber_ply_per_ff", Decimal("0.0625")))
     x4_rate = float(_rate_numeric(db, kind, "lumber_2x4_per_ff", Decimal("3.6")))
     tie_ff = float(_rate_numeric(db, kind, "wall_ties_per_ff", Decimal("2.25")))
@@ -1225,11 +1253,11 @@ def _wall_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           unit="BUNDLE", formula="ceil(wall LF × 2 / 25) × form%", material=m_stakes,
           sheet_unit_cost="24",
           notes="Rounded up BEFORE form% is applied, which is the sheet's order"),
-        L(code="16p", label="16p NAILS DUPLEX", qty=_ceil(ff / 1800.0), unit="BOX",
-          formula="ceil(form FF / 1800)", material=m_16p, sheet_unit_cost="68.2"),
-        L(code="8p", label="8p DUPLEX", qty=_ceil(ff / 1000.0), unit="BOX",
-          formula="ceil(form FF / 1000)", material=m_8p, sheet_unit_cost="68.2"),
-        L(code="6p", label="6p NAILS", qty=_ceil(ff / 1000.0), unit="BOX",
+        L(code="16p", label="16p NAILS DUPLEX", qty=_ceil(ff / n16) if n16 else 0, unit="BOX",
+          formula=f"ceil(form FF / {n16:g})", material=m_16p, sheet_unit_cost="68.2"),
+        L(code="8p", label="8p DUPLEX", qty=_ceil(ff / n8) if n8 else 0, unit="BOX",
+          formula=f"ceil(form FF / {n8:g})", material=m_8p, sheet_unit_cost="68.2"),
+        L(code="6p", label="6p NAILS", qty=_ceil(ff / n8) if n8 else 0, unit="BOX",
           formula="= 8p", material=m_6p, sheet_unit_cost="68.2"),
         L(code="chamfer", label="CHAMFER", qty=lf * 2.0, unit="LF",
           formula="wall LF × 2", material=m_chamfer, sheet_unit_cost="0.25",
@@ -1254,15 +1282,15 @@ def _wall_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
         L(code="pipe_brace", label="Pipe Bracing", qty=ff / brace_ff, unit="EA",
           formula=f"form FF / {brace_ff}", material=m_brace,
           taxable=False),
-        L(code="haul_off", label="CONCRETE HAUL OFF", qty=cy / 300.0 if cy > 0 else 0,
-          unit="LOADS", formula="concrete CY / 300", material=m_haul,
+        L(code="haul_off", label="CONCRETE HAUL OFF", qty=cy / haul_load if cy > 0 and haul_load else 0,
+          unit="LOADS", formula=f"concrete CY / {haul_load:g}", material=m_haul,
           taxable=False,
           notes="Hauling is a service, not a purchase — not taxed"),
         L(code="accessories", label="ACCESSORIES", qty=steel, unit="LB",
           formula="total steel lb", material=m_acc, sheet_unit_cost="0.04",
           taxable=False),
-        L(code="cure", label="SLAB CURE", qty=_ceil(ff / 300.0 / 55.0), unit="DRUM",
-          formula="ceil(form FF / 300 / 55)", material=m_cure, sheet_unit_cost="567.5",
+        L(code="cure", label="SLAB CURE", qty=_ceil(ff / cure_sf / 55.0) if cure_sf else 0, unit="DRUM",
+          formula=f"ceil(form FF / {cure_sf:g} / 55)", material=m_cure, sheet_unit_cost="567.5",
           taxable=False),
     ]
 

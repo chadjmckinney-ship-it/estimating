@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.bar_sizes import BarSize
+
 # Kinds live on the beam type now (sql/025); re-exported so existing imports work.
 from app.schemas.beam_type import BEAM_KINDS, BeamKind
 
@@ -62,15 +64,15 @@ class GradeBeamRead(BaseModel):
     width_in: Decimal | None = None
     height_in: Decimal | None = None
     top_bars_count: int | None = None
-    top_bars_size: int | None = None
+    top_bars_size: BarSize | None = None
     bottom_bars_count: int | None = None
-    bottom_bars_size: int | None = None
+    bottom_bars_size: BarSize | None = None
     mid_bars_count: int | None = None
-    mid_bars_size: int | None = None
-    stirrup_size: int | None = None
+    mid_bars_size: BarSize | None = None
+    stirrup_size: BarSize | None = None
     stirrup_spacing_in: Decimal | None = None
     l_bars_count: int | None = None
-    l_bars_size: int | None = None
+    l_bars_size: BarSize | None = None
     l_bars_spacing_in: Decimal | None = None
     pt_cables_count: int | None = None
 

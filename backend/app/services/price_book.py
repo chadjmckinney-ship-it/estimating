@@ -164,6 +164,10 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     # leaving out. Deliberately unset company-wide, so it reads as unpriced
     # rather than free until somebody says what a move costs.
     "mobilization_ls":           ("Mobilization", "LS"),
+    # The MISCELLANEOUS contract line on piers and walls: the lump a section
+    # starts at, quantity 0 until typed. A literal 1000 in the code until
+    # sql/065 (audit 2026-09-04, P3).
+    "misc_contract_ls":          ("Miscellaneous contract", "LS"),
     # -- contract services and per-unit costs
     "concrete_pump_cy":          ("Concrete pump", "CY"),
     "haul_off_cy":               ("Haul off", "CY"),
@@ -213,6 +217,9 @@ RULE_KEYS: frozenset[str] = frozenset({
     "lumber_2x4_per_lf", "lumber_2x6_per_lf", "lumber_2x10_per_lf", "lumber_ply_per_lf",
     "stakes_2x10_lf_per_stake", "stakes_per_bundle", "nails_edge_factor",
     "pavecrete_sf_per_bag", "cure_sf_per_gal", "accessories_stud_rail_factor",
+    # the older sets' divisors, on the ladder since 2026-09-06 (audit P3):
+    # tie wire per roll of SF, and concrete haul-off loads per CY
+    "tie_wire_sf_per_roll", "haul_off_cy_per_load",
     # J83 on the deck sheet is one cell read by two lines; here it is two rules
     "reshoring_multiplier", "form_rental_shoring_multiplier",
     "wall_ties_per_ff", "pipe_brace_per_ff", "horiz_lap_ft_per_course", "sand_in_under_form",

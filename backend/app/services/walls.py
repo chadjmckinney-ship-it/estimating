@@ -493,7 +493,7 @@ def split_wall_and_footing(db: Session, section: EstimateSection) -> None:
     ftg_rate = r("footings", "labor_footings_sf", "8")
     exc_rate = r("excavate", "labor_excavate_cy", "12")
     tie_rate = r("tie_steel", "labor_tie_steel_ton", "450")
-    rebar_cost = _rebar_price(db, kind)
+    rebar_cost = _rebar_price(db, section, runs)
 
     footing_direct: list[Decimal] = []
     attributed: list[Decimal] = []
@@ -599,12 +599,26 @@ def _mix_price(db: Session, mix_id: int | None) -> Decimal:
     return _z(_mix_unit_cost(db, mix_id))
 
 
-def _rebar_price(db: Session, kind: str | None) -> Decimal:
+def _rebar_price(db: Session, section: EstimateSection, runs: list[WallRun]) -> Decimal:
     """
-    What a pound of bar costs this section — a rebar quote included, since the
-    split has to follow the money the section actually carries.
+    What a pound of bar costs THIS section, so the split follows the money the
+    section actually carries: a unit rebar quote's $/lb; a lump quote as $/lb
+    across the section's steel, which is exactly how costing spreads a lump
+    (`_apply_lump_quotes` weights by lb); else the catalog.
+
+    Until 2026-09-06 the docstring said "a rebar quote included" and the code
+    read the catalog (audit 2026-09-04, P3): the section total was right and
+    the wall/footing halves were wrong under any quote.
     """
     from app.services import quotes as qt
     from app.services.costing import _rebar_unit_cost, _z
 
-    return _z(_rebar_unit_cost(db, False, kind))
+    quote = qt.load_quotes(db, section.id).get(qt.REBAR)
+    if quote is not None:
+        if quote.is_lump:
+            total_lb = sum((_d(r.calc_total_rebar_lb) for r in runs), Decimal("0"))
+            return (_d(quote.amount) / total_lb) if total_lb > 0 else Decimal("0")
+        per_lb = quote.per_lb()
+        if per_lb is not None:
+            return per_lb
+    return _z(_rebar_unit_cost(db, False, section.kind))

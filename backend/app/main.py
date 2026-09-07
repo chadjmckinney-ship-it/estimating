@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app import schema_check
 from app.config import settings
 from app.routers import (
+    bar_sizes,
     beam_types,
     equipment,
     estimate_equipment,
@@ -80,6 +81,7 @@ app.include_router(mix_designs.router, prefix="/api")
 app.include_router(equipment.router, prefix="/api")
 app.include_router(materials.router, prefix="/api")
 app.include_router(system_settings.router, prefix="/api")
+app.include_router(bar_sizes.router, prefix="/api")
 
 # Frontend lives at Estimate_Projects/frontend
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
