@@ -2,15 +2,6 @@ from decimal import Decimal
 import pytest
 from tests import walls_fixture as wf
 
-@pytest.fixture
-def client(db):
-    from fastapi.testclient import TestClient
-    from app.db import get_db
-    from app.main import app
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 def test_wall_endpoints(client, db, estimate):
     s = wf.build(db, estimate)

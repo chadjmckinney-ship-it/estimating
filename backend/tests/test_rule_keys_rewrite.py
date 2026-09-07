@@ -27,11 +27,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from app.db import get_db
-from app.main import app
 from app.services import price_book as pb
 from app.services import recalc
 from app.services.costing import refresh_pour_costs
@@ -44,14 +41,6 @@ from app.services.labor import refresh_and_store_labor
 from app.services.recalc import settings_scope
 
 D = Decimal
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 # ------------------------------------------------------------- the registry

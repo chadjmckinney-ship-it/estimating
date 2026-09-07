@@ -16,11 +16,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db import get_db
-from app.main import app
 from app.models.column_type import ColumnType
 from app.models.estimate_price import EstimatePrice
 from app.models.material import Material
@@ -32,14 +29,6 @@ from tests import paving_fixture as pf
 from tests import walls_fixture as wf
 
 D = Decimal
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 # ------------------------------------------------------ the schedule --

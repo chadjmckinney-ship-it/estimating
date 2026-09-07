@@ -71,7 +71,9 @@ def create_material(body: MaterialCreate, db: Session = Depends(get_db)) -> Mate
     except IntegrityError:
         db.rollback()
         raise HTTPException(
-            status_code=409, detail="A material with this name or code already exists"
+            status_code=409,
+            detail="A material with this name or code already exists, or the category "
+                   "is not one the catalog allows (see /api/materials/meta/categories)",
         ) from None
     db.refresh(row)
     return row

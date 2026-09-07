@@ -207,19 +207,6 @@ def test_a_unit_priced_quote_shows_as_the_rate_it_is(db, walls):
 # -------------------------------------------------------------------- API ----
 
 
-@pytest.fixture
-def client(db):
-    from fastapi.testclient import TestClient
-
-    from app.db import get_db
-    from app.main import app
-
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
 def test_the_endpoint_serves_the_breakdown(client, slab):
     r = client.get(f"/api/sections/{slab.id}/material-costs")
     assert r.status_code == 200, r.text

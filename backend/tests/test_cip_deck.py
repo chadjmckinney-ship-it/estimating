@@ -17,10 +17,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-from app.db import get_db
 from app.main import app
 from app.models.deck_level import DeckLevel
 from app.services import cip_deck as cd
@@ -44,14 +42,6 @@ from tests import deck_fixture as df
 
 D = Decimal
 TAX = D("1.0825")
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _build(db, estimate, *, type_supervision=True, sheet_mode=False):

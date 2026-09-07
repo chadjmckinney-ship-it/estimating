@@ -18,11 +18,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db import get_db
-from app.main import app
 from app.models.mix_design import MixDesign
 from app.models.wall_run import WallRun
 from app.services.price_book import pull_prices
@@ -43,14 +40,6 @@ def test_the_footing_mix_ladder():
     run.footing_mix_design_id = 9
     assert run.footing_mix_for(_Section(3)) == 9  # the row wins
     assert run.footing_mix_for(None) == 9  # and needs no section to
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 ROW_FIELDS = (

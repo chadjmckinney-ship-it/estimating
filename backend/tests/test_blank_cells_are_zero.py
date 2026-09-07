@@ -24,23 +24,12 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.db import get_db
-from app.main import app
 from tests import columns_fixture as cf
 from tests import deck_fixture as df
 from tests import walls_fixture as wf
 
 D = Decimal
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 # ------------------------------------------------------------------ walls ----

@@ -36,12 +36,9 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 import app.services.quotes as qt
-from app.db import get_db
-from app.main import app
 from app.services.recalc import recalc_section
 
 # name, fixture module, the table its takeoff lives in
@@ -55,14 +52,6 @@ QUOTED_ASSEMBLIES = [
     # the job and takes a rebar lump like the rest.
     ("deck",    "deck_fixture",      "deck_levels"),
 ]
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _build(db, estimate, mod_name):

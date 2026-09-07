@@ -35,22 +35,12 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 import app.services.quotes as qt
-from app.db import get_db
 from app.main import app
 from app.services.costing import catalog_cost_for_quote
 from app.services.recalc import recalc_section
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _build(db, estimate, mod_name):

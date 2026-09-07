@@ -19,20 +19,10 @@ If a card is added to the columns page, add its driver here.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.db import get_db
 from app.main import app
 from app.services.costing import refresh_pour_costs
 from tests import columns_fixture as colf
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

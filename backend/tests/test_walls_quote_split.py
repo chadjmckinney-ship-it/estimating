@@ -18,24 +18,13 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.db import get_db
-from app.main import app
 from app.models.estimate_section import EstimateSection
 from app.services.costing import tax_rate_for
 from tests import walls_fixture as wf
 
 D = Decimal
 CATALOG = wf.MATERIAL_PRICES["REBAR GRADE BEAM"]  # what walls bar costs without a quote
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _rows(client, sid):

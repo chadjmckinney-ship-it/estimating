@@ -15,25 +15,14 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from app.db import get_db
-from app.main import app
 from app.services.estimate_equipment import load_stored_equipment, refresh_and_store_equipment
 from tests import mono_slab_fixture as mf
 from tests import piers_fixture as pif
 from tests import walls_fixture as wf
 
 D = Decimal
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _line(db, sid, code):

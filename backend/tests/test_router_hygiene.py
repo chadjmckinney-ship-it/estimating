@@ -20,7 +20,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import event, text
 
 from app.db import get_db
@@ -32,14 +31,6 @@ from tests import piers_fixture as pif
 from tests import walls_fixture as wf
 
 D = Decimal
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 # ------------------------------------------------------------ beam types --

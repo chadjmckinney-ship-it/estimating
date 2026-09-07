@@ -4705,6 +4705,11 @@ function openMonoSlabModal(section, existing = null) {
 /** Set once a catalog price changes, so the reprice bar can say so. */
 let catalogDirty = false;
 
+/** How many sections a recalc report rewrote — it lists each estimate's sections (audit P3). */
+function sectionsMoved(report) {
+  return (report.recalculated || []).reduce((n, e) => n + (e.sections || []).length, 0);
+}
+
 async function reprice(btn, statusEl) {
   const original = btn.textContent;
   btn.disabled = true;
@@ -4712,12 +4717,13 @@ async function reprice(btn, statusEl) {
   try {
     const report = await Api.recalcAllEstimates();
     const n = report.recalculated?.length ?? 0;
+    const m = sectionsMoved(report);
     const skipped = report.skipped ?? [];
     catalogDirty = false;
     statusEl.textContent = skipped.length
       ? `Repriced ${n} open estimate${n === 1 ? "" : "s"} · left ${skipped.length} final/archived alone`
       : `Repriced ${n} open estimate${n === 1 ? "" : "s"}`;
-    toast(`Repriced ${n} estimate${n === 1 ? "" : "s"}`);
+    toast(`Repriced ${n} estimate${n === 1 ? "" : "s"} · ${m} section${m === 1 ? "" : "s"}`);
     $("#reprice-bar")?.classList.remove("dirty");
   } catch (err) {
     toast(err.message, "err");
@@ -5874,13 +5880,14 @@ function wireSettings(root) {
     try {
       const report = await Api.updateSetting(key, value);
       const n = (report.recalculated || []).length;
+      const m = sectionsMoved(report);
       const skipped = (report.skipped || []).length;
       let msg =
         value === null
           ? `${key} cleared`
           : `${key} saved`;
       // The whole point of the badge, said again at the moment it matters.
-      if (n) msg += ` — rewrote ${n} open estimate${n === 1 ? "" : "s"}`;
+      if (n) msg += ` — rewrote ${n} open estimate${n === 1 ? "" : "s"} (${m} section${m === 1 ? "" : "s"})`;
       else msg += " — no stored estimate changed";
       if (skipped) msg += `, ${skipped} final/archived left alone`;
       toast(msg);
@@ -5914,9 +5921,10 @@ function wireSettings(root) {
       try {
         const report = await Api.recalcAllEstimates();
         const n = (report.recalculated || []).length;
+        const m = sectionsMoved(report);
         const s = (report.skipped || []).length;
         toast(
-          `Rewrote ${n} open estimate${n === 1 ? "" : "s"}` +
+          `Rewrote ${n} open estimate${n === 1 ? "" : "s"} (${m} section${m === 1 ? "" : "s"})` +
             (s ? `, left ${s} final/archived at their bid numbers` : "")
         );
       } catch (err) {

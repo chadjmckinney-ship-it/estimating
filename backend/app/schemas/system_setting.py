@@ -94,13 +94,34 @@ class SystemSettingUpdate(BaseModel):
         return s
 
 
-class EstimateRecalcResult(BaseModel):
-    estimate_id: str
-    name: str
+class SectionRecalcResult(BaseModel):
+    """What recalc_section reports for one section: rows repriced, which line sets were rewritten, and the money."""
+
+    section_id: str
+    name: str | None = None
+    kind: str | None = None
     pours: int = 0
     forming: bool = False
     labor: bool = False
     equipment: bool = False
+    cost: Decimal | None = None
+    sale: Decimal | None = None
+
+
+class EstimateRecalcResult(BaseModel):
+    """
+    What recalc_estimate actually returns: the job's sections, each with its
+    own flags, and the job's rolled-up money. Until 2026-09-06 this was typed
+    as estimate-level pours/forming/labor/equipment flags the service never
+    emitted, so the response model silently dropped everything but the name
+    and the settings toast could only count estimates (audit P3).
+    """
+
+    estimate_id: str
+    name: str
+    sections: list[SectionRecalcResult] = Field(default_factory=list)
+    cost: Decimal | None = None
+    sale: Decimal | None = None
 
 
 class SkippedEstimate(BaseModel):

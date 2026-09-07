@@ -21,10 +21,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.db import get_db
-from app.main import app
 from app.services import walls as wl
 from tests import walls_fixture as wf
 
@@ -62,14 +59,6 @@ def test_a_mat_missing_its_spacing_or_its_size_is_no_mat():
 
 
 # -------------------------------------------------------------------- API ----
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def test_the_grid_saves_a_footing_whose_mats_differ(client, db, estimate):

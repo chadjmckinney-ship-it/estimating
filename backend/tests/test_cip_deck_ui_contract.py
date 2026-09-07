@@ -17,23 +17,13 @@ If a card is added to the deck page, add its driver here.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.db import get_db
 from app.main import app
 from app.services.costing import refresh_pour_costs
 from app.services.estimate_equipment import refresh_and_store_equipment
 from app.services.forming import refresh_and_store_forming
 from app.services.labor import refresh_and_store_labor
 from tests import deck_fixture as df
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

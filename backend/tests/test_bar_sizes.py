@@ -13,25 +13,14 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.bar_sizes import BAR_SIZES
-from app.db import get_db
-from app.main import app
 from app.services.walls import bar_lb_per_ft
 from tests import columns_fixture as cf
 
 D = Decimal
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _column(client, section, **fields):

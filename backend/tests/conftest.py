@@ -108,6 +108,25 @@ def db(engine):
 
 
 @pytest.fixture
+def client(db):
+    """
+    The app, talking to this test's session. Every request a test makes runs
+    inside the same rolled-back transaction as its fixtures, so a route that
+    commits commits to a savepoint. Copied into 33 files until 2026-09-06
+    (audit P3, batch 4); one here now.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import app
+
+    app.dependency_overrides[get_db] = lambda: db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def setting(db):
     """set('waste_concrete', '0.10') — writes system_settings, no recalc."""
 

@@ -384,25 +384,6 @@ def _tax(db, section) -> Decimal:
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture
-def client(db):
-    """
-    The real app, on the rolled-back session.
-
-    The endpoint tests below are the ones that would have caught the sql/037
-    bug: the service layer can be perfect while nothing is wired to it.
-    """
-    from fastapi.testclient import TestClient
-
-    from app.db import get_db
-    from app.main import app
-
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
 def test_endpoint_writes_reads_and_clears(client, db, slab):
     section, a, b = slab
     sid = str(section.id)

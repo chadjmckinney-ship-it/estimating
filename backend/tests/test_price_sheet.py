@@ -16,10 +16,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-from app.db import get_db
 from app.main import app
 from app.models.estimate import Estimate
 from app.models.estimate_price import EstimatePrice
@@ -29,14 +27,6 @@ from app.services.estimate_equipment import refresh_and_store_equipment
 from app.services.forming import refresh_and_store_forming
 from app.services.labor import refresh_and_store_labor
 from app.services.recalc import recalc_estimate, recalc_section
-
-
-@pytest.fixture
-def client(db):
-    app.dependency_overrides[get_db] = lambda: db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _build(db, estimate, mod_name):
