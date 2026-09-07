@@ -11,6 +11,8 @@ import { defineConfig, devices } from "@playwright/test";
  * way, or a test run will quietly edit real bids.
  */
 const PORT = process.env.ESTIMATING_PORT || "8001";
+// run.ps1 serves https once backend/make_certs.py has run; say so here.
+const SCHEME = process.env.ESTIMATING_SCHEME || "http";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -22,7 +24,9 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: `${SCHEME}://127.0.0.1:${PORT}`,
+    // The certificate is our own CA's; Chromium may not trust it on this box.
+    ignoreHTTPSErrors: SCHEME === "https",
     storageState: process.env.E2E_USERNAME ? "tests/e2e/.auth/state.json" : undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -32,7 +36,7 @@ export default defineConfig({
     command:
       "../.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port " + PORT,
     cwd: "backend",
-    url: `http://127.0.0.1:${PORT}/health`,
+    url: `${SCHEME}://127.0.0.1:${PORT}/health`,
     reuseExistingServer: true,
     timeout: 60_000,
   },

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Dev-only checks for the static SPA in frontend/. Nothing here ships — the app has no build step and FastAPI serves frontend/ as-is.",
   "scripts": {
-    "check": "for f in frontend/assets/js/*.js; do node --check \"$f\" || exit 1; done && echo 'syntax OK'",
+    "check": "node --check frontend/assets/js/app.js && node --check frontend/assets/js/api.js && echo syntax OK",
     "lint": "oxlint frontend/assets/js",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",

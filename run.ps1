@@ -2,6 +2,7 @@
 #
 #   .\run.ps1              start on 8001, this machine only
 #   .\run.ps1 -Lan         also answer other machines on the office LAN
+#   .\run.ps1 -Http        plain http even when certs\ exists (see below)
 #   .\run.ps1 -Port 8002   somewhere else
 #   .\run.ps1 -Reload      restart itself when a file changes
 #
@@ -19,6 +20,7 @@ param(
     [int]$Port = 8001,
     [switch]$Reload,
     [switch]$Lan,
+    [switch]$Http,
     [string]$Listen
 )
 
@@ -68,17 +70,30 @@ if ($pending) {
 $args = @("-m", "uvicorn", "app.main:app", "--app-dir", "backend", "--host", $Listen, "--port", "$Port")
 if ($Reload) { $args += "--reload" }
 
+# https (2026-09-07): backend\make_certs.py writes certs\ — a private CA and a
+# certificate for this machine's name and addresses. When they are there the
+# API serves https, here and on the LAN alike, and the session cookie goes
+# out Secure. Each PC trusts certs\ca.crt once (certutil -addstore -f Root).
+# -Http serves plain http regardless.
+$certKey = Join-Path $PSScriptRoot "certs\server.key"
+$certChain = Join-Path $PSScriptRoot "certs\server-chain.crt"
+$scheme = "http"
+if (-not $Http -and (Test-Path $certKey) -and (Test-Path $certChain)) {
+    $args += @("--ssl-keyfile", $certKey, "--ssl-certfile", $certChain)
+    $scheme = "https"
+}
+
 if ($Listen -eq "127.0.0.1") {
-    Write-Host "http://127.0.0.1:$Port" -ForegroundColor Green
+    Write-Host "${scheme}://127.0.0.1:$Port" -ForegroundColor Green
 }
 else {
     Write-Host "Listening on ${Listen}:$Port" -ForegroundColor Green
-    Write-Host "  http://127.0.0.1:$Port   (this machine)" -ForegroundColor Green
+    Write-Host "  ${scheme}://127.0.0.1:$Port   (this machine)" -ForegroundColor Green
     # The name is the stable bookmark; the IP moves with the network.
-    Write-Host "  http://$($env:COMPUTERNAME):$Port   (this machine's name, if the client resolves it)" -ForegroundColor Green
+    Write-Host "  ${scheme}://$($env:COMPUTERNAME):$Port   (this machine's name — the one to bookmark)" -ForegroundColor Green
     Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } |
-        ForEach-Object { Write-Host "  http://$($_.IPAddress):$Port   ($($_.InterfaceAlias))" -ForegroundColor Green }
+        ForEach-Object { Write-Host "  ${scheme}://$($_.IPAddress):$Port   ($($_.InterfaceAlias))" -ForegroundColor Green }
 
     # A missing firewall rule looks exactly like a broken app from the other
     # machine: the browser just hangs. Say so here instead.
@@ -97,8 +112,11 @@ else {
         Write-Host "  New-NetFirewallRule -DisplayName 'Estimating API' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Private,Domain" -ForegroundColor Yellow
     }
 
-    Write-Host ""
-    Write-Host "Reminder: no login. Anyone who reaches this URL can edit or delete." -ForegroundColor Yellow
+    if ($scheme -eq "http") {
+        Write-Host ""
+        Write-Host "Plain http on the LAN: sign-ins and everything after them cross the wire in the clear." -ForegroundColor Yellow
+        Write-Host "Run once:  .\.venv-win\Scripts\python.exe backend\make_certs.py   then restart." -ForegroundColor Yellow
+    }
 }
 
 & $python @args

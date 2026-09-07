@@ -22,7 +22,7 @@ const API_BASE = apiBaseFor(location);
 
 async function api(path, options = {}) {
   const opts = {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   };
   if (opts.body && typeof opts.body === "object") {

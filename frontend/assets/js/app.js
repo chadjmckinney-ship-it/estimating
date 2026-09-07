@@ -5545,7 +5545,7 @@ function priceGroupLabel(key) {
   if (key === "equipment") return "Equipment — day rates";
   if (key === "drilling") return "Drilling — by shaft diameter, per LF";
   if (key === "labor & company rates") return "Labor & company rates";
-  if (/ rates$/.test(key)) return sectionLabel(key.replace(/ rates$/, "")) + " — where it differs from the company rate";
+  if (key.endsWith(" rates")) return sectionLabel(key.replace(/ rates$/, "")) + " — where it differs from the company rate";
   return (key || "other").replace(/_/g, " ");
 }
 
@@ -5554,7 +5554,7 @@ function priceGroupRank(key) {
   if (first !== -1) return first;
   const last = PRICE_GROUP_LAST.indexOf(key);
   if (last !== -1) return 100 + last;
-  if (/ rates$/.test(key)) return 200;
+  if (key.endsWith(" rates")) return 200;
   return 50;
 }
 

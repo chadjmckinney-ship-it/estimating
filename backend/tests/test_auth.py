@@ -72,6 +72,20 @@ def test_sign_in_sets_a_locked_down_cookie(db, as_role):
         assert "secure" not in flags  # plain http on the LAN; the flag follows the scheme
 
 
+def test_over_https_the_cookie_is_secure(db, as_role):
+    """run.ps1 serves https once backend/make_certs.py has run; the flag follows the scheme."""
+    as_role("estimator")
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app, base_url="https://testserver") as tls:
+        r = tls.post("/api/auth/login", json={"username": "test_estimator", "password": "test-password"})
+        assert r.status_code == 200, r.text
+        assert "secure" in r.headers["set-cookie"].lower()
+
+
 def test_wrong_unknown_inactive_and_passwordless_all_say_the_same_thing(db, as_role):
     as_role("estimator")  # creates test_estimator with a password
     nobody = Estimator(username="test_nopw", full_name="No Password", role="estimator")

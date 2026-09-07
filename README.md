@@ -50,7 +50,7 @@ sudo ufw allow from 192.168.0.0/24 to any port 8001 proto tcp
 | | LAN | http://192.168.0.142:8001/ |
 | **API docs** | local | http://127.0.0.1:8001/docs |
 
-> Every request needs a sign-in (sql/068). Set the first passwords with `python backend/set_password.py <username>`, then sign in on the page. Roles, each including the ones below it: **admin** (people, deleting whole jobs), **senior estimator** (prices, rates, quotes, rules, markup), **estimator** (the takeoff), **user** (view only) — `backend/app/policy.py` is the one place that says which route needs which. `.\run.ps1 -Lan` shares it with the office; it is plain http.
+> Every request needs a sign-in (sql/068). Set the first passwords with `python backend/set_password.py <username>`, then sign in on the page. Roles, each including the ones below it: **admin** (people, deleting whole jobs), **senior estimator** (prices, rates, quotes, rules, markup), **estimator** (the takeoff), **user** (view only) — `backend/app/policy.py` is the one place that says which route needs which. `.\run.ps1 -Lan` shares it with the office. For https, run `python backend/make_certs.py` once (a private CA and a certificate for this machine's name and addresses land in `certs/`, which git ignores); `run.ps1` then serves https, and each PC trusts `certs\ca.crt` once with `certutil -addstore -f Root certs\ca.crt` in an elevated prompt. `-Http` forces plain http.
 
 Frontend: `frontend/` (static SPA, no build). See `frontend/README.md` and `backend/README.md`.
 

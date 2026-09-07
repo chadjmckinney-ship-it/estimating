@@ -87,3 +87,6 @@ Daily/
 
 # Playwright's signed-in session (tests/e2e/global-setup.js)
 tests/e2e/.auth/
+
+# The private CA and this machine's certificate (backend/make_certs.py)
+certs/

@@ -11,7 +11,7 @@ export default async function globalSetup(config) {
   const { E2E_USERNAME, E2E_PASSWORD } = process.env;
   if (!E2E_USERNAME || !E2E_PASSWORD) return;
   const baseURL = config.projects[0].use.baseURL;
-  const ctx = await request.newContext({ baseURL });
+  const ctx = await request.newContext({ baseURL, ignoreHTTPSErrors: true });
   const r = await ctx.post("/api/auth/login", {
     data: { username: E2E_USERNAME, password: E2E_PASSWORD },
   });
