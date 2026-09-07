@@ -1371,7 +1371,9 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
         select(EstimateFormingLine).where(EstimateFormingLine.section_id == section.id)
     ):
         if r.enabled and r.unit_cost is None and _d(r.qty) > 0:
-            out.add(f"{r.label} — forming")
+            from app.services.forming import RENTAL_CODES
+
+            out.add(f"{r.label} — {'rentals' if r.code in RENTAL_CODES else 'forming'}")
 
     return sorted(out)
 
@@ -1447,6 +1449,13 @@ def _catalog_cost_for_quote(
                 continue
             total += sf * rate
             priced = True
+
+    elif quote_kind == qt.SHORING:
+        # The three rental lines by the rates (sql/071) — a forming-set
+        # figure, not one built from the levels.
+        from app.services.forming import deck_rentals_catalog_total
+
+        return deck_rentals_catalog_total(db, section.id)
 
     else:
         return None

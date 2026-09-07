@@ -58,6 +58,7 @@ _Q4 = Decimal("0.0001")
 DRILLING = "drilling"
 REBAR = "rebar"
 PT = "pt"
+SHORING = "shoring"
 
 STEEL_KINDS = (
     frozenset({"mono_slab", "piers"})
@@ -91,6 +92,18 @@ QUOTE_KINDS: dict[str, dict[str, Any]] = {
         "units": ("LS", "SF"),
         "driver": "SF",
         "blurb": "The PT sub's price for the package. Spread across the PT pours only.",
+    },
+    SHORING: {
+        "label": "Forms & shoring",
+        # The deck's rentals — forms, shoring, reshoring — are three $/SF
+        # lines on the forming set (sql/071). Chad, 2026-09-07: "we usually
+        # rent forming materials and shoring for a project.. so allowing a
+        # quote works." The quote replaces all three; it lives on the forming
+        # set as one line, not on the levels as direct cost.
+        "kinds": DECK_KINDS,
+        "units": ("LS", "SF"),
+        "driver": "SF",
+        "blurb": "The rental house's price for forms, shoring and reshoring, for the job. Replaces the three rental lines.",
     },
 }
 
@@ -232,6 +245,8 @@ LUMP_DRIVERS = {
         )
     ),
     DRILLING: lambda row: _d(getattr(row, "calc_total_lf", 0)),
+    # Deck area, every level: the three rental lines all run off it.
+    SHORING: lambda row: _d(getattr(row, "area_sf", 0)),
 }
 
 

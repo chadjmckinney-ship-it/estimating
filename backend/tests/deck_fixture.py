@@ -56,6 +56,8 @@ $952,052.0215. Every piece of the gap below that was named in
      +   550.46   MISCELLANEOUS taxed and fuelled like the rental it is
      + 1,676.58   ACCESSORIES at the catalog $0.04, and tax on four lines
                   the sheet leaves untaxed
+     + 28,667.30  RESHORING MATERIAL at $0.75/SF (Chad, 2026-09-07; sql/071) —
+                  the sheet's F83 is blank, so it priced this at nothing
     -----------
     959,698.67   (the six pieces sum to .66; the cent is rounding across
                   pieces each stated to the cent, not a decision)
@@ -202,7 +204,11 @@ SHEET = {
 
 # What the APP reads — the sheet plus every difference named in the module
 # docstring above, each of which has its own test.
-GOLDEN_COST = Decimal("959698.67")
+# 2026-09-07 (sql/071): reshoring material at Chad's $0.75, which the sheet
+# left blank — 32,100 SF x $0.75 x 1.10 x tax, +$28,667.30 — and the sheet's
+# $1.25 form rental shoring split into $0.50 forms + $0.75 shoring, which
+# moves nothing. 959,698.67 before that day.
+GOLDEN_COST = Decimal("988365.97")
 
 
 def price_the_catalog(db) -> dict:

@@ -100,6 +100,10 @@ class FormingMaterialsRead(BaseModel):
     drivers: FormingDrivers
     lines: list[FormingLine] = Field(default_factory=list)
     total_ext_cost: Decimal = Decimal("0")
+    # The deck's two cards (sql/071): the rentals and the materials, each
+    # summed on its own. Zero and the whole total on every other assembly.
+    rentals_ext_cost: Decimal | None = None
+    materials_ext_cost: Decimal | None = None
     missing_prices: list[str] = Field(default_factory=list)
     stored: bool = False
     refreshed_at: datetime | str | None = None

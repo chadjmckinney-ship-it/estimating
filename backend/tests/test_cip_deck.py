@@ -234,20 +234,19 @@ def test_own_crew_cable_placement_bills(db, estimate):
     assert D(str(own["ext_cost"])) == D("23994.75")
 
 
-def test_the_reshoring_material_rate_is_unpriced_not_free(db, estimate):
+def test_reshoring_material_is_priced_at_chads_rate(db, estimate):
     """
     `F83` is blank, so the sheet prices reshoring MATERIAL at $0 while its
-    LABOR prices at $11,235. A blank is not a price of zero (decision 5): the
-    line is UNPRICED and the section says so.
+    LABOR prices at $11,235. The line was UNPRICED — a blank is not a price of
+    zero (decision 5) — until Chad named it, 2026-09-07: "$0.75 ... reshoring"
+    (sql/071). 32,100 SF x $0.75 x the 1.1 allowance, and the labor still.
     """
     section = _build(db, estimate)
     f = _forming(db, section.id)
-    assert f["reshoring"]["ext_cost"] is None
-    assert f["reshoring"]["missing_price"] is True
+    assert D(str(f["reshoring"]["ext_cost"])) == D("26482.50")
+    assert f["reshoring"]["missing_price"] is False and f["reshoring"]["group"] == "rentals"
     assert D(str(f["reshoring"]["qty"])) == D("32100.000")
-    assert any("RESHORING" in x.upper() for x in _unpriced(db, section.id))
-
-    # ...and the labor for the same work bills in full, which is the mismatch.
+    assert not any("RESHORING" in x.upper() for x in _unpriced(db, section.id))
     assert D(str(_labor(db, section.id)["reshoring"]["ext_cost"])) == D("11235.00")
 
 
@@ -274,15 +273,19 @@ def test_typing_a_reshoring_rate_prices_the_line(db, estimate):
     assert not any("RESHORING" in x.upper() for x in _unpriced(db, section.id))
 
 
-def test_the_two_shoring_multipliers_are_two_cells(db, estimate):
+def test_the_three_allowances_are_three_cells(db, estimate):
     """
     `J83` is 1.1 on the sheet, labelled under reshoring and silently read by
     form rental shoring as well. Editing it for one reason moved the other by
-    $4,300. Two rules here, and moving one leaves the other alone.
+    $4,300. Three rules here since sql/071 — forms, shoring, reshoring — and
+    moving one leaves the others alone. The sheet's $1.25 is $0.50 + $0.75.
     """
     section = _build(db, estimate)
-    before = D(str(_forming(db, section.id)["form_rental_shoring"]["ext_cost"]))
-    assert before == (D("32100") * D("1.25") * D("1.1")).quantize(D("0.01"))
+    f = _forming(db, section.id)
+    forms = D(str(f["form_rental"]["ext_cost"]))
+    shoring = D(str(f["shoring_rental"]["ext_cost"]))
+    assert forms == (D("32100") * D("0.50") * D("1.1")).quantize(D("0.01"))
+    assert shoring == (D("32100") * D("0.75") * D("1.1")).quantize(D("0.01"))
 
     db.execute(
         text("UPDATE assembly_rates SET value = 1.5 "
@@ -290,7 +293,10 @@ def test_the_two_shoring_multipliers_are_two_cells(db, estimate):
     )
     db.flush()
     refresh_and_store_forming(db, section.id)
-    assert D(str(_forming(db, section.id)["form_rental_shoring"]["ext_cost"])) == before
+    f = _forming(db, section.id)
+    assert D(str(f["form_rental"]["ext_cost"])) == forms
+    assert D(str(f["shoring_rental"]["ext_cost"])) == shoring
+    assert D(str(f["reshoring"]["ext_cost"])) == (D("32100") * D("0.75") * D("1.5")).quantize(D("0.01"))
 
 
 def test_the_bar_is_grade_beam_bar(db, estimate):
@@ -484,6 +490,7 @@ def test_the_gap_to_the_sheet_is_exactly_the_six_decisions(db, estimate):
     The reconciliation itself, as arithmetic rather than prose. Seven pieces
     until 2026-09-05; the seventh — bar at the PT-slab price, -$3,513.21 —
     went when Chad chose grade-beam bar, and the sheet and the app agree.
+    Seven again since 2026-09-07: reshoring material priced (sql/071).
     """
     pieces = (
         D("2247.26")    # steel the beam slots dropped
@@ -492,6 +499,7 @@ def test_the_gap_to_the_sheet_is_exactly_the_six_decisions(db, estimate):
         + D("1013.75")  # lumber on the doubled faces, plus tax on PAVECRETE
         + D("550.46")   # MISCELLANEOUS taxed and fuelled like a rental
         + D("1676.58")  # ACCESSORIES at $0.04, and tax on four lines
+        + D("28667.30") # RESHORING MATERIAL at Chad's $0.75/SF (sql/071); F83 is blank
     )
     named = df.SHEET["total_cost"].quantize(D("0.01")) + pieces
     # Six pieces each stated to the cent sum a cent short of the app's number.

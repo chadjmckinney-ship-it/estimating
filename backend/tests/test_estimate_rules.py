@@ -88,7 +88,7 @@ def test_it_lists_what_the_sections_actually_read(client, db, estimate):
     rows = _rules(client, estimate)
     assert rows, "a deck section reads rules"
     # Read by the deck's takeoff, and recorded as such.
-    for key in ("reshoring_multiplier", "form_rental_shoring_multiplier",
+    for key in ("reshoring_multiplier", "shoring_multiplier",
                 "lumber_2x4_per_lf", "nails_edge_factor"):
         assert rows[key]["read_by"] == [section.name], key
     # Not read by any assembly on this job.
@@ -197,10 +197,10 @@ def test_setting_a_rule_rewrites_the_job(client, db, estimate):
     """
     section = _build(db, estimate, "deck_fixture")
     before = _cost(db, section.id)
-    # Form rental shoring is 32,100 SF at $1.25 — $44,138 on LBJ — so doubling
-    # its multiplier is a number you can see from across the room.
+    # Shoring rental is 32,100 SF at $0.75 — $26,483 on LBJ (sql/071) — so
+    # doubling its allowance is a number you can see from across the room.
     client.put(
-        f"/api/estimates/{estimate.id}/rules/form_rental_shoring_multiplier",
+        f"/api/estimates/{estimate.id}/rules/shoring_multiplier",
         json={"value": "2"},
     )
     assert _cost(db, section.id) > before
@@ -215,17 +215,17 @@ def test_clearing_a_rule_puts_it_back(client, db, estimate):
     section = _build(db, estimate, "deck_fixture")
     before = _cost(db, section.id)
     client.put(
-        f"/api/estimates/{estimate.id}/rules/form_rental_shoring_multiplier",
+        f"/api/estimates/{estimate.id}/rules/shoring_multiplier",
         json={"value": "2"},
     )
     assert _cost(db, section.id) != before
     r = client.delete(
-        f"/api/estimates/{estimate.id}/rules/form_rental_shoring_multiplier"
+        f"/api/estimates/{estimate.id}/rules/shoring_multiplier"
     )
     assert r.status_code == 200, r.text
 
     rows = _rules(client, estimate)
-    assert rows["form_rental_shoring_multiplier"]["job_value"] is None
+    assert rows["shoring_multiplier"]["job_value"] is None
     assert _cost(db, section.id) == before
     left = db.execute(
         text("SELECT count(*) FROM estimate_rules WHERE estimate_id = :e"),
@@ -353,7 +353,7 @@ def test_every_field_the_card_reads_is_served(client, db, estimate):
     section.waste_concrete = D("0.07")
     db.flush()
     client.put(
-        f"/api/estimates/{estimate.id}/rules/form_rental_shoring_multiplier",
+        f"/api/estimates/{estimate.id}/rules/shoring_multiplier",
         json={"value": "1.4", "note": "steel prices"},
     )
 

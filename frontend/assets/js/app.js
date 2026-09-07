@@ -2115,6 +2115,7 @@ const QUOTE_UNITS = {
   drilling: ["LS"],
   rebar: ["LB", "TON", "CWT", "LS"],
   pt: ["SF", "LS"],
+  shoring: ["LS", "SF"],
 };
 
 const QUOTE_META = {
@@ -2135,6 +2136,12 @@ const QUOTE_META = {
     blurb:
       "The PT sub's price for the package. Lands only on pours that are actually post-tensioned.",
     fallback: "the catalog $/SF is pricing the PT",
+  },
+  shoring: {
+    label: "Forms & shoring",
+    blurb:
+      "The rental house's price for forms, shoring and reshoring, for the job. Replaces the three rental lines on the deck; the labor still bills.",
+    fallback: "the three $/SF rates are pricing the rentals",
   },
 };
 
@@ -2597,6 +2604,7 @@ async function renderSectionDetail(root) {
         <button class="btn ghost" id="btn-jump-beams" type="button">Beam schedule</button>`
         }
         <button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>
+        ${isDeck ? `<button class="btn ghost" id="btn-jump-rentals" type="button">Rentals</button>` : ""}
         <button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
         <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>
         <button class="btn" id="btn-recalc-estimate" type="button"
@@ -2969,6 +2977,7 @@ async function renderSectionDetail(root) {
 
     ${isGrid ? "" : renderBeamTypesCard(beamTypes)}
     ${renderFormingCard(forming)}
+    ${isDeck ? renderRentalsCard(forming) : ""}
     ${renderLaborCard(labor)}
     ${renderEquipmentCard(equip)}
     ${renderSectionRatesCard(rates)}
@@ -3086,6 +3095,13 @@ async function renderSectionDetail(root) {
   if (jumpForming) {
     jumpForming.onclick = () => {
       const el = document.getElementById("forming-materials");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+  }
+  const jumpRentals = $("#btn-jump-rentals");
+  if (jumpRentals) {
+    jumpRentals.onclick = () => {
+      const el = document.getElementById("form-rentals");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     };
   }
@@ -3893,7 +3909,8 @@ function renderFormingCard(forming) {
     </div>`;
   }
   const d = forming.drivers || {};
-  const lines = forming.lines || [];
+  // The deck's rentals have a card of their own (sql/071).
+  const lines = (forming.lines || []).filter((ln) => ln.group !== "rentals");
   const money = (v) =>
     v == null || v === ""
       ? "—"
@@ -3970,7 +3987,7 @@ function renderFormingCard(forming) {
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
           <div class="card stat" style="min-width:11rem;margin:0">
             <div class="label">Forming mat’l</div>
-            <div class="value" style="font-size:1.25rem">${money(forming.total_ext_cost)}</div>
+            <div class="value" style="font-size:1.25rem">${money(forming.materials_ext_cost ?? forming.total_ext_cost)}</div>
           </div>
           <button type="button" class="btn" id="btn-refresh-forming">Refresh from pours</button>
         </div>
@@ -4029,6 +4046,68 @@ function renderFormingCard(forming) {
         After changing pours (perimeter / drops / SF), click <strong>Refresh from pours</strong>
         to rewrite stored quantities. Keyway, chamfer, redwood, form release start at 0 (manual later).
       </p>
+    </div>`;
+}
+
+/**
+ * The deck's rentals — forms, shoring, reshoring — on a card of their own
+ * (sql/071). Same line set as the forming card, same Use switch, so the one
+ * refresh rewrites both; when a shoring quote is on the section the three
+ * lines give way to the one quote line.
+ */
+function renderRentalsCard(forming) {
+  const lines = ((forming && forming.lines) || []).filter((ln) => ln.group === "rentals");
+  const quoted = lines.some((ln) => ln.code === "shoring_quote");
+  return `
+    <div class="card" id="form-rentals" style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem">
+        <div>
+          <h3 style="margin:0">Form rentals, shoring &amp; reshoring</h3>
+          <p style="margin:0.25rem 0 0;color:var(--text-muted);font-size:0.85rem">
+            Rented for the job, priced per SF of deck with an allowance each. Rates on the section card;
+            ${
+              quoted
+                ? "a <strong>shoring quote</strong> on the Quotes card is pricing all three."
+                : "a <strong>shoring quote</strong> on the Quotes card replaces all three."
+            }
+            Refreshes with the forming materials.
+          </p>
+        </div>
+        <div class="card stat" style="min-width:11rem;margin:0">
+          <div class="label">Rentals</div>
+          <div class="value" style="font-size:1.25rem">${usd(forming ? forming.rentals_ext_cost : null, 0)}</div>
+        </div>
+      </div>
+      ${
+        lines.length
+          ? `<div class="table-wrap"><table class="data">
+        <thead><tr><th title="Uncheck a line that is not used on this job">Use</th><th>Line</th><th>Qty</th><th>Unit</th><th>Unit $</th><th>Ext $</th><th>Formula</th></tr></thead>
+        <tbody>
+          ${lines
+            .map(
+              (ln) => `<tr data-forming-code="${esc(ln.code)}" class="${ln.enabled === false ? "muted" : ""}">
+              <td style="width:2.5rem">
+                <input type="checkbox" class="forming-enabled" data-code="${esc(ln.code)}" ${ln.enabled === false ? "" : "checked"} />
+              </td>
+              <td style="max-width:30rem">
+                <strong>${esc(ln.label)}</strong>
+                ${ln.enabled === false ? ` <span class="badge" title="Not used on this job">not used</span>` : ""}
+                ${ln.code === "shoring_quote" ? ` <span class="badge ok">quoted</span>` : ""}
+                ${ln.missing_price ? ` <span class="badge warn" title="A real quantity with no price behind it">unpriced</span>` : ""}
+                ${ln.notes ? `<div class="muted" style="white-space:normal">${esc(ln.notes)}</div>` : ""}
+              </td>
+              <td class="num"><strong>${num(ln.qty, 0)}</strong></td>
+              <td class="muted">${esc(ln.unit)}</td>
+              <td class="num muted">${ln.unit_cost != null ? num(ln.unit_cost, 2) : `<span class="badge warn">none</span>`}</td>
+              <td class="num">${ln.ext_cost != null ? usd(ln.ext_cost, 0) : `<span class="badge warn">$0 — unpriced</span>`}</td>
+              <td class="muted" style="font-size:0.78rem">${esc(ln.formula || "")}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table></div>`
+          : `<div class="empty">No rental lines stored yet — click <strong>Refresh from pours</strong> on the forming card.</div>`
+      }
     </div>`;
 }
 

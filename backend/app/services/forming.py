@@ -996,6 +996,7 @@ def _rate_line(
     notes: str | None = None,
     taxable: bool = True,
     multiplier: Decimal = Decimal("1"),
+    group: str = "forming",
 ) -> dict[str, Any]:
     """
     A material priced by a RATE rather than by a catalog row.
@@ -1025,11 +1026,93 @@ def _rate_line(
         "price_source": None if rate is None else "rate",
         "missing_price": rate is None and q > 0,
         "taxable": taxable,
-        "group": "forming",
+        "group": group,
     }
 
 
-def _deck_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
+# The deck's rentals (sql/071): their own group on the forming line set, their
+# own card on the screen, and a quote that replaces them all.
+RENTAL_CODES = frozenset({"form_rental", "shoring_rental", "reshoring", "shoring_quote"})
+
+
+def _deck_rental_lines(
+    db: Session, d: dict[str, Any], section_id: UUID | None
+) -> tuple[list[dict[str, Any]], Decimal | None]:
+    """
+    FORM RENTAL, SHORING RENTAL and RESHORING MATERIAL — deck SF x its own
+    $/SF x its own allowance — or, when the section carries a "shoring"
+    quote, the one line that replaces all three.
+
+    Chad, 2026-09-07: "we usually rent forming materials and shoring for a
+    project.. so allowing a quote works" — "$0.5 forms, $0.75 shoring and
+    reshoring". The sheet's F84 $1.25 was forms and shoring together, and its
+    F83 (reshoring) was blank, so the line was unpriced until he named it.
+
+    Returns the lines and what the three would cost unquoted — the figure
+    shown beside the quote — or None when any of them has no price.
+    """
+    from app.services import quotes as qt
+
+    kind = d["kind"]
+    sf = float(d["total_sf"])
+    forms_m = _rate_numeric(db, kind, "forms_multiplier", Decimal("1"))
+    shoring_m = _rate_numeric(db, kind, "shoring_multiplier", Decimal("1"))
+    reshore_m = _rate_numeric(db, kind, "reshoring_multiplier", Decimal("1"))
+
+    computed = [
+        _rate_line(db, kind=kind, code="form_rental", label="FORM RENTAL", qty=sf, unit="SF",
+                   formula="deck SF x $/SF x allowance", rate_key="form_rental_sf",
+                   multiplier=forms_m, group="rentals",
+                   notes="The deck forming system, rented for the job. $0.50/SF — half of the "
+                         "sheet's F84 $1.25 (Chad, 2026-09-07)."),
+        _rate_line(db, kind=kind, code="shoring_rental", label="SHORING RENTAL", qty=sf, unit="SF",
+                   formula="deck SF x $/SF x allowance", rate_key="shoring_rental_sf",
+                   multiplier=shoring_m, group="rentals",
+                   notes="$0.75/SF — the other half of F84 (Chad, 2026-09-07)."),
+        _rate_line(db, kind=kind, code="reshoring", label="RESHORING MATERIAL", qty=sf, unit="SF",
+                   formula="deck SF x $/SF x allowance", rate_key="reshoring_material_sf",
+                   multiplier=reshore_m, group="rentals",
+                   notes="Every level, not the sheet's hand-picked row list. F83 was blank; "
+                         "$0.75/SF since 2026-09-07."),
+    ]
+    catalog = (
+        None if any(ln["ext_cost"] is None for ln in computed)
+        else sum((ln["ext_cost"] for ln in computed), Decimal("0")).quantize(Decimal("0.01"))
+    )
+    quote = qt.load_quotes(db, section_id).get(qt.SHORING) if section_id is not None else None
+    if quote is None:
+        return computed, catalog
+
+    total = qt.quoted_total(quote, Decimal(str(sf)))
+    who = f" — {quote.note}" if quote.note else ""
+    return [{
+        "code": "shoring_quote",
+        "label": "FORMS, SHORING & RESHORING — QUOTED",
+        "qty": Decimal(str(sf)).quantize(Decimal("0.001")) if not quote.is_lump else Decimal("1"),
+        "unit": "SF" if not quote.is_lump else "LS",
+        "formula": "quote x deck SF" if not quote.is_lump else "the quote, as a lump",
+        "notes": f"Replaces form rental, shoring rental and reshoring material{who}. "
+                 "Clear the quote on the Quotes card to price them by the rates again.",
+        "material_id": None,
+        "material_name": None,
+        "unit_cost": quote.amount,
+        "ext_cost": total,
+        "price_source": "quote",
+        "missing_price": False,
+        "taxable": True,
+        "group": "rentals",
+    }], catalog
+
+
+def deck_rentals_catalog_total(db: Session, section_id: UUID) -> Decimal | None:
+    """What the three rental lines would cost by the rates — the figure beside a shoring quote."""
+    kind = section_kind(db, section_id)
+    d = _deck_forming_drivers(db, section_id, kind)
+    _, catalog = _deck_rental_lines(db, d, None)
+    return catalog
+
+
+def _deck_lines(db: Session, d: dict[str, Any], section_id: UUID | None = None) -> list[dict[str, Any]]:
     """
     08-CIP EL. DECK: the per-SF material lines (rows 79-84) and the lumber
     block (rows 73-118) that every other assembly also carries.
@@ -1048,12 +1131,12 @@ def _deck_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
         STUD RAILS            lb x $1.65        shear reinforcement at columns
         CARTON FORMS          SF x $0.85
         PLYWOOD FORMING       SF x 50% coverage x $1.50
-        RESHORING             SF x rate x 1.10  <- the rate is BLANK on the sheet
-        FORM RENTAL SHORING   SF x $1.25 x 1.10
 
-    The 1.10 on the last two is ONE CELL on the sheet (`J83`), labelled under
-    reshoring and silently reused by form rental shoring — edit it for one
-    reason and the other moves $4,300. Two rules here.
+    and the RENTALS group (sql/071, `_deck_rental_lines`): FORM RENTAL,
+    SHORING RENTAL and RESHORING MATERIAL, each deck SF x its own $/SF x its
+    own 1.10 — or the one "shoring" quote line that replaces all three. The
+    sheet had F84's $1.25 as forms and shoring together, F83 blank, and J83's
+    1.10 read by both; three lines, three rates, three rules now.
 
     Everything in the lumber block rides `perm edge LF + GB form FF`, not deck
     area. That is the figure the grade beam face count doubles.
@@ -1082,10 +1165,7 @@ def _deck_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     stud_f = float(
         _rate_numeric(db, kind, "accessories_stud_rail_factor", Decimal("0.75"))
     )
-    reshore_m = _rate_numeric(db, kind, "reshoring_multiplier", Decimal("1"))
-    rental_m = _rate_numeric(
-        db, kind, "form_rental_shoring_multiplier", Decimal("1")
-    )
+    rental_lines, _ = _deck_rental_lines(db, d, section_id)
 
     m_2x4 = _find_material(db, "2 X 4")
     m_2x6 = _find_material(db, "2 X 6")
@@ -1121,15 +1201,7 @@ def _deck_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           qty=sf * pct, unit="SF",
           formula=f"deck SF x {pct:.0%} coverage x $/SF",
           rate_key="plywood_forming_sf"),
-        R(code="reshoring", label="RESHORING", qty=sf, unit="SF",
-          formula="deck SF x $/SF x multiplier", rate_key="reshoring_material_sf",
-          multiplier=reshore_m,
-          notes="Every level, not the sheet's hand-picked row list. The "
-                "sheet's rate cell (F83) is BLANK, so this line is UNPRICED "
-                "rather than free - its labor bills $11,235 on LBJ."),
-        R(code="form_rental_shoring", label="FORM RENTAL SHORING", qty=sf,
-          unit="SF", formula="deck SF x $/SF x multiplier",
-          rate_key="form_rental_shoring_sf", multiplier=rental_m),
+        *rental_lines,
 
         # ---------------------------------------------- the lumber block --
         L(code="2x4", label="2 X 4 X 16'", qty=lumber_lf * x4, unit="LF",
@@ -1318,7 +1390,7 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     elif d["kind"] in COLUMN_KINDS:
         lines = _column_lines(db, d)
     elif d["kind"] in DECK_KINDS:
-        lines = _deck_lines(db, d)
+        lines = _deck_lines(db, d, section_id)
     elif d["kind"] in PAVING_KINDS:
         lines = _paving_lines(db, d)
     else:
@@ -1344,6 +1416,7 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         },
         "lines": lines,
         "total_ext_cost": total_ext.quantize(Decimal("0.01")),
+        **_group_totals(lines),
         "missing_prices": [ln["code"] for ln in lines if ln.get("missing_price")],
         "stored": False,
         "refreshed_at": None,
@@ -1570,6 +1643,22 @@ def set_form_percent_and_refresh(
     return refresh_and_store_forming(db, section_id)
 
 
+def _group_totals(lines: list[dict[str, Any]]) -> dict[str, Decimal]:
+    """The rentals and the materials, each summed on its own (sql/071) — two cards, two subtotals."""
+    rentals = sum(
+        (_d(ln.get("ext_cost")) for ln in lines if ln.get("group") == "rentals" and ln.get("enabled", True)),
+        Decimal("0"),
+    )
+    materials = sum(
+        (_d(ln.get("ext_cost")) for ln in lines if ln.get("group") != "rentals" and ln.get("enabled", True)),
+        Decimal("0"),
+    )
+    return {
+        "rentals_ext_cost": rentals.quantize(Decimal("0.01")),
+        "materials_ext_cost": materials.quantize(Decimal("0.01")),
+    }
+
+
 def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
     """Load persisted forming takeoff, or None if never refreshed."""
     from sqlalchemy import select
@@ -1600,7 +1689,7 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "unit_cost": r.unit_cost,
             "ext_cost": r.ext_cost,
             "taxable": r.taxable,
-            "group": "forming",
+            "group": "rentals" if r.code in RENTAL_CODES else "forming",
             "is_manual": r.is_manual,
             "enabled": r.enabled,
             # A switched-off line is not missing a price — somebody took it
@@ -1621,6 +1710,7 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "drivers": d,
             "lines": lines,
             "total_ext_cost": summary.total_ext_cost,
+            **_group_totals(lines),
             "missing_prices": [ln["code"] for ln in lines if ln.get("missing_price")],
             "stored": True,
             "refreshed_at": summary.refreshed_at.isoformat() if summary.refreshed_at else None,

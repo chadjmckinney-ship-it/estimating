@@ -92,6 +92,7 @@ def test_mobilization_warns_while_the_box_is_ticked_and_empty(db, estimate):
     dealt with — nobody has said anything about it either way.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     assert any("mobilization — not entered" in x for x in _unpriced(db, section.id))
 
 
@@ -103,6 +104,7 @@ def test_unchecking_mobilization_silences_it(client, db, estimate):
     `not mobil.enabled`.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
 
     r = client.patch(
         f"/api/sections/{section.id}/equipment/lines/mobilization",
@@ -120,6 +122,7 @@ def test_rechecking_mobilization_brings_it_back(client, db, estimate):
     would blind the section forever.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     url = f"/api/sections/{section.id}/equipment/lines/mobilization"
     client.patch(url, json={"enabled": False, "mark_manual": False})
     assert not any("mobilization" in x for x in _unpriced(db, section.id))
@@ -135,6 +138,7 @@ def test_unchecking_mobilization_does_not_hide_the_other_warnings(client, db, es
     being fixed.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     before = [x for x in _unpriced(db, section.id) if "mobilization" not in x]
     assert before, "deck fixture is expected to carry other warnings"
 
@@ -182,9 +186,31 @@ def test_unchecking_the_superintendent_silences_it(client, db, estimate):
 def test_forming_lines_now_have_a_switch(db, estimate):
     """Every stored lumber line reports `enabled`, and starts on."""
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     lines = _forming(db, section.id)
     assert lines, "deck fixture stores forming lines"
     assert all(ln["enabled"] is True for ln in lines.values())
+
+
+def _make_one_unpriced(db, section) -> None:
+    """
+    These tests were written on the deck's RESHORING line, which had no price
+    anywhere until sql/071 (Chad named $0.75/SF, 2026-09-07). Every deck line
+    is priced now, so take one price off the job's sheet — the section carries
+    an unpriced forming line again, on purpose, and the switch has something
+    to silence.
+    """
+    from app.services.costing import refresh_pour_costs
+    from app.services.forming import refresh_and_store_forming
+
+    db.execute(
+        text("DELETE FROM estimate_prices WHERE estimate_id = :e AND ref_key = 'shoring_rental_sf'"),
+        {"e": str(section.estimate_id)},
+    )
+    db.flush()
+    refresh_and_store_forming(db, section.id)
+    refresh_pour_costs(db, section)
+    db.flush()
 
 
 def _an_unpriced_forming_code(db, section_id) -> str:
@@ -202,9 +228,11 @@ def test_unchecking_a_forming_line_takes_it_off_the_list(client, db, estimate):
     or "live with the warning".
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     code = _an_unpriced_forming_code(db, section.id)
     label = _forming(db, section.id)[code]["label"]
-    assert any(f"{label} — forming" in x for x in _unpriced(db, section.id))
+    # "— forming" or "— rentals" (sql/071): the list names the card the line is on.
+    assert any(f"{label} — " in x for x in _unpriced(db, section.id))
 
     r = client.patch(
         f"/api/sections/{section.id}/forming-materials/lines/{code}",
@@ -227,6 +255,7 @@ def test_switching_a_priced_forming_line_off_removes_its_money(client, db, estim
     the extension and the section cost drops by exactly that, uplifts included.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     priced = {
         c: ln
         for c, ln in _forming(db, section.id).items()
@@ -255,6 +284,7 @@ def test_a_refresh_does_not_undo_the_decision(client, db, estimate):
     the checkbox does not work.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     code = _an_unpriced_forming_code(db, section.id)
     client.patch(
         f"/api/sections/{section.id}/forming-materials/lines/{code}",
@@ -269,6 +299,7 @@ def test_a_refresh_does_not_undo_the_decision(client, db, estimate):
 def test_rechecking_a_forming_line_restores_its_cost(client, db, estimate):
     """Reversible, and to the same number — off is not a destructive edit."""
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     priced = {
         c: ln
         for c, ln in _forming(db, section.id).items()
@@ -288,6 +319,7 @@ def test_rechecking_a_forming_line_restores_its_cost(client, db, estimate):
 
 def test_toggling_an_unknown_forming_code_404s(client, db, estimate):
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     r = client.patch(
         f"/api/sections/{section.id}/forming-materials/lines/not_a_line",
         json={"enabled": False},
@@ -302,6 +334,7 @@ def test_the_forming_switch_reaches_the_screen(client, db, estimate):
     disagreeing — the exact failure `perm_edge_lf` and `subcontracted` had.
     """
     section = _build(db, estimate, "deck_fixture")
+    _make_one_unpriced(db, section)
     code = _an_unpriced_forming_code(db, section.id)
     client.patch(
         f"/api/sections/{section.id}/forming-materials/lines/{code}",

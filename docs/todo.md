@@ -109,7 +109,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Service function to **refresh all `calc_*`** — `app/services/recalc.py`, exposed as
       `POST /api/estimates/{id}/recalc` (+ UI button) and `POST /api/system-settings/recalc-all`
 - [ ] `cost_codes` table + link to materials / line items
-- [ ] Roles / permissions tables (or defer until auth exists)
+- [x] Roles / permissions tables — sql/068 (2026-09-07)
 - [ ] Numbered migration discipline + optional Alembic later — **two `015_` files
       exist**, and nothing records which migrations have been applied to a database.
       Every test run now rebuilds `estimating_test` by applying `001`–`026` in

@@ -190,10 +190,12 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "stud_rails_lb":             ("Stud rails", "LB"),
     "carton_forms_sf":           ("Carton forms", "SF"),
     "plywood_forming_sf":        ("Plywood forming", "SF"),
-    "form_rental_shoring_sf":    ("Form rental shoring", "SF"),
-    # Registered but deliberately absent from every table: the deck sheet's
-    # F83 is blank, so reshoring material has no price and the section says
-    # so rather than costing it at zero (sql/052).
+    # The deck's rentals (sql/071). The sheet's F84 $1.25 was forms and
+    # shoring together; Chad, 2026-09-07: "$0.5 forms, $0.75 shoring and
+    # reshoring". F83 (reshoring) was blank and the key sat registered but
+    # unseeded from sql/052 until he named the number.
+    "form_rental_sf":            ("Form rental (deck)", "SF"),
+    "shoring_rental_sf":         ("Shoring rental (deck)", "SF"),
     "reshoring_material_sf":     ("Reshoring material", "SF"),
     "form_rental_contact_ft":    ("Form rental", "CONTACT FT"),
     "rock_cy":                   ("Rock", "CY"),            # on paving/sidewalk; not read by any service (audit P3)
@@ -220,8 +222,9 @@ RULE_KEYS: frozenset[str] = frozenset({
     # the older sets' divisors, on the ladder since 2026-09-06 (audit P3):
     # tie wire per roll of SF, and concrete haul-off loads per CY
     "tie_wire_sf_per_roll", "haul_off_cy_per_load",
-    # J83 on the deck sheet is one cell read by two lines; here it is two rules
-    "reshoring_multiplier", "form_rental_shoring_multiplier",
+    # J83 on the deck sheet is one cell read by two lines; here each rental
+    # line has its own allowance (sql/071: forms, shoring, reshoring)
+    "reshoring_multiplier", "forms_multiplier", "shoring_multiplier",
     "wall_ties_per_ff", "pipe_brace_per_ff", "horiz_lap_ft_per_course", "sand_in_under_form",
     # supervision pacing
     "labor_super_sf_per_week", "labor_super_days_per_week", "columns_per_super_week",

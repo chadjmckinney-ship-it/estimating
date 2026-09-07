@@ -56,7 +56,7 @@ def _read(db: Session, section: EstimateSection, row: SectionQuote) -> SectionQu
     )
 
 
-def _recost(db: Session, section: EstimateSection) -> None:
+def _recost(db: Session, section: EstimateSection, kind: str | None = None) -> None:
     """
     Rewrite the stored money under this section, and roll the job up.
 
@@ -66,13 +66,22 @@ def _recost(db: Session, section: EstimateSection) -> None:
     and deliberately do not get one: re-running the takeoff would discard any
     manual line the estimator has pinned.
     """
-    from app.models.estimate_section import PIER_KINDS
+    from app.models.estimate_section import DECK_KINDS, PIER_KINDS
     from app.services.costing import refresh_estimate_totals, refresh_pour_costs
 
     if section.kind in PIER_KINDS:
         from app.services.piers import refresh_section_pier_calcs
 
         refresh_section_pier_calcs(db, section)
+        db.flush()
+
+    if kind == qt.SHORING and section.kind in DECK_KINDS:
+        # A shoring quote lives on the forming line set (sql/071), so the set
+        # is rewritten — manual lines are kept, the way a refresh keeps them.
+        # Only for that kind: a rebar or PT quote must not touch the set.
+        from app.services.forming import refresh_and_store_forming
+
+        refresh_and_store_forming(db, section.id)
         db.flush()
 
     refresh_pour_costs(db, section)
@@ -128,7 +137,7 @@ def put_quote(
         if existing is not None:
             db.delete(existing)
             db.flush()
-            _recost(db, section)
+            _recost(db, section, kind)
         db.commit()
         return list_quotes(section_id, db)
 
@@ -151,7 +160,7 @@ def put_quote(
     existing.updated_at = datetime.now(timezone.utc)
     db.flush()
 
-    _recost(db, section)
+    _recost(db, section, kind)
     db.commit()
     return list_quotes(section_id, db)
 
@@ -169,6 +178,6 @@ def delete_quote(
     if row is not None:
         db.delete(row)
         db.flush()
-        _recost(db, section)
+        _recost(db, section, kind)
     db.commit()
     return list_quotes(section_id, db)

@@ -367,6 +367,18 @@ is what makes the differences above arguable rather than guessed at.
   resolves a post-tensioned slab — the `-$3,513.21` above. `resolve_rebar`
   now sends every deck kind to REBAR GRADE BEAM, PT or not; the golden number
   moved from 956,185.45 to 959,698.67 and the seventh piece is gone.
+* **The rentals are their own card, 2026-09-07 (`sql/071`).** Chad: "think
+  we need to rework CIP elevated... giving it a separate section from
+  materials for form rentals, shoring and reshoring" — "we usually rent
+  forming materials and shoring for a project.. so allowing a quote works" —
+  "$0.5 forms, $0.75 shoring and reshoring". FORM RENTAL ($0.50/SF), SHORING
+  RENTAL ($0.75/SF) and RESHORING MATERIAL ($0.75/SF), each deck SF x its own
+  1.10 allowance (`forms_multiplier`, `shoring_multiplier`,
+  `reshoring_multiplier`), in a rentals group of the forming set with their
+  own card on the deck page; a "shoring" quote (LS or $/SF) replaces all
+  three, with the three-line figure shown beside it. `form_rental_shoring_sf`
+  ($1.25, forms and shoring together) retired. Reshoring material prices
+  from that day: the LBJ deck moves up by $28,667.31 (`deck_fixture.py`).
 * **Reshoring material.** No rate anywhere. Unpriced until one is typed.
   **Chad, 2026-09-05: "a SF price with a percentage."** That is the shape the
   line already has — `reshoring_material_sf` × `reshoring_multiplier` (1.10,

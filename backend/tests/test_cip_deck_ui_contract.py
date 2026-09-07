@@ -141,7 +141,10 @@ def test_the_forming_card_can_describe_a_deck(client, section):
     for key in ("total_sf", "perimeter_lf", "form_percent", "form_waste"):
         assert key in d, key
     # An unpriced line has to reach the screen as one, not as a zero.
-    assert "reshoring" in body["missing_prices"]
+    # Reshoring material has a price since sql/071 ($0.75/SF); nothing on
+    # the deck is unpriced now, and the two cards each carry a subtotal.
+    assert body["missing_prices"] == []
+    assert body["rentals_ext_cost"] is not None and body["materials_ext_cost"] is not None
 
 
 def test_the_money_cards_get_their_lines(client, section):
