@@ -27,6 +27,9 @@ class LaborDrivers(BaseModel):
     face_ff: Decimal = Decimal("0")
     contact_ff: Decimal = Decimal("0")
     pilaster_ff: Decimal = Decimal("0")
+    # Sidewalks (sql/076): the edge and the treads carry labor per LF.
+    thick_edge_lf: Decimal = Decimal("0")
+    stair_tread_lf: Decimal = Decimal("0")
     # Columns: the only assembly whose duration comes from a COUNT rather than
     # an area or a typed number of days — 20 a week on a five-day week. The
     # screen spells the derivation out, so it needs the two divisors and not

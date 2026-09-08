@@ -43,7 +43,8 @@ CURE_GAL_PER_DRUM = Decimal("55")
 # Curb concrete: 0.25 CF per LF, i.e. LF / 108 CY. Thickened edge: 18" deep by
 # 1.5 ft wide, i.e. LF × 1.5 × 0.18 / 27 CY.
 CURB_LF_PER_CY = Decimal("108")
-THICK_EDGE_CY_PER_LF = Decimal("1.5") * Decimal("0.18") / Decimal("27")
+THICK_EDGE_WIDTH_FT = Decimal("1.5")
+THICK_EDGE_CY_PER_LF = THICK_EDGE_WIDTH_FT * Decimal("0.18") / Decimal("27")
 
 
 def _d(x: Any) -> Decimal:
@@ -102,6 +103,7 @@ def edge_concrete_cy(
     curb_lf: Decimal | float | int | None,
     thick_edge_lf: Decimal | float | int | None,
     waste: Decimal | float | int | None = 0,
+    thick_edge_width_ft: Decimal | float | int | None = None,
 ) -> Decimal:
     """
     Curb + thickened-edge concrete, wasted like the rest of the pour.
@@ -112,7 +114,10 @@ def edge_concrete_cy(
     edge = _d(thick_edge_lf)
     if curb <= 0 and edge <= 0:
         return Decimal("0.0000")
-    raw = curb / CURB_LF_PER_CY + edge * THICK_EDGE_CY_PER_LF
+    # The SIDEWALKS tab digs its edge 1.8 ft wide where paving digs 1.5
+    # (sql/076); the width is a rule per kind.
+    width = _d(thick_edge_width_ft) if thick_edge_width_ft is not None else THICK_EDGE_WIDTH_FT
+    raw = curb / CURB_LF_PER_CY + edge * width * Decimal("0.18") / Decimal("27")
     return (raw * (Decimal("1") + _d(waste))).quantize(Decimal("0.0001"))
 
 

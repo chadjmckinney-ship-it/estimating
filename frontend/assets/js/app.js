@@ -1003,6 +1003,8 @@ const CONT_KINDS = new Set(["cont_footings"]);
 const RB_SLAB_KINDS = new Set(["slabs", "slab_on_deck"]);
 // The slab on metal deck (sql/075): the rebar slab with a deck's cells.
 const DECK_SLAB_KINDS = new Set(["slab_on_deck"]);
+// Sidewalks (sql/076): a paving-family area with finishes, stairs and an edge.
+const SIDEWALK_KINDS = new Set(["sidewalk"]);
 // Columns are the fourth takeoff shape, and the only one with no geometry to
 // measure across: a pour has SF, a pier group has LF, a wall run has form feet,
 // and a column type has a SCHEDULE and a COUNT. Everything shared on the
@@ -1611,6 +1613,45 @@ function wireGrid(root, { id, columns, required, save, remove }) {
 }
 
 /** The paving takeoff: areas across, driven by curb LF. */
+/**
+ * Sidewalks (sql/076): one line per walk type — the older template's
+ * SIDEWALKS row. Three finishes are flags; the stair treads are LF x rise x
+ * run; the thickened edge is a length.
+ */
+function sidewalkColumns(mixes) {
+  return [
+    { f: "description", label: "Type", placeholder: "Broom finish" },
+    { f: "square_footage", label: "SF", type: "number", step: "1" },
+    { f: "thickness_in", label: 'Thk"', type: "number" },
+    { f: "sand_thickness_in", label: 'Sand"', type: "number" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "thick_edge_lf", label: "Thick edge LF", type: "number" },
+    { f: "stamped", label: "Stamped", type: "check" },
+    { f: "integral_color", label: "Color", type: "check" },
+    { f: "acid_etch", label: "Acid etch", type: "check" },
+    { f: "traffic_control", label: "Traffic", type: "check" },
+    { f: "stair_tread_lf", label: "Stairs LF", type: "number" },
+    { f: "stair_tread_rise_in", label: 'Rise"', type: "number" },
+    { f: "stair_tread_run_in", label: 'Run"', type: "number" },
+    { f: "slab_bar_size", label: "Bar #", type: "select", options: barSizeChoices() },
+    { f: "slab_bar_spacing_in", label: 'Spacing"', type: "number" },
+    { f: "wire_mesh", label: "Mesh", type: "check" },
+    { f: "mesh_gauge", label: "Mesh ga", type: "number", step: "1" },
+    { f: "demo_lf", label: "Demo LF", type: "number" },
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: (r) =>
+        `slab ${num(r.calc_slab_concrete_cy, 2)} + edge ${num(r.calc_edge_concrete_cy, 2)} + stairs ${num(
+          r.calc_stair_concrete_cy,
+          2
+        )}`,
+    },
+    { label: "Steel lb", derived: (r) => num(r.calc_total_rebar_lb, 0), title: (r) => `edge bars ${num(r.calc_edge_rebar_lb, 0)} lb` },
+    { label: "Cost", derived: (r) => usd(r.calc_cost, 0), title: (r) => `${usd(r.calc_cost_per_sf, 2)} / SF` },
+  ];
+}
+
 function pavingColumns(mixes) {
   return [
     { f: "description", label: "Area", placeholder: "Area name" },
@@ -2548,6 +2589,7 @@ async function renderSectionDetail(root) {
   // it forms off curb LF, lays no vapor barrier, has no grade beams, and is
   // taken off as a grid of areas rather than a list of pours (sql/036).
   const isPaving = PAVING_KINDS.has(section.kind);
+  const isSidewalk = SIDEWALK_KINDS.has(section.kind);
   const isPiers = PIER_KINDS.has(section.kind);
   const isWalls = WALL_KINDS.has(section.kind);
   const isSpot = SPOT_KINDS.has(section.kind);
@@ -2838,6 +2880,26 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? deckT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
       <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? deckT.total_sale_per_unit, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? deckT.total_cost_per_unit, 2)}/SF</div></div>
     </div>`
+        : isSidewalk
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Walk types</div><div class="value">${totals.slab_count}</div></div>
+      <div class="card stat"><div class="label">Total SF</div><div class="value">${num(totals.total_sf, 0)}</div><div class="hint">what the lumber, labor and cure run off</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(totals.total_concrete_cy, 2)}</div><div class="hint">slab ${num(totals.total_slab_concrete_cy, 1)} + edge ${num(totals.total_edge_concrete_cy, 1)} + stairs ${num(totals.total_stair_concrete_cy, 1)}</div>${moneyRow(matCost(mat, "concrete"))}</div>
+      <div class="card stat"><div class="label">Sand CY</div><div class="value">${num(totals.total_sand_cy, 2)}</div>${moneyRow(matCost(mat, "sand"))}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(totals.total_rebar_lb, 0)}</div><div class="hint">lb · the mat and the edge bars</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Finishes</div><div class="value">${num(totals.total_stamped_sf, 0)}</div><div class="hint">SF stamped · ${num(totals.total_integral_color_cy, 1)} CY colored · ${num(totals.total_acid_etch_sf, 0)} SF etched</div></div>
+      <div class="card stat"><div class="label">Edge &amp; stairs</div><div class="value">${num(totals.total_thick_edge_lf, 0)}</div><div class="hint">LF of thickened edge · ${num(totals.total_stair_tread_lf, 0)} LF of stair tread</div></div>
+      <div class="card stat"><div class="label">Joints</div><div class="value">${num(
+        forming && forming.drivers ? forming.drivers.construction_joint_lf : 0,
+        0
+      )}</div><div class="hint">LF expansion · ${num(
+        forming && forming.drivers ? forming.drivers.control_joint_lf : 0,
+        0
+      )} control</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? totals.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? totals.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? totals.total_sale_per_sf, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? totals.total_cost_per_sf, 2)}/SF</div></div>
+    </div>`
         : isPaving
         ? `<div class="grid stats">
       <div class="card stat"><div class="label">Areas</div><div class="value">${totals.slab_count}</div></div>
@@ -3012,6 +3074,23 @@ async function renderSectionDetail(root) {
             rows: pierRows,
             addLabel: "Group",
             saveLabel: "Save groups",
+          })
+        : isSidewalk
+        ? gridCardHtml({
+            id: "paving-areas",
+            title: "Sidewalk types",
+            blurb:
+              "One line per walk type, the way the SIDEWALKS tab is laid out. The " +
+              "lumber, the labor and the cure run off <strong>SF</strong>; the " +
+              "<strong>thick edge</strong> adds LF × 1.8 × 0.18 / 27 CY, two #3 bars and " +
+              "$/LF of labor; <strong>stairs</strong> add LF × rise × (run + 12) / 3888 CY " +
+              "and $/LF; the three <strong>finish</strong> flags put stamped SF, colored " +
+              "CY and etched SF on the contract lines. <strong>Supervision derives from " +
+              "concrete</strong>: CY ÷ 10 × 1.5 + 5 days.",
+            columns: sidewalkColumns(state.mixes),
+            rows: slabs,
+            addLabel: "Walk type",
+            saveLabel: "Save walks",
           })
         : isPaving
         ? gridCardHtml({
@@ -3235,6 +3314,14 @@ async function renderSectionDetail(root) {
         required: ["qty", "diameter_in"],
         save: (rows) => Api.bulkSavePierGroups(section.id, rows),
         remove: (id) => Api.deletePierGroup(id),
+      });
+    } else if (isSidewalk) {
+      wireGrid(root, {
+        id: "paving-areas",
+        columns: sidewalkColumns(state.mixes),
+        required: ["square_footage", "thickness_in"],
+        save: (rows) => Api.bulkSaveMonoSlabs(section.id, rows),
+        remove: (id) => Api.deleteMonoSlab(id),
       });
     } else {
       wireGrid(root, {
@@ -4361,6 +4448,7 @@ function renderLaborCard(labor) {
   const isBeam = BEAM_KINDS.has(d.kind);
   const isCont = CONT_KINDS.has(d.kind);
   const isRb = RB_SLAB_KINDS.has(d.kind);
+  const isSw = SIDEWALK_KINDS.has(d.kind);
   // The elevated deck. Its labor can be SUBCONTRACTED — one switch on the
   // section (sql/052), which sets the flag on every FIELD line and leaves
   // supervision alone, because a superintendent is yours whoever swings the
@@ -4454,6 +4542,8 @@ function renderLaborCard(labor) {
                 ? "06-FOOTINGS LABOR"
                 : isWal
                 ? "06-WALLS LABOR"
+                : isSw
+                ? "SIDEWALKS LABOR"
                 : isPav
                 ? "10-PAVING LABOR"
                 : isDck
@@ -4690,6 +4780,8 @@ function renderEquipmentCard(equip) {
                 ? "06-FOOTINGS EQUIPMENT"
                 : WALL_KINDS.has(d.kind)
                 ? "06-WALLS EQUIPMENT"
+                : SIDEWALK_KINDS.has(d.kind)
+                ? "SIDEWALKS EQUIPMENT"
                 : PAVING_KINDS.has(d.kind)
                 ? "10-PAVING EQUIPMENT"
                 : DECK_KINDS.has(d.kind)

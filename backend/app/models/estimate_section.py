@@ -61,6 +61,11 @@ CONT_KINDS = frozenset({"cont_footings"})
 # on deck". No job in the folder has priced one; the template is the source.
 DECK_SLAB_KINDS = frozenset({"slab_on_deck"})
 RB_SLAB_KINDS = frozenset({"slabs", "slab_on_deck"})
+# City walks and on-site walks — the older template's SIDEWALKS tab (sql/076):
+# a paving-family area with three finishes, stair treads and a thickened
+# edge, its lumber off square feet, its supervision derived from concrete.
+# Chad populated the tab on 2026-09-08 so there would be numbers to go off.
+SIDEWALK_KINDS = frozenset({"sidewalk"})
 # Columns take off as a TYPE and a count — the fourth shape (sql/045). Measured
 # in EA like piers, but shared cost allocates by form contact area, because
 # forming is what a column job spends its money on.

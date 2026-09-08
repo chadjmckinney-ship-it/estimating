@@ -62,6 +62,7 @@ from app.models.estimate_section import (
     CONT_KINDS,
     DECK_SLAB_KINDS,
     RB_SLAB_KINDS,
+    SIDEWALK_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
     PAVING_KINDS,
@@ -432,7 +433,13 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
     est_form = est_row["form_percent"] if est_row else None
     form_pct = _d(est_form) if est_form is not None else sys_form
 
-    joints = pv.joints_for(_d(row["total_sf"]))
+    # Joint spacings are a rule per kind (sql/076): paving cuts at 60 and 15
+    # ft, a sidewalk at 15 and 5.
+    joints = pv.joints_for(
+        _d(row["total_sf"]),
+        construction_spacing_ft=_rate_numeric(db, kind, "joint_construction_spacing_ft", pv.CONSTRUCTION_JOINT_SPACING_FT),
+        control_spacing_ft=_rate_numeric(db, kind, "joint_control_spacing_ft", pv.CONTROL_JOINT_SPACING_FT),
+    )
 
     return {
         "section_id": section_id,
@@ -758,6 +765,132 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------
 # paving
 # --------------------------------------------------------------------------
+
+
+def _sidewalk_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    The SIDEWALKS tab's lumber block (sql/076), rows 38-78 of the older
+    template. It runs off SQUARE FEET — 2x4 at SF / 4, stakes at SF / 400,
+    nails at SF / 6,000 — and off the EXPANSION joints: 1x4 redwood where the
+    walk is 8" and under (1x8 over), tack strip along it, and 1/2" dowels
+    through it at 18". Tie wire, accessories and cure run off SF and steel.
+    The 2x6, 2x8, 2x10, siding, ply, anchors, keyway, chamfer, chairs, form
+    release and ADA bricks are on the tab at zero — typed when a job has
+    them. No form% on this tab.
+
+    Two departures, named in the fixture: accessories at the catalog's
+    $0.04/lb where the tab types $0.02, and the tab's habit of leaving its
+    accessory lines untaxed (tack strip, tie wire, accessories, cure, dowels
+    are W x U with no tax term) — purchased materials are taxed here.
+    """
+    kind = d["kind"]
+    sf = float(d["total_sf"])
+    rebar = float(d["total_rebar_lb"])
+    waste = d["form_waste"]
+
+    x4_rate = float(_rate_numeric(db, kind, "lumber_2x4_per_sf", Decimal("0.25")))
+    stakes_sf = float(_rate_numeric(db, kind, "stakes_sf_per_bundle", Decimal("400")))
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("6000")))
+    n8 = float(_rate_numeric(db, kind, "nails_8p_per_sf", Decimal("6000")))
+    tie_sf = float(_rate_numeric(db, kind, "tie_wire_sf_per_roll", Decimal("15000")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_drum", Decimal("16000")))
+    dowel_sp = float(_rate_numeric(db, kind, "dowel_spacing_in", Decimal("18")))
+    c_sp = _rate_numeric(db, kind, "joint_construction_spacing_ft", pv.CONSTRUCTION_JOINT_SPACING_FT)
+    k_sp = _rate_numeric(db, kind, "joint_control_spacing_ft", pv.CONTROL_JOINT_SPACING_FT)
+
+    # Expansion joints by thickness: 1x4 board on the thin walks, 1x8 on the
+    # thick — the tab's AR/AS columns (< 8" and > 8", 8" itself thin here).
+    rw4_lf = pv.joints_for(d["thin_sf"], construction_spacing_ft=c_sp, control_spacing_ft=k_sp).construction_lf
+    rw8_lf = pv.joints_for(d["thick_sf"], construction_spacing_ft=c_sp, control_spacing_ft=k_sp).construction_lf
+
+    m_2x4 = _find_material(db, "2 X 4")
+    m_2x6 = _find_material(db, "2 X 6")
+    m_2x8 = _find_material(db, "2 X 8")
+    m_2x10 = _find_material(db, "2 X 10")
+    m_ply = _find_material(db, "FORMING PLY")
+    m_siding = _find_material(db, "SIDING") or _find_material(db, "MASONITE")
+    m_stakes = _find_material(db, "18", "STAKE") or _find_material(db, "2 x 2", "Stake")
+    m_16p = _find_material(db, "16p")
+    m_8p = _find_material(db, "8p")
+    m_6p = _find_material(db, "6p")
+    m_anchor = _find_material(db, "ANCHOR BOLTS 1/2") or _find_material(db, "ANCHOR BOLTS")
+    m_keyway = _find_material(db, "KEYWAY")
+    m_chamfer = _find_material(db, "CHAMFER")
+    m_rw4 = _find_material(db, "1 X 4", "RED")
+    m_rw8 = _find_material(db, "1 X 8", "RED")
+    m_tack = _find_material(db, "TACK STRIP") or _find_material(db, "1 X 1")
+    m_bricks = _find_material(db, "ADA BRICK")
+    m_chairs = _find_material(db, "3-1/4", "CHAIR") or _find_material(db, "PAVING CHAIR")
+    m_tie = _find_material(db, "TIE WIRE")
+    m_acc = _find_material(db, "ACCESSORIES")
+    m_cure = _find_material(db, "SLAB CURE")
+    m_release = _find_material(db, "FORM RELEASE")
+    m_dowels = _find_material(db, "1/2", "SMOOTH DOWELS")
+    m_haul = _find_material(db, "CONCRETE HAUL")
+
+    def L(**kw: Any) -> dict[str, Any]:
+        return _line(db=db, kind=kind, form_waste=waste, **kw)
+
+    return [
+        L(code="2x4", label="2 X 4 X 16'", qty=sf * x4_rate, unit="LF",
+          formula=f"total_sf × {x4_rate:g}", material=m_2x4, sheet_unit_cost="0.5625",
+          notes="The tab's U38: SF / 4 — the walk forms off its area"),
+        L(code="2x6", label="2 X 6 X 16'", qty=0, unit="LF", formula="manual",
+          material=m_2x6, sheet_unit_cost="0.6562"),
+        L(code="2x8", label="2 X 8 X 16'", qty=0, unit="LF", formula="manual",
+          material=m_2x8, sheet_unit_cost="1"),
+        L(code="2x10", label="2 X 10 X 16'", qty=0, unit="LF", formula="manual",
+          material=m_2x10, sheet_unit_cost="1.25"),
+        L(code="siding", label='3/8" X 12" X 16\' SIDING', qty=0, unit="LNGTH",
+          formula="manual", material=m_siding, sheet_unit_cost="19"),
+        L(code="ply", label='3/4 " FORMING PLY', qty=0, unit="SHEET", formula="manual",
+          material=m_ply, sheet_unit_cost="50"),
+        L(code="stakes", label="2 X 2 X 18 STAKES", qty=sf / stakes_sf if sf > 0 and stakes_sf else 0,
+          unit="BUNDLE", formula=f"total_sf / {stakes_sf:g}", material=m_stakes, sheet_unit_cost="18",
+          notes="The tab's U44: SF / 8 / 50, not rounded"),
+        L(code="16p", label="16p NAILS DUPLEX", qty=_ceil(sf / n16) if sf > 0 and n16 else 0, unit="BOX",
+          formula=f"ceil(total_sf / {n16:g})", material=m_16p, sheet_unit_cost="42"),
+        L(code="8p", label="8p DUPLEX", qty=_ceil(sf * 1.25 / n8) if sf > 0 and n8 else 0, unit="BOX",
+          formula=f"ceil(total_sf × 1.25 / {n8:g})", material=m_8p, sheet_unit_cost="42"),
+        L(code="6p", label="6p NAILS", qty=0, unit="BOX", formula="manual",
+          material=m_6p, sheet_unit_cost="42"),
+        L(code="anchors", label="ANCHOR BOLTS", qty=0, unit="BOX", formula="manual",
+          material=m_anchor, sheet_unit_cost="25.5"),
+        L(code="keyway", label="KEYWAY", qty=0, unit="LF", formula="manual",
+          material=m_keyway, sheet_unit_cost="0.78"),
+        L(code="chamfer", label="CHAMFER", qty=0, unit="LF", formula="manual",
+          material=m_chamfer, sheet_unit_cost="0.16"),
+        L(code="rw4", label="1 X 4 RED WOOD", qty=rw4_lf, unit="LF",
+          formula=f'expansion joint LF ({c_sp} ft) in walks 8" and under', material=m_rw4,
+          sheet_unit_cost="1"),
+        L(code="rw8", label="1 X 8 RED WOOD", qty=rw8_lf, unit="LF",
+          formula=f'expansion joint LF ({c_sp} ft) in walks over 8"', material=m_rw8,
+          sheet_unit_cost="0.9"),
+        L(code="tack_strip", label="1 X 1 TACK STRIP", qty=rw4_lf + rw8_lf, unit="LF",
+          formula="1x4 + 1x8 redwood", material=m_tack, sheet_unit_cost="0.15",
+          notes="The tab leaves this untaxed; a purchased material, so it is taxed here"),
+        L(code="ada_bricks", label="ADA BRICKS", qty=0, unit="EA", formula="manual",
+          material=m_bricks, sheet_unit_cost="0.9"),
+        L(code="chairs", label="3-1/4 PAVING CHAIRS", qty=0, unit="BAG", formula="manual",
+          material=m_chairs, sheet_unit_cost="35"),
+        L(code="tie_wire", label="TIE WIRE", qty=sf / tie_sf if sf > 0 and tie_sf else 0, unit="ROLL",
+          formula=f"total_sf / {tie_sf:g}", material=m_tie, sheet_unit_cost="4",
+          notes="The tab leaves this untaxed; it is taxed here"),
+        L(code="accessories", label="ACCESSORIES", qty=rebar, unit="LB",
+          formula="total steel lb", material=m_acc, sheet_unit_cost="0.02",
+          notes="The tab types $0.02/lb, untaxed; the catalog's price, taxed, here (sql/044)"),
+        L(code="cure", label="SLAB CURE", qty=sf / cure_sf if sf > 0 and cure_sf else 0, unit="DRUM",
+          formula=f"total_sf / {cure_sf:g}", material=m_cure, sheet_unit_cost="540",
+          notes="The tab's U72: SF / 16,000 drums, not rounded and untaxed; taxed here"),
+        L(code="form_release", label="FORM RELEASE", qty=0, unit="DRUM", formula="manual",
+          material=m_release, sheet_unit_cost="542"),
+        L(code="smooth_dowels", label='1/2" SMOOTH DOWELS', unit="PCS",
+          qty=_ceil((rw4_lf + rw8_lf) * 12.0 / dowel_sp) if dowel_sp and (rw4_lf + rw8_lf) > 0 else 0,
+          formula=f'ceil(redwood LF × 12 / {dowel_sp:g}")', material=m_dowels, sheet_unit_cost="1.75",
+          notes="Through the expansion joints; untaxed on the tab, taxed here"),
+        L(code="haul_off", label="CONCRETE HAUL OFF", qty=0, unit="LOADS", formula="manual",
+          material=m_haul, taxable=False, notes="Hauling is a service, not a purchase — not taxed"),
+    ]
 
 
 def _paving_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1615,6 +1748,8 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _column_lines(db, d)
     elif d["kind"] in DECK_KINDS:
         lines = _deck_lines(db, d, section_id)
+    elif d["kind"] in SIDEWALK_KINDS:
+        lines = _sidewalk_lines(db, d)
     elif d["kind"] in PAVING_KINDS:
         lines = _paving_lines(db, d)
     else:
@@ -2004,7 +2139,11 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
         {"sid": str(section_id)},
     ).mappings().first()
     est_form = est_row["form_percent"] if est_row else None
-    joints = pv.joints_for(summary.total_sf)
+    joints = pv.joints_for(
+        summary.total_sf,
+        construction_spacing_ft=_rate_numeric(db, kind, "joint_construction_spacing_ft", pv.CONSTRUCTION_JOINT_SPACING_FT),
+        control_spacing_ft=_rate_numeric(db, kind, "joint_control_spacing_ft", pv.CONTROL_JOINT_SPACING_FT),
+    )
 
     return {
         "drivers": {

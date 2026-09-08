@@ -30,6 +30,7 @@ from app.models.estimate_section import (
     BEAM_KINDS,
     DECK_SLAB_KINDS,
     RB_SLAB_KINDS,
+    SIDEWALK_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
     PAVING_KINDS,
@@ -340,6 +341,10 @@ def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
               -- Paving contract-service drivers (sql/036)
               coalesce(sum(curb_lf), 0) AS curb_lf,
               coalesce(sum(demo_lf), 0) AS demo_lf,
+              -- Sidewalk finishes (sql/076): contract lines off the areas' flags.
+              coalesce(sum(square_footage) FILTER (WHERE stamped), 0) AS stamped_sf,
+              coalesce(sum(calc_concrete_cy) FILTER (WHERE integral_color), 0) AS integral_color_cy,
+              coalesce(sum(square_footage) FILTER (WHERE acid_etch), 0) AS acid_etch_sf,
               coalesce(sum(square_footage) FILTER (WHERE slip_form), 0) AS slip_form_sf,
               coalesce(sum(square_footage) FILTER (WHERE traffic_control), 0)
                 AS traffic_control_sf
@@ -361,6 +366,9 @@ def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         "total_concrete_cy": _d(row["total_concrete_cy"]),
         "curb_lf": _d(row["curb_lf"]),
         "demo_lf": _d(row["demo_lf"]),
+        "stamped_sf": _d(row["stamped_sf"]),
+        "integral_color_cy": _d(row["integral_color_cy"]),
+        "acid_etch_sf": _d(row["acid_etch_sf"]),
         "slip_form_sf": _d(row["slip_form_sf"]),
         "traffic_control_sf": _d(row["traffic_control_sf"]),
         "construction_joint_lf": Decimal(joints.construction_lf),
@@ -1025,6 +1033,123 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 code="misc_contract", label="MISCELLANEOUS",
                 rate=float(_rate_numeric(db, kind, "misc_contract_ls", Decimal("1000"))),
                 qty=0, unit="LS", formula="lump sum (manual)", order=160,
+            ),
+        ]
+        lines.append(mobilization)
+        return _totals(d, lines, use_tiers)
+
+    if kind in SIDEWALK_KINDS:
+        # The SIDEWALKS tab's rows 61-77 (sql/076). The bobcat and the
+        # miscellaneous line ride the ladder off the supervision days that
+        # the concrete derived; the backhoe, trencher, light tower and
+        # barricades are typed. The finishes are contract lines off the
+        # areas' flags — stamped per SF, integral color per CY of the colored
+        # areas, acid etch per SF — and the joints, haul-off and curb demo sit
+        # at the tab's typed zeros until a job needs them.
+        backhoe = _find_equip(db, "BACK HOE") or _find_equip(db, "BACKHOE")
+        bobcat = _find_equip(db, "BOB CAT") or _find_equip(db, "BOBCAT") or _find_equip(db, "SKID")
+        trench = _find_equip(db, "TRENCHER")
+        tower = _find_equip(db, "TOWER LIGHT") or _find_equip(db, "LIGHT TOWER")
+        c_sp = _rate_numeric(db, kind, "joint_construction_spacing_ft", pv.CONSTRUCTION_JOINT_SPACING_FT)
+        k_sp = _rate_numeric(db, kind, "joint_control_spacing_ft", pv.CONTROL_JOINT_SPACING_FT)
+        joints = pv.joints_for(d["total_sf"], construction_spacing_ft=c_sp, control_spacing_ft=k_sp)
+
+        lines = [
+            day_line(
+                code="backhoe", label="BACK HOE",
+                **_priced(db, kind, backhoe, "equip_backhoe_day_rate", 385),
+                equipment_id=backhoe["id"] if backhoe else None, order=10,
+                enabled=False, default_days=0, notes="Off by default — enable when used",
+            ),
+            day_line(
+                code="bobcat", label="BOB CAT",
+                **_priced(db, kind, bobcat, "equip_bobcat_day_rate", 350),
+                equipment_id=bobcat["id"] if bobcat else None, order=20,
+            ),
+            day_line(
+                code="trencher", label="TRENCHER",
+                **_priced(db, kind, trench, "equip_trencher_day_rate", 300),
+                equipment_id=trench["id"] if trench else None, order=30,
+                enabled=False, default_days=0, notes="Off by default — enable when used",
+            ),
+            day_line(
+                code="light_tower", label="LIGHT TOWER",
+                **_priced(db, kind, tower, "equip_light_tower_day_rate", 65),
+                equipment_id=tower["id"] if tower else None, order=40,
+                enabled=False, default_days=0, notes="Off by default — enable when used",
+            ),
+            day_line(code="misc_equip", label="MISCELLANEOUS", rate=misc_rate,
+                     equipment_id=None, order=60,
+                     notes="The sheet bills this flat days × rate; the rental "
+                           "tier is applied here as it is everywhere else"),
+            qty_line(
+                code="barricades", label="BARRICADES",
+                rate=_rate_numeric(db, kind, "barricades_month", Decimal("1200")),
+                qty=0, unit="MONTH", formula="months on site (manual)", order=70,
+                notes=(
+                    f"{d['traffic_control_sf']:,.0f} SF marked for traffic control"
+                    if d["traffic_control_sf"] else "Enter months when traffic control is needed"
+                ),
+            ),
+            qty_line(
+                code="joint_construction", label="EXPANSION JOINT SEALANT",
+                rate=_rate_numeric(db, kind, "joint_construction_lf", Decimal("0")),
+                qty=joints.construction_lf, unit="LF",
+                formula=f"ROUNDUP(total_sf / {c_sp})", order=100,
+            ),
+            qty_line(
+                code="joint_control", label="CONTROL JOINT SEALANT",
+                rate=_rate_numeric(db, kind, "joint_control_lf", Decimal("0")),
+                qty=joints.control_lf, unit="LF",
+                formula=f"ROUNDUP(total_sf / {k_sp} × 2 − expansion joints)", order=110,
+            ),
+            qty_line(
+                code="saw_cutting", label="SAW CUTTING",
+                rate=_rate_numeric(db, kind, "saw_cutting_lf", Decimal("0")),
+                qty=joints.control_lf, unit="LF", formula="= control joint LF", order=120,
+            ),
+            qty_line(
+                code="haul_off", label="HAUL OFF",
+                rate=_rate_numeric(db, kind, "haul_off_cy", Decimal("4")),
+                qty=0, unit="CY", formula="spoil CY (manual)", order=130,
+            ),
+            qty_line(
+                code="demo", label="CURB DEMO",
+                rate=_rate_numeric(db, kind, "demo_lf", Decimal("8")),
+                qty=d["demo_lf"], unit="/LF", formula="Σ area demo LF × rate", order=140,
+            ),
+            qty_line(
+                code="stamping", label="STAMPED CONCRETE",
+                rate=_rate_numeric(db, kind, "stamping_sf", Decimal("3.5")),
+                qty=d["stamped_sf"], unit="/SF", formula="Σ SF of areas marked stamped × rate", order=150,
+            ),
+            qty_line(
+                code="integral_color", label="INTEGRAL COLOR",
+                rate=_rate_numeric(db, kind, "integral_color_cy", Decimal("100")),
+                qty=d["integral_color_cy"], unit="/CY",
+                formula="Σ CY of areas marked colored × rate", order=160,
+            ),
+            qty_line(
+                code="acid_etch", label="SANDBLAST / ACID ETCH",
+                rate=_rate_numeric(db, kind, "acid_etch_sf", Decimal("2")),
+                qty=d["acid_etch_sf"], unit="/SF", formula="Σ SF of areas marked etched × rate", order=170,
+            ),
+            qty_line(
+                code="concrete_pump", label="CONCRETE PUMPING",
+                rate=_rate_numeric(db, kind, "concrete_pump_cy", Decimal("0")),
+                qty=cy, unit="CY", formula="total_concrete_cy × $/CY", order=180,
+                equipment_id=pump["id"] if pump else None,
+                notes="A walk is placed off the truck — rate 0 until a job needs a pump",
+            ),
+            qty_line(
+                code="out_of_town", label="OUT OF TOWN EXPENSE",
+                rate=_rate_numeric(db, kind, "out_of_town_day_rate", Decimal("200")),
+                qty=0, unit="MAN-DAY", formula="man-days away (manual)", order=190,
+            ),
+            qty_line(
+                code="misc_contract", label="MISCELLANEOUS",
+                rate=float(_rate_numeric(db, kind, "misc_contract_ls", Decimal("1000"))),
+                qty=0, unit="LS", formula="lump sum (manual)", order=200,
             ),
         ]
         lines.append(mobilization)

@@ -63,6 +63,13 @@ class MonoSlabBase(BaseModel):
     mesh_gauge: int | None = Field(
         None, ge=0, le=20, description="Paving: mesh gauge call-out, recorded with the takeoff"
     )
+    # --- sidewalk drivers (sql/076) — false/NULL on anything else ---
+    stamped: bool = Field(False, description="Sidewalk: stamped finish; the area's SF at $/SF")
+    integral_color: bool = Field(False, description="Sidewalk: integral color; the area's CY at $/CY")
+    acid_etch: bool = Field(False, description="Sidewalk: acid etch or sandblast; the area's SF at $/SF")
+    stair_tread_lf: Decimal | None = Field(None, ge=0, description="Sidewalk: stair treads, LF")
+    stair_tread_rise_in: Decimal | None = Field(None, ge=0, description="Sidewalk: tread rise, inches")
+    stair_tread_run_in: Decimal | None = Field(None, ge=0, description="Sidewalk: tread run, inches")
     notes: str | None = None
     sort_order: int = 0
 
@@ -100,6 +107,12 @@ class MonoSlabUpdate(BaseModel):
     traffic_control: bool | None = None
     paving_add_per_sf: Decimal | None = None
     mesh_gauge: int | None = Field(None, ge=0, le=20)
+    stamped: bool | None = None
+    integral_color: bool | None = None
+    acid_etch: bool | None = None
+    stair_tread_lf: Decimal | None = Field(None, ge=0)
+    stair_tread_rise_in: Decimal | None = Field(None, ge=0)
+    stair_tread_run_in: Decimal | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None
 
@@ -162,6 +175,8 @@ class MonoSlabRead(MonoSlabBase):
     calc_gb_concrete_cy: Decimal | None = None
     # Curb + thickened edge (paving)
     calc_edge_concrete_cy: Decimal | None = None
+    calc_stair_concrete_cy: Decimal | None = None
+    calc_edge_rebar_lb: Decimal | None = None
     calc_sand_cy: Decimal | None = None
     # Slab mat (from size + spacing); lb includes the waste_rebar lap allowance
     calc_slab_bar_lf: Decimal | None = None
@@ -217,6 +232,12 @@ class MonoSlabTotals(BaseModel):
     total_slip_form_sf: Decimal = Decimal("0")
     total_traffic_control_sf: Decimal = Decimal("0")
     total_paving_add: Decimal = Decimal("0")
+    # Sidewalk drivers (sql/076); zero elsewhere
+    total_stair_tread_lf: Decimal = Decimal("0")
+    total_stair_concrete_cy: Decimal = Decimal("0")
+    total_stamped_sf: Decimal = Decimal("0")
+    total_integral_color_cy: Decimal = Decimal("0")
+    total_acid_etch_sf: Decimal = Decimal("0")
     total_slab_bar_lf: Decimal = Decimal("0")
     total_slab_bar_lb: Decimal = Decimal("0")
     total_support_rebar_lb: Decimal

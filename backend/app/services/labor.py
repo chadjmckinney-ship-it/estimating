@@ -33,6 +33,7 @@ from app.models.estimate_section import (
     BEAM_KINDS,
     DECK_SLAB_KINDS,
     RB_SLAB_KINDS,
+    SIDEWALK_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
 )
@@ -148,6 +149,9 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
               coalesce(sum(curb_lf), 0) AS curb_lf,
               coalesce(sum(square_footage * coalesce(paving_add_per_sf, 0)), 0)
                 AS paving_add,
+              -- Sidewalks (sql/076): the edge and the treads carry labor per LF.
+              coalesce(sum(thick_edge_lf), 0) AS thick_edge_lf,
+              coalesce(sum(stair_tread_lf), 0) AS stair_tread_lf,
               -- Brick ledge (sql/029) is formed and stripped like a drop, so it
               -- carries its own labor line rather than riding the SF rates.
               coalesce((
@@ -198,6 +202,20 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             else Decimal("0")
         )
 
+    # City walks (sql/076) derive supervision from CONCRETE, not area: the
+    # SIDEWALKS tab's D57 is CY / 10 x 1.5 + 5.
+    super_formula: str | None = None
+    if kind in SIDEWALK_KINDS:
+        per_cy = _rate_numeric(db, kind, "labor_super_days_per_cy", Decimal("0.15"))
+        fixed = _rate_numeric(db, kind, "labor_super_days_fixed", Decimal("5"))
+        days = (_d(row["total_concrete_cy"]) * per_cy + fixed).quantize(Decimal("0.0001"))
+        weeks = (
+            (days / days_per_week).quantize(Decimal("0.0001"))
+            if days_per_week > 0
+            else Decimal("0")
+        )
+        super_formula = f"concrete CY × {per_cy} + {fixed} days × rate (the tab's D57)"
+
     return {
         "kind": kind,
         "pour_count": int(row["pour_count"] or 0),
@@ -206,6 +224,9 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         "ledge_lf": _d(row["ledge_lf"]),
         "curb_lf": _d(row["curb_lf"]),
         "paving_add": _d(row["paving_add"]),
+        "thick_edge_lf": _d(row["thick_edge_lf"]),
+        "stair_tread_lf": _d(row["stair_tread_lf"]),
+        "super_days_formula": super_formula,
         "total_rebar_lb": rebar,
         "tied_rebar_lb": tied,
         "total_rebar_tons": tons,
@@ -284,9 +305,12 @@ def _supervision_lines(
             # and the days are simply entered. Saying "SF / 0 weeks" there
             # would be a formula that cannot be true.
             formula=(
-                "days entered — no area to derive a duration from"
-                if typed
-                else f"SF / {d['sf_per_week']} weeks × {d['days_per_week']} days × rate"
+                d.get("super_days_formula")
+                or (
+                    "days entered — no area to derive a duration from"
+                    if typed
+                    else f"SF / {d['sf_per_week']} weeks × {d['days_per_week']} days × rate"
+                )
             ),
             notes=(
                 "Everything downstream rides this, including the equipment ladder"
@@ -408,6 +432,46 @@ def _mono_slab_labor_lines(
             ),
             order=90,
         ),
+        _line(group="labor", code="extra_hours", label="EXTRA HOURS", rate=0,
+              unit="LS", qty=0, formula="manual lump sum", order=100),
+    ]
+
+
+def _sidewalk_labor_lines(
+    db: Session, kind: str | None, d: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """
+    The SIDEWALKS tab's rows 49-54 (sql/076).
+
+    Three rates per SF — forming, place and finish, wreck — and three that
+    are not: the thickened edge per LF, stair treads per LF, ADA ramps each
+    on a typed count. No tie steel line (it is in the $/SF), no grading, no
+    curb, no drops.
+    """
+    sf = float(d["total_sf"])
+    edge = float(d.get("thick_edge_lf") or 0)
+    stairs = float(d.get("stair_tread_lf") or 0)
+
+    return [
+        _line(group="labor", code="forming", label="FORMING",
+              rate=_rate(db, kind, "labor_forming_sf", Decimal("1.75")),
+              unit="/SF", qty=sf, formula="total_sf × rate", order=10),
+        _line(group="labor", code="place_finish", label="PLACE AND FINISH",
+              rate=_rate(db, kind, "labor_place_finish_sf", Decimal("1")),
+              unit="/SF", qty=sf, formula="total_sf × rate", order=20),
+        _line(group="labor", code="wreck", label="WRECK AND CLEAN UP",
+              rate=_rate(db, kind, "labor_wreck_sf", Decimal("0.25")),
+              unit="/SF", qty=sf, formula="total_sf × rate", order=30),
+        _line(group="labor", code="ada_ramps", label="ADA RAMPS",
+              rate=_rate(db, kind, "labor_ada_ramp_ea", Decimal("400")),
+              unit="/EA", qty=0, formula="ramps (manual count) × rate",
+              notes="Enter how many — the tab keeps one cell for them (H52)", order=40),
+        _line(group="labor", code="thick_edge", label="THICKENED EDGE",
+              rate=_rate(db, kind, "labor_thick_edge_lf", Decimal("10")),
+              unit="/LF", qty=edge, formula="thick edge LF × rate", order=50),
+        _line(group="labor", code="stair_treads", label="STAIR TREADS",
+              rate=_rate(db, kind, "labor_stair_tread_lf", Decimal("2")),
+              unit="/LF", qty=stairs, formula="stair tread LF × rate", order=60),
         _line(group="labor", code="extra_hours", label="EXTRA HOURS", rate=0,
               unit="LS", qty=0, formula="manual lump sum", order=100),
     ]
@@ -1083,6 +1147,8 @@ def _calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _column_labor_lines(db, kind, d)
     elif kind in DECK_KINDS:
         lines = _deck_labor_lines(db, kind, d)
+    elif kind in SIDEWALK_KINDS:
+        lines = _sidewalk_labor_lines(db, kind, d)
     elif is_paving:
         lines = _paving_labor_lines(db, kind, d)
     else:

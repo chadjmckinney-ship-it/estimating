@@ -396,8 +396,29 @@ def refresh_mono_slab_calcs(
     # Curb + thickened edge (sql/036). Zero on a building slab, which leaves
     # both drivers NULL.
     slab.calc_edge_concrete_cy = paving.edge_concrete_cy(
-        getattr(slab, "curb_lf", None), getattr(slab, "thick_edge_lf", None), waste_c
+        getattr(slab, "curb_lf", None), getattr(slab, "thick_edge_lf", None), waste_c,
+        thick_edge_width_ft=_rate_numeric(db, kind, "thick_edge_width_ft", paving.THICK_EDGE_WIDTH_FT),
     )
+
+    # Sidewalks (sql/076). Stair treads: LF x rise x (run + 12) / 3888, wasted
+    # like the pour (the tab's V10). The bars along a thickened edge: LF x
+    # count x lb/ft, OUTSIDE the mat's waste (U10 adds them after it).
+    stair_lf = Decimal(str(getattr(slab, "stair_tread_lf", None) or 0))
+    rise = Decimal(str(getattr(slab, "stair_tread_rise_in", None) or 0))
+    run = Decimal(str(getattr(slab, "stair_tread_run_in", None) or 0))
+    slab.calc_stair_concrete_cy = (
+        stair_lf * rise * (run + Decimal("12")) / Decimal("3888") * (Decimal("1") + waste_c)
+    ).quantize(Decimal("0.0001"))
+    edge_bars = _rate_numeric(db, kind, "thick_edge_bars", Decimal("0"))
+    if edge_bars > 0 and getattr(slab, "thick_edge_lf", None):
+        from app.services.walls import bar_lb_per_ft
+
+        size = int(_rate_numeric(db, kind, "thick_edge_bar_size", Decimal("3")))
+        slab.calc_edge_rebar_lb = (
+            Decimal(str(slab.thick_edge_lf)) * edge_bars * bar_lb_per_ft(db, size)
+        ).quantize(Decimal("0.001"))
+    else:
+        slab.calc_edge_rebar_lb = Decimal("0")
 
     if sand_thk is not None:
         slab.calc_sand_cy = db.execute(
@@ -524,12 +545,15 @@ def refresh_mono_slab_calcs(
         Decimal(str(slab.calc_slab_concrete_cy or 0))
         + Decimal(str(slab.calc_gb_concrete_cy or 0))
         + Decimal(str(slab.calc_edge_concrete_cy or 0))
+        + Decimal(str(slab.calc_stair_concrete_cy or 0))
     ).quantize(Decimal("0.0001"))
 
     # Slab steel = mat + support; total also picks up GB + Exp + Drop
     support = Decimal(str(slab.calc_support_rebar_lb or 0))
     mat = Decimal(str(slab.calc_slab_bar_lb or 0))
-    slab.calc_total_rebar_lb = mat + support + slab.calc_grade_beam_rebar_lb
+    slab.calc_total_rebar_lb = (
+        mat + support + slab.calc_grade_beam_rebar_lb + Decimal(str(slab.calc_edge_rebar_lb or 0))
+    )
 
     # Poly / Stego: pour SF + beam wrap ((2×H)/12 × L), then waste. An assembly
     # that lays no barrier records none, so nothing downstream has to know to
@@ -660,6 +684,12 @@ def _mono_totals(db: Session, where: str, params: dict[str, Any]) -> dict[str, A
               -- Paving drivers (sql/036); all zero on a building slab.
               coalesce(sum(curb_lf), 0) AS total_curb_lf,
               coalesce(sum(thick_edge_lf), 0) AS total_thick_edge_lf,
+              -- Sidewalk drivers (sql/076); all zero elsewhere.
+              coalesce(sum(stair_tread_lf), 0) AS total_stair_tread_lf,
+              coalesce(sum(calc_stair_concrete_cy), 0) AS total_stair_concrete_cy,
+              coalesce(sum(square_footage) FILTER (WHERE stamped), 0) AS total_stamped_sf,
+              coalesce(sum(calc_concrete_cy) FILTER (WHERE integral_color), 0) AS total_integral_color_cy,
+              coalesce(sum(square_footage) FILTER (WHERE acid_etch), 0) AS total_acid_etch_sf,
               coalesce(sum(demo_lf), 0) AS total_demo_lf,
               coalesce(sum(square_footage) FILTER (WHERE slip_form), 0) AS total_slip_form_sf,
               coalesce(sum(square_footage) FILTER (WHERE traffic_control), 0)

@@ -129,6 +129,11 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "labor_hold_down_ea":        ("Hold-downs labor", "EA"),
     "labor_brick_ledge_lf":      ("Brick ledge labor", "LF"),
     "labor_curb_lf":             ("Curb labor", "LF"),
+    # The SIDEWALKS tab's rows 52-54 (sql/076): per LF of thickened edge and
+    # stair tread, and per ADA ramp on a typed count.
+    "labor_thick_edge_lf":       ("Thick edge labor", "LF"),
+    "labor_stair_tread_lf":      ("Stair tread labor", "LF"),
+    "labor_ada_ramp_ea":         ("ADA ramp labor", "EA"),
     "labor_footings_sf":         ("Footings labor", "SF"),
     "labor_french_drain_lf":     ("French drain labor", "LF"),
     "labor_build_up_sf":         ("Build-up labor", "SF"),
@@ -160,6 +165,7 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "equip_trencher_day_rate":   ("Trencher", "DAY"),
     "equip_crane_day_rate":      ("Crane & operator", "DAY"),
     "equip_20_ton_lift_day_rate": ("20 ton lift", "DAY"),
+    "equip_backhoe_day_rate":    ("Backhoe", "DAY"),
     "out_of_town_day_rate":      ("Out of town", "DAY"),
     # Getting the iron to the job and home again — one round trip (sql/053).
     # The workbook prices it nowhere; this is a real cost the sheets have been
@@ -180,6 +186,10 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "joint_soft_cut_lf":         ("Soft-cut joint", "LF"),
     "demo_lf":                   ("Demo", "LF"),
     "stamping_sf":               ("Stamping", "SF"),
+    # The SIDEWALKS tab's finishes (sql/076): color per CY of the colored
+    # areas, etching per SF of the etched.
+    "integral_color_cy":         ("Integral color", "CY"),
+    "acid_etch_sf":              ("Acid etch / sandblast", "SF"),
     "slip_form_sf":              ("Slip form", "SF"),
     "surveying_ea":              ("Surveying", "EA"),
     "waterproofing_sf":          ("Waterproofing", "SF"),
@@ -220,6 +230,12 @@ RULE_KEYS: frozenset[str] = frozenset({
     "pilaster_steel_pct", "carton_forms_waste",
     # the 05-Slabs tab's joint spacing (sql/074): joints sawn both ways
     "saw_joint_spacing_ft",
+    # the SIDEWALKS tab's (sql/076): the edge's width and bars, supervision
+    # off concrete, joint spacings, and the lumber divisors that run off SF
+    "thick_edge_width_ft", "thick_edge_bars", "thick_edge_bar_size",
+    "labor_super_days_per_cy", "labor_super_days_fixed",
+    "joint_construction_spacing_ft", "joint_control_spacing_ft",
+    "stakes_sf_per_bundle", "cure_sf_per_drum", "dowel_spacing_in",
     "support_rebar_lb_per_sf", "pt_lb_per_sf", "labor_tie_steel_free_lb_per_sf",
     # forming quantities and divisors — SF per box, LF per SF, sheets per SF
     "form_percent", "form_waste", "form_rental_percent",
@@ -527,6 +543,7 @@ ESTIMATE_LEVEL_KEYS: frozenset[str] = frozenset({
     "equip_trencher_day_rate",
     "equip_crane_day_rate",
     "equip_20_ton_lift_day_rate",
+    "equip_backhoe_day_rate",
 })
 
 

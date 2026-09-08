@@ -63,12 +63,22 @@ class MonoSlab(StampedBy, Base):
     )
     paving_add_per_sf: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     mesh_gauge: Mapped[int | None] = mapped_column(SmallInteger)
+    # Sidewalk drivers (sql/076): three finishes and the stair treads. A
+    # walk is a paving-family area; these are what it adds.
+    stamped: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    integral_color: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    acid_etch: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    stair_tread_lf: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    stair_tread_rise_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    stair_tread_run_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
 
     calc_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     calc_slab_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     calc_gb_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     # Curb + thickened edge. Separate from the slab plane on purpose.
     calc_edge_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    calc_stair_concrete_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    calc_edge_rebar_lb: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     calc_sand_cy: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     calc_slab_bar_lf: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     calc_slab_bar_lb: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
