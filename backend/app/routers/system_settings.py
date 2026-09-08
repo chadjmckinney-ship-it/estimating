@@ -54,7 +54,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Labor rates", ("labor_",)),
     ("Equipment", ("equip_", "out_of_town_day_rate")),
     ("Contract services", (
-        "concrete_pump_cy", "haul_off_cy", "cure_sf", "saw_cutting_lf",
+        "concrete_pump_cy", "haul_off_cy", "cure_sf", "saw_cutting_lf", "saw_joint_spacing_ft",
         "joint_", "demo_lf", "stamping_sf", "slip_form_sf", "surveying_ea",
         "waterproofing_sf", "barricades_", "engineering_sf", "freight_load",
         "form_rental_", "shoring_rental_sf", "rock_cy", "misc_contract_ls",

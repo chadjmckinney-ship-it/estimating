@@ -31,6 +31,7 @@ from app.models.estimate_section import (
     PAVING_KINDS,
     PIER_KINDS,
     BEAM_KINDS,
+    RB_SLAB_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
 )
@@ -177,6 +178,25 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
     weeks = raw_weeks.quantize(Decimal("0.0001"))
     days = (raw_weeks * days_per_week).quantize(Decimal("0.0001"))
 
+    # A rebar slab (sql/074) TYPES its superintendent days the way walls do:
+    # the 05-Slabs tab's E91 is a cell, where 04's is SF / 16,000 x 7. Read
+    # back off the stored line — whatever the estimator entered.
+    typed = kind in RB_SLAB_KINDS
+    if typed:
+        typed_days = db.execute(
+            text(
+                "SELECT qty FROM estimate_labor_lines "
+                "WHERE section_id = :sid AND code = 'superintendent'"
+            ),
+            {"sid": str(section_id)},
+        ).scalar()
+        days = _d(typed_days)
+        weeks = (
+            (days / days_per_week).quantize(Decimal("0.0001"))
+            if days_per_week > 0
+            else Decimal("0")
+        )
+
     return {
         "kind": kind,
         "pour_count": int(row["pour_count"] or 0),
@@ -194,6 +214,7 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         "super_days": days,
         "sf_per_week": sf_per_week,
         "days_per_week": days_per_week,
+        "super_days_are_typed": typed,
     }
 
 
@@ -1327,7 +1348,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
         "pour_count": summary.pour_count,
         "pier_count": int(extra["pier_count"] or 0),
         "total_lf": _d(extra["pier_lf"]),
-        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS,
+        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS or kind in RB_SLAB_KINDS,
         "total_sf": summary.total_sf,
         "drops_ff": summary.drops_ff,
         "curb_lf": _d(extra["curb_lf"]),

@@ -998,6 +998,9 @@ const SPOT_KINDS = new Set(["spot_footings"]);
 // (sql/073); a footing is its own kind for its label, rates and defaults.
 const BEAM_KINDS = new Set(["grade_beams", "cont_footings"]);
 const CONT_KINDS = new Set(["cont_footings"]);
+// A rebar slab on grade rides the mono-slab engine (sql/074); it types its
+// superintendent and saws its joints.
+const RB_SLAB_KINDS = new Set(["slabs"]);
 // Columns are the fourth takeoff shape, and the only one with no geometry to
 // measure across: a pour has SF, a pier group has LF, a wall run has form feet,
 // and a column type has a SCHEDULE and a COUNT. Everything shared on the
@@ -4355,6 +4358,7 @@ function renderLaborCard(labor) {
   const isSpot = SPOT_KINDS.has(d.kind);
   const isBeam = BEAM_KINDS.has(d.kind);
   const isCont = CONT_KINDS.has(d.kind);
+  const isRb = RB_SLAB_KINDS.has(d.kind);
   // The elevated deck. Its labor can be SUBCONTRACTED — one switch on the
   // section (sql/052), which sets the flag on every FIELD line and leaves
   // supervision alone, because a superintendent is yours whoever swings the
@@ -4452,6 +4456,8 @@ function renderLaborCard(labor) {
                 ? "10-PAVING LABOR"
                 : isDck
                 ? "08-CIP EL. DECK LABOR"
+                : isRb
+                ? "05-SLABS LABOR"
                 : "04 LABOR / SUPERVISION"
             }</strong> — stored in
             <code>estimate_labor_lines</code>.
@@ -4559,7 +4565,7 @@ function renderLaborCard(labor) {
             : "SF/drops/rebar"
         } change.
         ${
-          isPie || isWal || isBeam
+          isPie || isWal || isBeam || isRb
             ? "<strong>Supervision days are entered, not derived</strong> — there is no " +
               "area to divide. Change the superintendent days and the equipment ladder " +
               "moves with them."
@@ -4684,6 +4690,8 @@ function renderEquipmentCard(equip) {
                 ? "10-PAVING EQUIPMENT"
                 : DECK_KINDS.has(d.kind)
                 ? "08-CIP EL. DECK EQUIPMENT"
+                : RB_SLAB_KINDS.has(d.kind)
+                ? "05-SLABS EQUIPMENT"
                 : "04 EQUIPMENT"
             }</strong> — stored in <code>estimate_equipment_lines</code>.
             Super days <strong>${num(d.super_days, 1)}</strong>

@@ -218,6 +218,8 @@ RULE_KEYS: frozenset[str] = frozenset({
     # the beam tab's (sql/073): pilaster steel as a share of volume, and the
     # waste on carton forms and the retainer (K57)
     "pilaster_steel_pct", "carton_forms_waste",
+    # the 05-Slabs tab's joint spacing (sql/074): joints sawn both ways
+    "saw_joint_spacing_ft",
     "support_rebar_lb_per_sf", "pt_lb_per_sf", "labor_tie_steel_free_lb_per_sf",
     # forming quantities and divisors — SF per box, LF per SF, sheets per SF
     "form_percent", "form_waste", "form_rental_percent",

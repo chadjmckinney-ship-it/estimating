@@ -60,6 +60,7 @@ from app.services import paving as pv
 from app.models.estimate_section import (
     BEAM_KINDS,
     CONT_KINDS,
+    RB_SLAB_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
     PAVING_KINDS,
@@ -375,6 +376,7 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
               count(*)::int AS pour_count,
               coalesce(sum(square_footage), 0) AS total_sf,
               coalesce(sum(perimeter_edge_lf), 0) AS perimeter_lf,
+              coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
               -- Drops are grade beams (kind='drop') since sql/022; the flat
               -- mono_slabs.drops_ff column is gone.
               coalesce((
@@ -437,6 +439,7 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         "pour_count": int(row["pour_count"] or 0),
         "total_sf": _d(row["total_sf"]),
         "perimeter_lf": _d(row["perimeter_lf"]),
+        "total_concrete_cy": _d(row["total_concrete_cy"]),
         "curb_lf": _d(row["curb_lf"]),
         "thin_sf": _d(row["thin_sf"]),
         "thick_sf": _d(row["thick_sf"]),
@@ -613,6 +616,8 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     mesh = float(d["mesh_sf"])
     ledge = float(d["ledge_lf"])
     ledge_face = float(d["ledge_face_sf"])
+    cy = float(d.get("total_concrete_cy") or 0)
+    haul_load = float(_rate_numeric(db, kind, "haul_off_cy_per_load", Decimal("300")))
 
     # Divisors through the ladder since 2026-09-06 (audit P3): columns and
     # the deck already read these keys; the slab typed them as literals, so
@@ -624,7 +629,9 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
 
     qty_2x6 = p * form_pct
     qty_2x4 = (qty_2x6 * 3 + drops) * form_pct
-    qty_2x10 = p * form_pct * 2
+    # The 05-Slabs tab runs its 2x10 ONCE around the perimeter (V71 = CE42 x
+    # W65) where 04 runs it twice (sql/074).
+    qty_2x10 = p * form_pct * (1.0 if kind in RB_SLAB_KINDS else 2.0)
     qty_ply = (drops / 32.0) * form_pct * 1.1 if drops > 0 else 0.0
     qty_ledge_2x6 = ledge * form_pct
     qty_ledge_ply = (ledge_face / 32.0) * form_pct * 1.1 if ledge_face > 0 else 0.0
@@ -709,6 +716,19 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
           material=m_rw6),
         L(code="rw8", label="1 X 8 RED WOOD", qty=0, unit="LF", formula="manual",
           material=m_rw8),
+        # The 05-Slabs tab's S83 (sql/074): tack strips along the redwood.
+        *([L(code="tack_strips", label="TACK STRIPS", qty=0, unit="LF",
+             formula="redwood LF (manual)", material=_find_material(db, "TACK STRIP"),
+             sheet_unit_cost="0.7087",
+             notes="Runs with the redwood — enter the LF when the job has it"),
+           # The 05-Slabs tab's V97 is a live formula — CY / 300 loads — where
+           # 04's cell is blank. A service, so not taxed (sql/036), though the
+           # tab taxes its whole lumber column.
+           L(code="haul_off", label="CONCRETE HAUL OFF",
+             qty=cy / haul_load if cy > 0 and haul_load else 0, unit="LOADS",
+             formula=f"concrete CY / {haul_load:g}", material=_find_material(db, "CONCRETE HAUL"),
+             taxable=False, notes="Hauling is a service, not a purchase — not taxed")]
+          if kind in RB_SLAB_KINDS else []),
         L(code="chairs", label="SLAB CHAIRS", qty=qty_chairs, unit="BAG",
           formula=f"ceil(total_sf / {chair_sf:g})", material=m_chairs),
         L(code="tie_wire", label="TIE WIRE", qty=qty_tie, unit="ROLL",
@@ -1979,6 +1999,10 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "pour_count": summary.pour_count,
             "total_sf": summary.total_sf,
             "perimeter_lf": summary.perimeter_lf,
+            "total_concrete_cy": _d(db.execute(
+                text("SELECT coalesce(sum(calc_concrete_cy), 0) FROM mono_slabs WHERE section_id = :sid"),
+                {"sid": str(section_id)},
+            ).scalar()),
             "curb_lf": _d(est_row["curb_lf"]) if est_row else Decimal("0"),
             "drops_ff": summary.drops_ff,
             "mesh_sf": summary.mesh_sf,

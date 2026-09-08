@@ -50,6 +50,11 @@ SPOT_KINDS = frozenset({"spot_footings"})
 # unit, "we use LF for both of those."
 BEAM_KINDS = frozenset({"grade_beams", "cont_footings"})
 CONT_KINDS = frozenset({"cont_footings"})
+# A conventional (rebar) slab on grade — the workbook's 05-Slabs tab — rides
+# the mono-slab engine as a kind of its own (sql/074): the same pour, mat,
+# sand and vapor barrier, at the tab's own rates, with sawn joints and a
+# TYPED superintendent. Chad, 2026-09-07: "ok, lets do slabs".
+RB_SLAB_KINDS = frozenset({"slabs"})
 # Columns take off as a TYPE and a count — the fourth shape (sql/045). Measured
 # in EA like piers, but shared cost allocates by form contact area, because
 # forming is what a column job spends its money on.
