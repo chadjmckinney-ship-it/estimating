@@ -35,6 +35,7 @@ from app.models.estimate_section import (
     RB_SLAB_KINDS,
     SIDEWALK_KINDS,
     SPOT_KINDS,
+    PANEL_KINDS,
     WALL_KINDS,
 )
 from app.services.calc import _rate_numeric, _setting_numeric, section_kind
@@ -120,6 +121,8 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _column_labor_drivers(db, section_id, kind)
     if kind in DECK_KINDS:
         return _deck_labor_drivers(db, section_id, kind)
+    if kind in PANEL_KINDS:
+        return _panel_labor_drivers(db, section_id, kind)
 
     row = db.execute(
         text(
@@ -1114,6 +1117,118 @@ def _wall_labor_lines(
     return lines
 
 
+def _panel_labor_drivers(db: Session, section_id: UUID, kind: str | None) -> dict[str, Any]:
+    """
+    Panels TYPE their supervision days (the tab's D88 — 40 on LBJ), put a
+    foreman on for every one of them (D89 = D88) and the expense the same
+    (D90), and carry no PM. Every other driver is a sum off panel_types
+    (sql/077).
+    """
+    from app.services.panels import panel_drivers
+
+    p = panel_drivers(db, section_id)
+    typed_days = db.execute(
+        text(
+            "SELECT qty FROM estimate_labor_lines "
+            "WHERE section_id = :sid AND code = 'superintendent'"
+        ),
+        {"sid": str(section_id)},
+    ).scalar()
+    days = _d(typed_days)
+    rebar = p["total_rebar_lb"]
+    days_per_week = _rate_numeric(db, kind, "labor_super_days_per_week", Decimal("7"))
+    return {
+        "kind": kind,
+        "pour_count": p["row_count"],
+        "type_count": p["type_count"],
+        "panel_count": p["panel_count"],
+        "pier_count": 0,
+        "total_sf": p["total_sf"],
+        "opening_sf": p["opening_sf"],
+        "opening_lf": p["opening_lf"],
+        "perimeter_lf": p["perimeter_lf"],
+        "bottom_lf": p["bottom_lf"],
+        "wall_lf": Decimal("0"),
+        "form_ff": Decimal("0"),
+        "footing_sf": Decimal("0"),
+        "excavate_cy": Decimal("0"),
+        "backfill_cy": Decimal("0"),
+        "drain_lf": Decimal("0"),
+        "total_lf": Decimal("0"),
+        "drops_ff": Decimal("0"),
+        "ledge_lf": Decimal("0"),
+        "curb_lf": Decimal("0"),
+        "paving_add": Decimal("0"),
+        "total_rebar_lb": rebar,
+        # Every pound is tied — a panel mat carries no support-steel allowance.
+        "tied_rebar_lb": rebar,
+        "total_rebar_tons": (rebar / Decimal("2000")).quantize(Decimal("0.0001")),
+        "total_concrete_cy": p["total_concrete_cy"],
+        "total_slab_cy": Decimal("0"),
+        "super_days": days,
+        # The tab puts a foreman on for every superintendent day (D89 = D88).
+        "foreman_days": days,
+        "super_weeks": (days / days_per_week).quantize(Decimal("0.0001"))
+        if days_per_week > 0
+        else Decimal("0"),
+        "sf_per_week": Decimal("0"),
+        "days_per_week": days_per_week,
+        "super_days_are_typed": True,
+    }
+
+
+def _panel_labor_lines(
+    db: Session, kind: str | None, d: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """
+    12-PANELS rows 79-85 (sql/077). Four rates per SF of gross panel area —
+    forming, place and finish, wreck, rub and patch — tie steel per ton of
+    every pound, the brick ledge per LF typed, and the backfill per CY of a
+    trench along the panel line: bottom LF x 6.5 x 2 / 27 (H85). The tab
+    marks every one of these rows as sub labor (its column C); the section's
+    one switch says so here.
+    """
+    sf = float(d["total_sf"])
+    tons = float(d["total_rebar_tons"])
+    bottom = _d(d.get("bottom_lf"))
+    width = _rate_numeric(db, kind, "backfill_width_ft", Decimal("6.5"))
+    depth = _rate_numeric(db, kind, "backfill_depth_ft", Decimal("2"))
+    backfill_cy = (bottom * width * depth / Decimal("27")).quantize(Decimal("0.0001"))
+
+    return [
+        _line(group="labor", code="brick_ledge", label="BRICK LEDGE",
+              rate=_rate(db, kind, "labor_brick_ledge_lf", Decimal("1.5")),
+              unit="/LF", qty=0, formula="brick ledge LF (manual) × rate",
+              notes="The tab keeps one cell for it (H79)", order=5),
+        _line(group="labor", code="forming", label="FORMING",
+              rate=_rate(db, kind, "labor_forming_sf", Decimal("0.35")),
+              unit="/SF", qty=sf, formula="panel SF × rate", order=10),
+        _line(group="labor", code="place_finish", label="PLACE AND FINISH",
+              rate=_rate(db, kind, "labor_place_finish_sf", Decimal("0.65")),
+              unit="/SF", qty=sf, formula="panel SF × rate", order=20),
+        _line(group="labor", code="wreck", label="WRECK AND CLEAN UP",
+              rate=_rate(db, kind, "labor_wreck_sf", Decimal("0.25")),
+              unit="/SF", qty=sf, formula="panel SF × rate", order=30),
+        _line(group="labor", code="rub_patch", label="RUB AND PATCH",
+              rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.85")),
+              unit="/SF", qty=sf, formula="panel SF × rate",
+              notes="What you do to a panel face once it stands", order=40),
+        _line(group="labor", code="tie_steel", label="TIE STEEL",
+              rate=_rate(db, kind, "labor_tie_steel_ton", Decimal("450")),
+              unit="/TON", qty=tons, formula="total steel lb / 2000 × rate",
+              notes=f"All {d['total_rebar_lb']:,.0f} lb — a panel mat carries no "
+                    "support-steel allowance to carve out",
+              order=60),
+        _line(group="labor", code="backfill", label="BACK FILL",
+              rate=_rate(db, kind, "labor_backfill_cy", Decimal("8")),
+              unit="/CY", qty=backfill_cy,
+              formula=f"bottom LF × {width} × {depth} / 27 × rate",
+              notes="A trench along the panel line — the tab's H85", order=90),
+        _line(group="labor", code="extra_hours", label="EXTRA HOURS", rate=0,
+              unit="LS", qty=0, formula="manual lump sum", order=100),
+    ]
+
+
 def calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     """A price gate (sql/049): every labor rate below prices from the
     estimate's sheet. See services/price_book.py."""
@@ -1147,6 +1262,8 @@ def _calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _column_labor_lines(db, kind, d)
     elif kind in DECK_KINDS:
         lines = _deck_labor_lines(db, kind, d)
+    elif kind in PANEL_KINDS:
+        lines = _panel_labor_lines(db, kind, d)
     elif kind in SIDEWALK_KINDS:
         lines = _sidewalk_labor_lines(db, kind, d)
     elif is_paving:
@@ -1418,7 +1535,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
         "pour_count": summary.pour_count,
         "pier_count": int(extra["pier_count"] or 0),
         "total_lf": _d(extra["pier_lf"]),
-        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS or kind in RB_SLAB_KINDS,
+        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS or kind in RB_SLAB_KINDS or kind in PANEL_KINDS,
         "total_sf": summary.total_sf,
         "drops_ff": summary.drops_ff,
         "curb_lf": _d(extra["curb_lf"]),
@@ -1438,7 +1555,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
     # a columns header says "68 ÷ 20 a week × 5", which needs both divisors and
     # not just the answer. Nothing already in the dict is touched — every
     # stored cost, day and total above survives — so this can only add.
-    if kind in WALL_KINDS or kind in COLUMN_KINDS or kind in DECK_KINDS or kind in BEAM_KINDS:
+    if kind in WALL_KINDS or kind in COLUMN_KINDS or kind in DECK_KINDS or kind in BEAM_KINDS or kind in PANEL_KINDS:
         live = labor_drivers(db, section_id)
         for key in (
             "column_count", "form_sf", "chamfer_lf",
@@ -1450,6 +1567,8 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
             # face" — the summary table has none of those columns.
             "level_count", "total_sf", "perm_edge_lf", "gb_form_ff",
             "stud_rail_lb", "stud_rail_tons", "pt_lb",
+            # A panels header says "36 panels · 30,024 SF · bottom 1,041 LF" (sql/077).
+            "panel_count", "type_count", "bottom_lf", "opening_lf", "opening_sf", "perimeter_lf",
         ):
             if key in live:
                 drivers[key] = live[key]

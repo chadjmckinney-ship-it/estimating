@@ -162,6 +162,7 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "equip_hoisting_day_rate":   ("Hoisting", "DAY"),
     "equip_skid_steer_day_rate": ("Skid steer", "DAY"),
     "equip_skid_day_rate":       ("Skid steer", "DAY"),
+    "equip_compactor_day_rate":  ("Compactor", "DAY"),
     "equip_trencher_day_rate":   ("Trencher", "DAY"),
     "equip_crane_day_rate":      ("Crane & operator", "DAY"),
     "equip_20_ton_lift_day_rate": ("20 ton lift", "DAY"),
@@ -196,6 +197,9 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "barricades_month":          ("Barricades", "MONTH"),
     "barricades_lf":             ("Barricades", "LF"),
     "engineering_sf":            ("Engineering", "SF"),
+    # The 12-PANELS tab's D100 (sql/077): engineering per panel type, one
+    # elevation drawing each.
+    "panel_engineering_ea":      ("Panel engineering", "EA"),
     "freight_load":              ("Freight", "LOAD"),
     # -- deck materials priced per unit of DECK rather than per catalog row
     "pt_cable_sf":               ("PT cable", "SF"),
@@ -236,6 +240,12 @@ RULE_KEYS: frozenset[str] = frozenset({
     "labor_super_days_per_cy", "labor_super_days_fixed",
     "joint_construction_spacing_ft", "joint_control_spacing_ft",
     "stakes_sf_per_bundle", "cure_sf_per_drum", "dowel_spacing_in",
+    # the 12-PANELS tab's (sql/077): the backfill trench along the panel
+    # line, the lumber divisors that run off the formed perimeter and the
+    # panel count, the 2x6 / 2x8 split, and the corner bars' length
+    "backfill_width_ft", "backfill_depth_ft", "stakes_lf_per_bundle", "nails_8p_factor",
+    "lift_inserts_per_panel", "brace_inserts_per_panel", "bond_breaker_sf_per_gal",
+    "panel_2x8_thick_in", "corner_bar_ft",
     "support_rebar_lb_per_sf", "pt_lb_per_sf", "labor_tie_steel_free_lb_per_sf",
     # forming quantities and divisors — SF per box, LF per SF, sheets per SF
     "form_percent", "form_waste", "form_rental_percent",
@@ -540,6 +550,7 @@ ESTIMATE_LEVEL_KEYS: frozenset[str] = frozenset({
     # rate it is per job." sql/070 took its seeded rows back out.
     "out_of_town_day_rate",
     "equip_skid_day_rate",
+    "equip_compactor_day_rate",
     "equip_trencher_day_rate",
     "equip_crane_day_rate",
     "equip_20_ton_lift_day_rate",

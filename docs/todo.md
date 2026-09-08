@@ -215,7 +215,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Exposed GBs + drops on mono pour (with grade beams)
 - [ ] Walls & footings
 - [x] Elevated / CIP deck / slab on deck — CIP deck `sql/052`, slab on deck `sql/075` (2026-09-08)
-- [ ] Panels / columns
+- [x] Panels / columns — columns `sql/045` (2026-09-01); tilt panels `sql/077` (2026-09-08)
 - [ ] Generic `assemblies` engine if needed
 
 ---

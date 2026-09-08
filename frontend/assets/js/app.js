@@ -1016,6 +1016,10 @@ const COLUMN_KINDS = new Set(["columns"]);
 // and the grade beams running through it. Everything shared allocates by deck
 // AREA — same as a mono slab, unlike columns (form SF) or walls (form feet).
 const DECK_KINDS = new Set(["cip_deck"]);
+// Tilt-wall panels are the seventh shape (sql/077): a panel TYPE and a count,
+// with four opening slots. Sold per SF, gross of the openings — the tab's W
+// column — and every shared cost allocates by that SF.
+const PANEL_KINDS = new Set(["panels"]);
 
 async function renderEstimateSummary(root) {
   root.innerHTML = `<div class="loading">Loading job…</div>`;
@@ -1929,6 +1933,80 @@ function columnColumns(mixes) {
  * the same split services/walls.py costs them on; the two sum to the type.
  */
 /**
+ * Panel types (sql/077): one line per tilt-wall panel type — the 12-PANELS
+ * tab's row, with FOUR opening slots where the tab has one (Chad, 2026-09-08).
+ * Each opening comes off the concrete, adds a set of the panel's edge bars and
+ * puts its perimeter on the lumber and the chamfer. SF is gross — the tab's W
+ * column — because forming an opening is work, not less of it.
+ */
+function panelColumns(mixes) {
+  return [
+    { f: "label", label: "Type", placeholder: "P1" },
+    { f: "qty", label: "Qty", type: "number", step: "1" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "length_ft", label: "L ft", type: "number" },
+    { f: "thickness_in", label: 'Thk"', type: "number" },
+    { f: "top_el_ft", label: "Top el", type: "number" },
+    { f: "bot_el_ft", label: "Bot el", type: "number" },
+    { f: "open1_len_ft", label: "O1 L", type: "number" },
+    { f: "open1_wide_ft", label: "O1 W", type: "number" },
+    { f: "open2_len_ft", label: "O2 L", type: "number" },
+    { f: "open2_wide_ft", label: "O2 W", type: "number" },
+    { f: "open3_len_ft", label: "O3 L", type: "number" },
+    { f: "open3_wide_ft", label: "O3 W", type: "number" },
+    { f: "open4_len_ft", label: "O4 L", type: "number" },
+    { f: "open4_wide_ft", label: "O4 W", type: "number" },
+    { f: "horiz_spacing_in", label: 'H sp"', type: "number" },
+    { f: "horiz_size", label: "H #", type: "select", options: barSizeChoices() },
+    { f: "horiz_mats", label: "H mats", type: "number", step: "1" },
+    { f: "vert_spacing_in", label: 'V sp"', type: "number" },
+    { f: "vert_size", label: "V #", type: "select", options: barSizeChoices() },
+    { f: "vert_mats", label: "V mats", type: "number", step: "1" },
+    { f: "edge_bar_count", label: "Edge n", type: "number", step: "1" },
+    { f: "edge_bar_size", label: "Edge #", type: "select", options: barSizeChoices() },
+    { f: "corner_bar_count", label: "Cnr n", type: "number", step: "1" },
+    { f: "corner_bar_size", label: "Cnr #", type: "select", options: barSizeChoices() },
+    {
+      label: "Ht ft",
+      derived: (r) => num(r.calc_height_ft, 2),
+      title: () => "top elevation less bottom elevation",
+    },
+    {
+      label: "SF ea",
+      derived: (r) => num(r.calc_sf_each, 0),
+      title: (r) =>
+        `${num(r.length_ft, 0)} × ${num(r.calc_height_ft, 2)} — gross, the tab's W column; ` +
+        "the openings come off the concrete, not off the area the labor is priced on",
+    },
+    {
+      label: "SF",
+      derived: (r) => num(r.calc_sf, 0),
+      title: (r) =>
+        `SF each × ${num(r.qty, 0)}` +
+        (Number(r.calc_opening_sf) ? ` · openings ${num(r.calc_opening_sf, 0)} SF` : ""),
+    },
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: () => "(L × H − the openings) × thickness / 324 × qty, with waste — not rounded up",
+    },
+    {
+      label: "Steel lb",
+      derived: (r) => num(r.calc_total_rebar_lb, 0),
+      title: (r) =>
+        `${num(r.calc_steel_each_lb, 0)} lb a panel × ${num(r.qty, 0)} — both mats, the edge ` +
+        "bars, one set more per opening, the corner bars, with waste on every bar",
+    },
+    {
+      label: "Cost / panel",
+      derived: (r) => usd(r.calc_cost_per_panel, 0),
+      title: (r) =>
+        `sale ${usd(r.calc_sale_per_panel, 0)} a panel · ${usd(r.calc_cost, 0)} for the type`,
+    },
+  ];
+}
+
+/**
  * Beam runs (sql/073): one line per beam type — the 02-Gd Beams tab's row.
  * A continuous footing is the same row on its own kind.
  */
@@ -2597,14 +2675,15 @@ async function renderSectionDetail(root) {
   const isCont = CONT_KINDS.has(section.kind);
   const isColumns = COLUMN_KINDS.has(section.kind);
   const isDeck = DECK_KINDS.has(section.kind);
-  // Piers, walls, columns and decks keep their takeoffs in their own tables,
-  // not in pours.
-  const notPours = isPiers || isWalls || isColumns || isDeck || isBeams;
-  const isGrid = isPaving || isPiers || isWalls || isSpot || isColumns || isDeck || isBeams;
+  const isPanels = PANEL_KINDS.has(section.kind);
+  // Piers, walls, columns, decks and panels keep their takeoffs in their own
+  // tables, not in pours.
+  const notPours = isPiers || isWalls || isColumns || isDeck || isBeams || isPanels;
+  const isGrid = isPaving || isPiers || isWalls || isSpot || isColumns || isDeck || isBeams || isPanels;
 
   const [
     slabs, totals, beamTypes, forming, labor, equip,
-    pierRows, pierT, wallRows, wallT, beamRows, beamT, colRows, colT, deckRows, deckT, rates, mats,
+    pierRows, pierT, wallRows, wallT, beamRows, beamT, colRows, colT, deckRows, deckT, panRows, panT, rates, mats,
   ] = await Promise.all([
     notPours ? Promise.resolve([]) : Api.listMonoSlabs(section.id),
     notPours ? Promise.resolve(null) : Api.monoSlabTotals(section.id),
@@ -2622,6 +2701,8 @@ async function renderSectionDetail(root) {
     isColumns ? Api.columnTotals(section.id) : Promise.resolve(null),
     isDeck ? Api.listDeckLevels(section.id) : Promise.resolve([]),
     isDeck ? Api.deckTotals(section.id) : Promise.resolve(null),
+    isPanels ? Api.listPanelTypes(section.id) : Promise.resolve([]),
+    isPanels ? Api.panelTotals(section.id) : Promise.resolve(null),
     // The rate ladder for this section (sql/055). Never fatal: a section
     // whose takeoff will not build still shows its quantities.
     Api.sectionRates(section.id).catch(() => null),
@@ -2772,7 +2853,7 @@ async function renderSectionDetail(root) {
         <button class="btn ghost" id="btn-jump-beams" type="button">Beam schedule</button>`
         }
         <button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>
-        ${isDeck || isBeams ? `<button class="btn ghost" id="btn-jump-rentals" type="button">Rentals</button>` : ""}
+        ${isDeck || isBeams || isPanels ? `<button class="btn ghost" id="btn-jump-rentals" type="button">Rentals</button>` : ""}
         <button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
         <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>
         <button class="btn" id="btn-recalc-estimate" type="button"
@@ -2800,6 +2881,19 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? colT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
       <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? colT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
       <div class="card stat"><div class="label">Sale / column</div><div class="value">${usd(section.calc_sale_per_unit ?? colT.total_sale_per_unit, 0)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? colT.total_cost_per_unit, 0)}/column</div></div>
+    </div>`
+        : isPanels
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Panels</div><div class="value">${num(panT.panel_count, 0)}</div><div class="hint">${panT.type_count} type${panT.type_count === 1 ? "" : "s"} on the schedule</div></div>
+      <div class="card stat"><div class="label">SF</div><div class="value">${num(panT.total_sf, 0)}</div><div class="hint">gross — the tab's W column · openings ${num(panT.total_opening_sf, 0)} SF come off the concrete</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(panT.total_concrete_cy, 2)}</div><div class="hint">openings deducted, with waste — not rounded up</div>${moneyRow(matCost(mat, "concrete"))}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(panT.total_rebar_lb, 0)}</div><div class="hint">lb · both mats, edge bars, a set more per opening, corner bars — waste on <em>every</em> bar</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Formed edge</div><div class="value">${num(panT.total_perimeter_lf, 0)}</div><div class="hint">LF of panel edge · openings ${num(panT.total_opening_lf, 0)} LF — what the lumber and the chamfer run off</div></div>
+      <div class="card stat"><div class="label">Bottom LF</div><div class="value">${num(panT.total_bottom_lf, 0)}</div><div class="hint">carton forms, the durrock retainer and the backfill run along it</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? panT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? panT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
+      <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? panT.total_sale_per_unit, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? panT.total_cost_per_unit, 2)}/SF — the tab's I56</div></div>
+      <div class="card stat"><div class="label">Sale / panel</div><div class="value">${usd(panT.sale_per_panel, 0)}</div><div class="hint">cost ${usd(panT.cost_per_panel, 0)} a panel — the tab's X column</div></div>
     </div>`
         : isBeams
         ? `<div class="grid stats">
@@ -2998,6 +3092,24 @@ async function renderSectionDetail(root) {
             rows: colRows,
             addLabel: "Column type",
             saveLabel: "Save column types",
+          })
+        : isPanels
+        ? gridCardHtml({
+            id: "panel-types",
+            title: "Panel types",
+            blurb:
+              "One line per tilt-wall panel type: <strong>how many</strong>, the length, thickness " +
+              "and top and bottom elevations, up to <strong>four openings</strong> as L × W, the " +
+              "<strong>horizontal and vertical mats</strong> as a spacing, a size and how many mats, " +
+              "and the <strong>edge and corner bars</strong> as a count and a size. Each opening comes " +
+              "off the concrete, adds one more set of the edge bars and puts its perimeter on the " +
+              "lumber and the chamfer. <strong>SF is gross</strong>, the tab's W column — the labor is " +
+              "priced on it and every shared cost here is spread by it. Supervision days are " +
+              "<strong>entered</strong>, and the equipment ladder rides them.",
+            columns: panelColumns(state.mixes),
+            rows: panRows,
+            addLabel: "Panel type",
+            saveLabel: "Save panel types",
           })
         : isBeams
         ? gridCardHtml({
@@ -3245,7 +3357,7 @@ async function renderSectionDetail(root) {
 
     ${isGrid ? "" : renderBeamTypesCard(beamTypes)}
     ${renderFormingCard(forming)}
-    ${isDeck || isBeams ? renderRentalsCard(forming, isBeams ? "Form rental" : null) : ""}
+    ${isDeck || isBeams || isPanels ? renderRentalsCard(forming, isBeams || isPanels ? "Form rental" : null) : ""}
     ${renderLaborCard(labor)}
     ${renderEquipmentCard(equip)}
     ${renderSectionRatesCard(rates)}
@@ -3282,6 +3394,14 @@ async function renderSectionDetail(root) {
         required: ["qty", "height_ft"],
         save: (rows) => Api.bulkSaveColumnTypes(section.id, rows),
         remove: (id) => Api.deleteColumnType(id),
+      });
+    } else if (isPanels) {
+      wireGrid(root, {
+        id: "panel-types",
+        columns: panelColumns(state.mixes),
+        required: ["qty", "length_ft", "thickness_in"],
+        save: (rows) => Api.bulkSavePanelTypes(section.id, rows),
+        remove: (id) => Api.deletePanelType(id),
       });
     } else if (isBeams) {
       wireGrid(root, {
@@ -3342,6 +3462,8 @@ async function renderSectionDetail(root) {
             ? "wall-runs"
             : isColumns
             ? "column-types"
+            : isPanels
+            ? "panel-types"
             : isDeck
             ? "deck-levels"
             : "paving-areas"
@@ -4233,6 +4355,11 @@ function renderFormingCard(forming) {
                    <strong>${num(d.form_sf, 0)} SF</strong> of form contact
                    <span title="The faces you actually build. A free-standing column is wrapped on all four; a pilaster has a wall on one or two of them, set per type in the schedule. A wall, by contrast, is formed on the face you can reach — which is why the $/SF rates here look small beside the wall sheet's $/FF.">(formed faces only)</span>
                    · chamfer <strong>${num(d.chamfer_lf, 0)} LF</strong>`
+                : PANEL_KINDS.has(d.kind)
+                ? `<strong>${num(d.panel_count, 0)} panels</strong> ·
+                   formed edge <strong>${num(d.perimeter_lf, 0)} LF</strong>
+                   <span title="The panel edges — 2L + 2H per panel — plus every opening's perimeter, which is what the 2x4, the 2x8, the stakes and the chamfer run off. The tab carries no opening lumber.">(+ openings ${num(d.opening_lf, 0)} LF)</span>
+                   · bottom <strong>${num(d.bottom_lf, 0)} LF</strong>`
                 : BEAM_KINDS.has(d.kind)
                 ? `<strong>${num(d.beam_lf, 0)} LF</strong> of beam ·
                    <strong>${num(d.face_ff, 0)} FF</strong>
@@ -4455,6 +4582,9 @@ function renderLaborCard(labor) {
   // hammer. The money does not move; which bucket it is in does, and the sub
   // has to be told what he is pricing.
   const isDck = DECK_KINDS.has(d.kind);
+  // Panels (sql/077): the tab marks every labor row as sub, so the switch
+  // the deck has shows here too.
+  const isPan = PANEL_KINDS.has(d.kind);
   const subbed = (labor.lines || []).some((ln) => ln.subcontracted);
   const superSfPerWeek =
     d.super_weeks && Number(d.super_weeks) > 0
@@ -4534,6 +4664,8 @@ function renderLaborCard(labor) {
                 ? "01-PIERS LABOR"
                 : isCol
                 ? "07-COLUMNS LABOR"
+                : isPan
+                ? "12-PANELS LABOR"
                 : isCont
                 ? "02-CONT FOOTINGS LABOR"
                 : isBeam
@@ -4560,6 +4692,8 @@ function renderLaborCard(labor) {
                 ? `<strong>${num(d.pier_count, 0)} piers</strong> · <strong>${num(d.total_lf, 0)} LF</strong>`
                 : isCol
                 ? `<strong>${num(d.column_count, 0)} columns</strong> · form <strong>${num(d.form_sf, 0)} SF</strong>`
+                : isPan
+                ? `<strong>${num(d.panel_count, 0)} panels</strong> · <strong>${num(d.total_sf, 0)} SF</strong> gross · bottom <strong>${num(d.bottom_lf, 0)} LF</strong>`
                 : isBeam
                 ? `<strong>${num(d.beam_lf, 0)} LF</strong> of beam · <strong>${num(d.face_ff, 0)} FF</strong> (one face)`
                 : isSpot
@@ -4584,7 +4718,7 @@ function renderLaborCard(labor) {
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
           ${
-            isDck
+            isDck || isPan
               ? `<label class="card stat" style="min-width:12rem;margin:0;cursor:pointer"
                     title="One switch for the section. Subbed labor costs the same — it moves which sheet the line goes on, and supervision is never subbed.">
                    <div class="label">Field labor</div>
@@ -4625,17 +4759,19 @@ function renderLaborCard(labor) {
       </div>
       ${groupTable(
         "labor",
-        isPie ? "Pier labor" : isCol ? "Column labor" : isCont ? "Footing labor" : isBeam ? "Beam labor" : isSpot ? "Footing labor" : isWal ? "Wall labor" : isPav ? "Paving labor" : isDck ? "Deck labor" : "Slab labor"
+        isPie ? "Pier labor" : isCol ? "Column labor" : isPan ? "Panel labor" : isCont ? "Footing labor" : isBeam ? "Beam labor" : isSpot ? "Footing labor" : isWal ? "Wall labor" : isPav ? "Paving labor" : isDck ? "Deck labor" : "Slab labor"
       )}
       ${groupTable("supervision", "Supervision")}
       <p style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0">
         Toggle <strong>On</strong> and edit <strong>rate</strong>, then <strong>Save</strong>.
-        ${isPie ? "Pier" : isCol ? "Column" : isCont ? "Footing" : isBeam ? "Beam" : isSpot ? "Footing" : isWal ? "Wall" : isPav ? "Paving" : "Slab"} labor
+        ${isPie ? "Pier" : isCol ? "Column" : isPan ? "Panel" : isCont ? "Footing" : isBeam ? "Beam" : isSpot ? "Footing" : isWal ? "Wall" : isPav ? "Paving" : "Slab"} labor
         <strong>qty is from ${
           isPie
             ? "the groups"
             : isCol
             ? "the schedule"
+            : isPan
+            ? "the panel types"
             : isBeam
             ? "the beam types"
             : isWal
@@ -4650,6 +4786,8 @@ function renderLaborCard(labor) {
             ? "piers / depth / rebar"
             : isCol
             ? "quantity / size / rebar"
+            : isPan
+            ? "quantity / size / openings / bars"
             : isBeam
             ? "length / size / bars"
             : isWal
@@ -4659,7 +4797,7 @@ function renderLaborCard(labor) {
             : "SF/drops/rebar"
         } change.
         ${
-          isPie || isWal || isBeam || isRb
+          isPie || isWal || isBeam || isRb || isPan
             ? "<strong>Supervision days are entered, not derived</strong> — there is no " +
               "area to divide. Change the superintendent days and the equipment ladder " +
               "moves with them."
@@ -4772,6 +4910,8 @@ function renderEquipmentCard(equip) {
                 ? "01-PIERS EQUIPMENT"
                 : COLUMN_KINDS.has(d.kind)
                 ? "07-COLUMNS EQUIPMENT"
+                : PANEL_KINDS.has(d.kind)
+                ? "12-PANELS EQUIPMENT"
                 : CONT_KINDS.has(d.kind)
                 ? "02-CONT FOOTINGS EQUIPMENT"
                 : BEAM_KINDS.has(d.kind)

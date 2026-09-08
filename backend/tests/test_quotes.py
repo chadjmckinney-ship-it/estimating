@@ -91,8 +91,11 @@ def test_each_assembly_offers_only_the_quotes_that_apply():
     # Columns joined the list on 2026-09-01 (sql/045) — 47,417 lb of cage on
     # LBJ alone. Until the assembly existed this asserted an empty list.
     assert set(qt.kinds_for("columns")) == {qt.REBAR}
+    # Panels joined the list on 2026-09-08 (sql/077) — 124,024 lb on LBJ.
+    # Until the assembly existed this asserted an empty list.
+    assert set(qt.kinds_for("panels")) == {qt.REBAR}
     # An assembly with no takeoff yet offers nothing rather than everything.
-    assert qt.kinds_for("panels") == []
+    assert qt.kinds_for("miscellaneous") == []
 
 
 def test_units_are_per_kind():

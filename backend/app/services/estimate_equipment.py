@@ -33,6 +33,7 @@ from app.models.estimate_section import (
     SIDEWALK_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
+    PANEL_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
     WALL_KINDS,
@@ -290,6 +291,33 @@ def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             "super_days": super_days,
             "equip_days": equip_days_from_super(super_days),
             "total_concrete_cy": _d(brow["cy"]),
+            "curb_lf": Decimal("0"),
+            "demo_lf": Decimal("0"),
+            "slip_form_sf": Decimal("0"),
+            "traffic_control_sf": Decimal("0"),
+            "construction_joint_lf": Decimal("0"),
+            "control_joint_lf": Decimal("0"),
+        }
+
+    if kind in PANEL_KINDS:
+        # Panel types (sql/077): gross SF, the CY that pumping rides, and a
+        # TYPED duration — the tab's D88 — that the whole ladder follows.
+        from app.services.panels import panel_drivers
+
+        p = panel_drivers(db, section_id)
+        sd = _super_days(db, section_id)
+        return {
+            "kind": kind,
+            "pour_count": p["row_count"],
+            "type_count": p["type_count"],
+            "panel_count": p["panel_count"],
+            "pier_count": 0,
+            "column_count": 0,
+            "total_sf": p["total_sf"],
+            "total_lf": Decimal("0"),
+            "super_days": sd,
+            "equip_days": equip_days_from_super(sd),
+            "total_concrete_cy": p["total_concrete_cy"],
             "curb_lf": Decimal("0"),
             "demo_lf": Decimal("0"),
             "slip_form_sf": Decimal("0"),
@@ -1033,6 +1061,97 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 code="misc_contract", label="MISCELLANEOUS",
                 rate=float(_rate_numeric(db, kind, "misc_contract_ls", Decimal("1000"))),
                 qty=0, unit="LS", formula="lump sum (manual)", order=160,
+            ),
+        ]
+        lines.append(mobilization)
+        return _totals(d, lines, use_tiers)
+
+    if kind in PANEL_KINDS:
+        # 12-PANELS rows 92-104 (sql/077). The ladder off TYPED superintendent
+        # days (D88 -> D90 -> the bands) with five machines on it — sky track,
+        # mini excavator, skid steer, compactor, miscellaneous — and the
+        # trencher parked (F94 types no days). The tab's sky track cell reads
+        # Pricing!D44, the BACK HOE row, at the same $425 the SkyTrack row
+        # carries; it resolves to the SkyTrack. The mini excavator and the
+        # compactor are typed on the tab (425 and 125) over the catalog's 475
+        # and 200 — the catalog prices them here and the fixture states the
+        # tab's. MISCELLANEOUS is the sixth tab to exempt that one line from
+        # fuel and tax; the app treats it as the rental it is.
+        sky = _find_equip(db, "SkyTrack") or _find_equip(db, "SKY")
+        mini = _find_equip(db, "MINI EXCAVATOR") or _find_equip(db, "MINI")
+        trench = _find_equip(db, "TRENCHER")
+        skid = _find_equip(db, "SKID STEER") or _find_equip(db, "SKID")
+        comp = _find_equip(db, "COMPACTOR")
+        types_n = float(d.get("type_count") or 0)
+
+        lines = [
+            day_line(
+                code="skytrack", label="SKY TRACK",
+                **_priced(db, kind, sky, "equip_skytrack_day_rate", 425),
+                equipment_id=sky["id"] if sky else None, order=10,
+                notes="The tab's F92 reads the BACK HOE row of the price list, at the same $425",
+            ),
+            day_line(
+                code="mini_excavator", label="MINI EXCAVATOR",
+                **_priced(db, kind, mini, "equip_mini_excavator_day_rate", 475),
+                equipment_id=mini["id"] if mini else None, order=20,
+                notes="The tab types $425 over the catalog's $475",
+            ),
+            day_line(
+                code="trencher", label="TRENCHER",
+                **_priced(db, kind, trench, "equip_trencher_day_rate", 325),
+                equipment_id=trench["id"] if trench else None, order=30,
+                enabled=False, default_days=0,
+                notes="The tab types no days — enable when used",
+            ),
+            day_line(
+                code="skid_steer", label="SKID STEER",
+                **_priced(db, kind, skid, "equip_skid_steer_day_rate", 325),
+                equipment_id=skid["id"] if skid else None, order=40,
+            ),
+            day_line(
+                code="compactor", label="COMPACTOR",
+                **_priced(db, kind, comp, "equip_compactor_day_rate", 125),
+                equipment_id=comp["id"] if comp else None, order=50,
+                notes="The tab types $125 over the catalog's $200",
+            ),
+            day_line(code="misc_equip", label="MISCELLANEOUS", rate=misc_rate,
+                     equipment_id=None, order=60,
+                     notes="The sheet bills this flat days × rate; the rental "
+                           "tier is applied here as it is everywhere else"),
+            qty_line(
+                code="concrete_pump", label="CONCRETE PUMPING",
+                rate=_rate_numeric(db, kind, "concrete_pump_cy", Decimal("20")),
+                qty=cy, unit="CY", formula="concrete CY × $/CY", order=120,
+                equipment_id=pump["id"] if pump else None,
+            ),
+            qty_line(
+                code="panel_engineering", label="PANEL ENGINEERING",
+                rate=_rate_numeric(db, kind, "panel_engineering_ea", Decimal("90")),
+                qty=types_n, unit="/EA", formula="panel types with a quantity × rate", order=125,
+                notes="One elevation drawing per type — the tab's AI column",
+            ),
+            qty_line(
+                code="waterproofing", label="WATERPROOFING",
+                rate=_rate_numeric(db, kind, "waterproofing_sf", Decimal("0")),
+                qty=0, unit="/SF", formula="SF waterproofed (manual)", order=130,
+                notes="The tab's D101 is blank",
+            ),
+            qty_line(
+                code="saw_cutting", label="SAW CUTTING",
+                rate=_rate_numeric(db, kind, "saw_cutting_lf", Decimal("0")),
+                qty=0, unit="/LF", formula="LF cut (manual)", order=135,
+                notes="The tab's D102 is blank",
+            ),
+            qty_line(
+                code="haul_off", label="HAUL OFF",
+                rate=_rate_numeric(db, kind, "haul_off_cy", Decimal("6")),
+                qty=0, unit="CY", formula="spoil CY (manual)", order=140,
+            ),
+            qty_line(
+                code="out_of_town", label="OUT OF TOWN EXPENSE",
+                rate=_rate_numeric(db, kind, "out_of_town_day_rate", Decimal("250")),
+                qty=0, unit="/DAY", formula="days away (manual)", order=150,
             ),
         ]
         lines.append(mobilization)

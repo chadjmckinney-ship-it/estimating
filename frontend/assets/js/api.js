@@ -262,6 +262,19 @@ export const Api = {
       body: { section_id: sectionId, rows, delete_missing: deleteMissing },
     }),
 
+  // Tilt-wall panels — the seventh takeoff shape: a panel TYPE and how many
+  // of it (sql/077), with four opening slots. Sold per SF, allocated by SF.
+  listPanelTypes: (sectionId) =>
+    api(`/panel-types?section_id=${encodeURIComponent(sectionId)}`),
+  panelTotals: (sectionId) =>
+    api(`/panel-types/totals?section_id=${encodeURIComponent(sectionId)}`),
+  deletePanelType: (id) => api(`/panel-types/${id}`, { method: "DELETE" }),
+  bulkSavePanelTypes: (sectionId, rows, deleteMissing = false) =>
+    api("/panel-types/bulk", {
+      method: "PUT",
+      body: { section_id: sectionId, rows, delete_missing: deleteMissing },
+    }),
+
   // The CIP elevated deck — the fifth takeoff shape: a LEVEL (sql/052). An
   // area, a thickness, two mats and the grade beams running through it. The
   // beams are a nested list on the row, so the grid sends them with it.

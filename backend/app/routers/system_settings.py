@@ -59,7 +59,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "joint_", "demo_lf", "stamping_sf", "slip_form_sf", "surveying_ea",
         "waterproofing_sf", "barricades_", "engineering_sf", "freight_load",
         "form_rental_", "shoring_rental_sf", "rock_cy", "misc_contract_ls",
-        "integral_color_cy", "acid_etch_sf",
+        "integral_color_cy", "acid_etch_sf", "panel_engineering_ea",
     )),
     ("Beam materials", ("carton_forms_lf", "durrock_retainer_lf")),
     ("Forming quantities", (
@@ -67,6 +67,8 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "chamfer_", "chairs_", "patch_", "camlocks_", "wall_ties_",
         "pipe_brace_", "horiz_lap_", "sand_in_under_form", "cure_sf_per_gal",
         "thick_edge_", "dowel_",
+        "lift_inserts_", "brace_inserts_", "bond_breaker_", "panel_", "corner_bar_",
+        "backfill_width_ft", "backfill_depth_ft",
         "pavecrete_", "accessories_", "reshoring_multiplier", "forms_multiplier", "shoring_multiplier",
     )),
     ("Vapor barrier", ("default_vapor_", "vapor_")),

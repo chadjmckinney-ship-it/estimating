@@ -31,6 +31,7 @@ from tests import grade_beams_fixture as gbf
 from tests import slabs_fixture as rsf
 from tests import slab_on_deck_fixture as sodf
 from tests import sidewalks_fixture as swf
+from tests import panels_fixture as pnf
 
 # What every mono-slab or paving page reads off /api/mono-slabs/totals.
 SLAB_TOTALS = {
@@ -138,6 +139,31 @@ PAGES = {
         forming={"kind", "total_sf", "construction_joint_lf", "control_joint_lf"},
         labor={"total_sf", "thick_edge_lf", "stair_tread_lf", "total_rebar_tons", "super_days"},
         money={"concrete", "rebar", "sand"},
+    ),
+    # Tilt-wall panels (sql/077): a panel type and its count, four openings.
+    "panels": dict(
+        build=pnf.build,
+        rows="/api/panel-types", totals="/api/panel-types/totals",
+        totals_keys={
+            "type_count", "panel_count", "total_sf", "total_opening_sf", "total_opening_lf",
+            "total_perimeter_lf", "total_bottom_lf", "total_concrete_cy", "total_rebar_lb",
+            "total_cost", "total_sale", "total_cost_per_unit", "total_sale_per_unit",
+            "cost_per_panel", "sale_per_panel",
+        },
+        row_keys={
+            "id", "label", "qty", "mix_design_id", "length_ft", "thickness_in", "top_el_ft", "bot_el_ft",
+            "open1_len_ft", "open1_wide_ft", "open2_len_ft", "open2_wide_ft",
+            "open3_len_ft", "open3_wide_ft", "open4_len_ft", "open4_wide_ft",
+            "horiz_spacing_in", "horiz_size", "horiz_mats", "vert_spacing_in", "vert_size", "vert_mats",
+            "edge_bar_count", "edge_bar_size", "corner_bar_count", "corner_bar_size",
+            "calc_height_ft", "calc_sf_each", "calc_sf", "calc_opening_sf", "calc_concrete_cy",
+            "calc_steel_each_lb", "calc_total_rebar_lb", "calc_cost", "calc_cost_per_panel",
+            "calc_sale_per_panel",
+        },
+        nonnull={"calc_sf", "calc_concrete_cy", "calc_total_rebar_lb", "calc_cost"},
+        forming={"kind", "panel_count", "perimeter_lf", "opening_lf", "bottom_lf", "form_percent"},
+        labor={"panel_count", "total_sf", "bottom_lf", "total_rebar_tons", "super_days"},
+        money={"concrete", "rebar"},
     ),
     "piers": dict(
         build=pif.build,

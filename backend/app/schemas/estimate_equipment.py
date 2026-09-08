@@ -25,6 +25,9 @@ class EquipmentDrivers(BaseModel):
     pier_count: int = 0
     column_count: int = 0
     total_lf: Decimal = Decimal("0")
+    # Panels (sql/077): the count and the types the engineering line counts.
+    panel_count: int = 0
+    type_count: int = 0
 
 
 class EstimateEquipmentLineRead(BaseModel):

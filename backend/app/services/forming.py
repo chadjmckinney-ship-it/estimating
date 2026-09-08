@@ -65,6 +65,7 @@ from app.models.estimate_section import (
     SIDEWALK_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
+    PANEL_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
     WALL_KINDS,
@@ -357,6 +358,62 @@ def _deck_forming_drivers(
     }
 
 
+def _panel_forming_drivers(
+    db: Session, section_id: UUID, kind: str | None
+) -> dict[str, Any]:
+    """
+    Panels (sql/077) run off the FORMED PERIMETER — the panel edges plus
+    every opening's perimeter, split by thickness for the 2x6 / 2x8 — the
+    BOTTOM LF the carton forms and the retainer follow, the panel COUNT the
+    inserts follow, and gross SF for the patch, the chairs, the cure and the
+    bond breaker. Nothing runs off a pour.
+    """
+    from app.services.panels import panel_drivers
+
+    thick_from = _rate_numeric(db, kind, "panel_2x8_thick_in", Decimal("6"))
+    p = panel_drivers(db, section_id, thick_from_in=thick_from)
+    form_pct = _rate_numeric(db, kind, "form_percent", Decimal("0.40"))
+    return {
+        "section_id": section_id,
+        "kind": kind,
+        "pour_count": p["row_count"],
+        "type_count": p["type_count"],
+        "panel_count": p["panel_count"],
+        "total_sf": p["total_sf"],
+        "opening_sf": p["opening_sf"],
+        "opening_lf": p["opening_lf"],
+        "perimeter_lf": p["perimeter_lf"],
+        "bottom_lf": p["bottom_lf"],
+        "thin_lf": p["thin_lf"],
+        "thick_lf": p["thick_lf"],
+        "total_concrete_cy": p["total_concrete_cy"],
+        "total_rebar_lb": p["total_rebar_lb"],
+        "pier_count": 0,
+        "column_count": 0,
+        "form_sf": Decimal("0"),
+        "chamfer_lf": Decimal("0"),
+        "wall_lf": Decimal("0"),
+        "form_ff": Decimal("0"),
+        "footing_sf": Decimal("0"),
+        "drain_lf": Decimal("0"),
+        "total_lf": Decimal("0"),
+        "curb_lf": Decimal("0"),
+        "thin_sf": Decimal("0"),
+        "thick_sf": Decimal("0"),
+        "drops_ff": Decimal("0"),
+        "support_rebar_lb": Decimal("0"),
+        "mesh_sf": Decimal("0"),
+        "ledge_lf": Decimal("0"),
+        "ledge_face_sf": Decimal("0"),
+        "construction_joint_lf": Decimal("0"),
+        "control_joint_lf": Decimal("0"),
+        "form_percent": form_pct,
+        "form_percent_is_override": False,
+        "form_percent_system_default": form_pct,
+        "form_waste": _rate_numeric(db, kind, "form_waste", Decimal("0")),
+    }
+
+
 def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
     """Roll up pour-level drivers used by forming formulas."""
     kind_now = section_kind(db, section_id)
@@ -370,6 +427,8 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _column_forming_drivers(db, section_id, kind_now)
     if kind_now in DECK_KINDS:
         return _deck_forming_drivers(db, section_id, kind_now)
+    if kind_now in PANEL_KINDS:
+        return _panel_forming_drivers(db, section_id, kind_now)
 
     row = db.execute(
         text(
@@ -1722,6 +1781,185 @@ def _beam_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _panel_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    12-PANELS' lumber and accessory block (sql/077), the tab's rows 66-104.
+
+    The perimeter lumber runs off the FORMED PERIMETER x the tab's "% OF
+    FORMING" (S66, 40%): 2x4 on all of it, 2x6 on the panels under 6" plus a
+    2x6 along the bottom of every panel both sides (S68), 2x8 on the panels
+    from 6" (S69). The formed perimeter is the panel edges AND every
+    opening's perimeter — a blockout is formed like an edge, and the tab
+    carries no opening lumber at all (Chad, 2026-09-08). Stakes off the 2x8,
+    nails off the 2x6 and 2x8 with the form% taken back out, chamfer on both
+    edges of it all.
+
+    The 2x10 (S70) is the tab's D52 — the sum of the type LENGTHS, never
+    multiplied by the count: 347 LF on a 36-panel job. Counted here, per
+    bottom LF, the way the columns chamfer was.
+
+    Off the panel COUNT: eight lifting inserts and three bracing inserts
+    apiece (S95, S96). Off gross SF: Pave Crete at SF / 250 (S89), panel
+    chairs at ROUNDUP(SF / 6,000) (S92), cure at ROUNDUP(SF / 300 / 55)
+    (S100), bond breaker at SF / 200 / 55 unrounded (S101). Accessories per
+    pound of steel at the catalog's $0.04 — the one tab that types the
+    catalog's number.
+
+    Along the bottom of every panel, priced by rate: carton forms at bottom
+    LF x 1.10 (F75) and the durrock retainer both sides (F76). Form rental
+    (F77) is off until a share is named, as on beams.
+
+    On the tab and typed at zero, kept as manual lines: ply, anchor bolts,
+    keyway, wall ties, the reveal (no catalog item — the tab's $2.50/LF),
+    bracing (the tab types $25 each; PIPE BRACING is the catalog item),
+    turnbuckles, bolsters and the smooth dowels that follow a keyway.
+    """
+    kind = d["kind"]
+    edges = float(d["perimeter_lf"])
+    open_lf = float(d["opening_lf"])
+    formed = edges + open_lf
+    thin = float(d["thin_lf"])
+    thick = float(d["thick_lf"])
+    bottom = float(d["bottom_lf"])
+    sf = float(d["total_sf"])
+    n = float(d["panel_count"])
+    steel = float(d["total_rebar_lb"])
+    pct = float(d["form_percent"])
+    waste = d["form_waste"]
+
+    x10_rate = float(_rate_numeric(db, kind, "lumber_2x10_per_lf", Decimal("1")))
+    stake_lf = float(_rate_numeric(db, kind, "stakes_lf_per_bundle", Decimal("100")))
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("1800")))
+    n8_f = float(_rate_numeric(db, kind, "nails_8p_factor", Decimal("0.6")))
+    patch_sf = float(_rate_numeric(db, kind, "patch_sf_per_bag", Decimal("250")))
+    chair_sf = float(_rate_numeric(db, kind, "chairs_sf_per_bag", Decimal("6000")))
+    lift_n = float(_rate_numeric(db, kind, "lift_inserts_per_panel", Decimal("8")))
+    brace_n = float(_rate_numeric(db, kind, "brace_inserts_per_panel", Decimal("3")))
+    cure_sf = float(_rate_numeric(db, kind, "cure_sf_per_gal", Decimal("300")))
+    bond_sf = float(_rate_numeric(db, kind, "bond_breaker_sf_per_gal", Decimal("200")))
+    carton_waste = _rate_numeric(db, kind, "carton_forms_waste", Decimal("0.10"))
+    rental_pct = _rate_numeric(db, kind, "form_rental_percent", Decimal("0"))
+
+    qty_2x4 = formed * pct
+    qty_2x6 = thin * pct + bottom * 2.0
+    qty_2x8 = thick * pct
+    qty_2x10 = bottom * x10_rate
+    qty_stakes = qty_2x8 / stake_lf * pct if stake_lf else 0.0
+    qty_16p = _ceil((qty_2x6 + qty_2x8) / pct / n16) if pct > 0 and n16 else 0
+    qty_8p = qty_16p * n8_f
+
+    m_2x4 = _find_material(db, "2 X 4")
+    m_2x6 = _find_material(db, "2 X 6")
+    m_2x8 = _find_material(db, "2 X 8")
+    m_2x10 = _find_material(db, "2 X 10")
+    m_ply = _find_material(db, "FORMING PLY") or _find_material(db, "PLY")
+    m_stakes = _find_material(db, "2 x 2", "Stake") or _find_material(db, "2 x 2")
+    m_16p = _find_material(db, "16p")
+    m_8p = _find_material(db, "8p")
+    m_6p = _find_material(db, "6p")
+    m_anchor = _find_material(db, "ANCHOR BOLTS 1/2") or _find_material(db, "ANCHOR BOLTS")
+    m_keyway = _find_material(db, "KEYWAY")
+    m_chamfer = _find_material(db, "CHAMFER")
+    m_ties = _find_material(db, "WALL TIE")
+    m_brace = _find_material(db, "PIPE BRACING")
+    m_turn = _find_material(db, "TURNBUCKLE")
+    m_patch = _find_material(db, "Patch Material") or _find_material(db, "PATCH")
+    m_chairs = _find_material(db, "METAL CHAIRS") or _find_material(db, "CHAIRS")
+    m_bolster = _find_material(db, "POLSTER") or _find_material(db, "BOLSTER")
+    m_acc = _find_material(db, "ACCESSORIES")
+    m_lift = _find_material(db, "LIFT INSERT")
+    m_brace_ins = _find_material(db, "BRACE INSERT")
+    m_cure = _find_material(db, "SLAB CURE")
+    m_bond = _find_material(db, "BOND BREAKER")
+    m_dowel = _find_material(db, "1/2", "SMOOTH DOWELS")
+
+    def L(**kw: Any) -> dict[str, Any]:
+        return _line(db=db, kind=kind, form_waste=waste, **kw)
+
+    def off(ln: dict[str, Any]) -> dict[str, Any]:
+        ln["enabled"] = False
+        return ln
+
+    return [
+        L(code="2x4", label="2 X 4 X 16'", qty=qty_2x4, unit="LF",
+          formula="(edges + openings) LF × form%", material=m_2x4, sheet_unit_cost="0.859375",
+          notes="The formed perimeter is the panel edges and every opening's perimeter"),
+        L(code="2x6", label="2 X 6 X 16'", qty=qty_2x6, unit="LF",
+          formula='panels under 6": (edges + openings) LF × form% + bottom LF × 2',
+          material=m_2x6, sheet_unit_cost="1.4453125",
+          notes="A 2x6 along the bottom of every panel, both sides (S68)"),
+        L(code="2x8", label="2 X 8 X 16'", qty=qty_2x8, unit="LF",
+          formula='panels 6" and over: (edges + openings) LF × form%',
+          material=m_2x8, sheet_unit_cost="1.171875"),
+        L(code="2x10", label="2 X 10 X 16'", qty=qty_2x10, unit="LF",
+          formula=f"bottom LF × {x10_rate:g}", material=m_2x10, sheet_unit_cost="1.09375",
+          notes="The tab sums the type lengths and forgets the count — 347 LF on a 36-panel job"),
+        L(code="ply", label='3/4 " FORMING PLY', qty=0, unit="SHEET", formula="manual",
+          material=m_ply, sheet_unit_cost="74.75"),
+        L(code="stakes", label="2 x 2 x 30 STAKES", qty=qty_stakes, unit="BUNDLE",
+          formula=f"2x8 LF / {stake_lf:g} × form%", material=m_stakes, sheet_unit_cost="24",
+          notes="Not rounded — the tab's S72"),
+        L(code="16p", label="16p NAILS DUPLEX", qty=qty_16p, unit="BOX",
+          formula=f"ceil((2x6 + 2x8 LF) / form% / {n16:g})", material=m_16p, sheet_unit_cost="68.2"),
+        L(code="8p", label="8p DUPLEX", qty=qty_8p, unit="BOX",
+          formula=f"16p boxes × {n8_f:g}", material=m_8p, sheet_unit_cost="68.2",
+          notes="Not rounded — the tab's S74"),
+        L(code="6p", label="6p NAILS", qty=qty_8p, unit="BOX", formula="= 8p boxes",
+          material=m_6p, sheet_unit_cost="68.2"),
+        L(code="anchors", label="ANCHOR BOLTS", qty=0, unit="BOX", formula="manual",
+          material=m_anchor, sheet_unit_cost="45.24"),
+        L(code="keyway", label="KEYWAY", qty=0, unit="LF", formula="manual",
+          material=m_keyway, sheet_unit_cost="0.95"),
+        L(code="chamfer", label="CHAMFER", qty=formed * 2.0, unit="LF",
+          formula="(edges + openings) LF × 2", material=m_chamfer, sheet_unit_cost="0.25",
+          notes="Both edges of every formed foot — the openings included"),
+        L(code="wall_ties", label="WALL TIES", qty=0, unit="BOX", formula="manual",
+          material=m_ties, sheet_unit_cost="45"),
+        L(code="reveal", label="REVEAL", qty=0, unit="LF", formula="manual",
+          material=None, sheet_unit_cost="2.5",
+          notes="No catalog item — priced as the tab types it until one exists"),
+        L(code="bracing", label="BRACING", qty=0, unit="EA", formula="braces (manual)",
+          material=m_brace, sheet_unit_cost="25",
+          notes="The tab types $25 each; PIPE BRACING is the catalog item"),
+        L(code="turnbuckles", label="TURNBUCKLES", qty=0, unit="EA", formula="manual",
+          material=m_turn, sheet_unit_cost="0.75"),
+        L(code="patch", label="PAVE CRETE", qty=sf / patch_sf if sf > 0 and patch_sf else 0,
+          unit="BAG", formula=f"SF / {patch_sf:g}", material=m_patch, sheet_unit_cost="45",
+          notes="The tab's row 89 — PATCH MATERIAL in the catalog"),
+        L(code="chairs", label="PANEL CHAIRS", qty=_ceil(sf / chair_sf) if sf > 0 and chair_sf else 0,
+          unit="BAG", formula=f"ceil(SF / {chair_sf:g})", material=m_chairs, sheet_unit_cost="45"),
+        L(code="bolsters", label="BOLSTERS", qty=0, unit="LF", formula="manual",
+          material=m_bolster, sheet_unit_cost="1.25"),
+        L(code="accessories", label="ACCESSORIES", qty=steel, unit="LB",
+          formula="total steel lb", material=m_acc, sheet_unit_cost="0.04"),
+        L(code="lift_inserts", label="LIFTING INSERTS", qty=n * lift_n, unit="PCS",
+          formula=f"panels × {lift_n:g}", material=m_lift, sheet_unit_cost="12"),
+        L(code="brace_inserts", label="BRACING INSERTS", qty=n * brace_n, unit="PCS",
+          formula=f"panels × {brace_n:g}", material=m_brace_ins, sheet_unit_cost="8"),
+        L(code="cure", label="SLAB CURE", qty=_ceil(sf / cure_sf / 55.0) if sf > 0 and cure_sf else 0,
+          unit="DRUM", formula=f"ceil(SF / {cure_sf:g} / 55)", material=m_cure, sheet_unit_cost="567.5"),
+        L(code="bond_breaker", label="BOND BREAKER", qty=sf / bond_sf / 55.0 if sf > 0 and bond_sf else 0,
+          unit="DRUM", formula=f"SF / {bond_sf:g} / 55", material=m_bond, sheet_unit_cost="635",
+          notes="Not rounded — the tab's S101"),
+        L(code="smooth_dowels", label='1/2" SMOOTH DOWELS', qty=0, unit="PCS",
+          formula='keyway LF × 12 / 18" (manual)', material=m_dowel,
+          notes="Follows a keyway (S104) — enter the count when the job has one"),
+        _rate_line(db, kind=kind, code="carton_forms", label="CARTON FORMS",
+                   qty=Decimal(str(bottom)) * (Decimal("1") + carton_waste), unit="LF",
+                   formula="bottom LF × (1 + waste) × $/LF", rate_key="carton_forms_lf",
+                   notes="Along the bottom of every panel (F75), with the tab's 10%"),
+        _rate_line(db, kind=kind, code="durrock_retainer", label="DURROCK RETAINER",
+                   qty=Decimal(str(bottom)) * Decimal("2") * (Decimal("1") + carton_waste), unit="LF",
+                   formula="bottom LF × 2 × (1 + waste) × $/LF", rate_key="durrock_retainer_lf",
+                   notes="Both sides (F76)"),
+        off(_rate_line(db, kind=kind, code="form_rental", label="FORM RENTAL",
+                       qty=Decimal(str(formed)) * rental_pct, unit="CONTACT FT",
+                       formula="(edges + openings) LF × form rental % × $/contact ft",
+                       rate_key="form_rental_contact_ft", group="rentals",
+                       notes="The tab's F77 with no share (J77) — off until a share is named")),
+    ]
+
+
 def calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     """One of the four price gates (sql/048): the whole takeoff prices from the
     estimate's sheet. See services/price_book.py."""
@@ -1746,6 +1984,8 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _beam_lines(db, d)
     elif d["kind"] in COLUMN_KINDS:
         lines = _column_lines(db, d)
+    elif d["kind"] in PANEL_KINDS:
+        lines = _panel_lines(db, d)
     elif d["kind"] in DECK_KINDS:
         lines = _deck_lines(db, d, section_id)
     elif d["kind"] in SIDEWALK_KINDS:
@@ -2067,6 +2307,19 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
         # levels, deck area and the lumber figure. Serve the live geometry
         # (audit #9) rather than back-filling six summary columns.
         d = _deck_forming_drivers(db, section_id, kind)
+        d["pour_count"] = summary.pour_count
+        return {
+            "drivers": d,
+            "lines": lines,
+            "total_ext_cost": summary.total_ext_cost,
+            **_group_totals(lines),
+            "missing_prices": [ln["code"] for ln in lines if ln.get("missing_price")],
+            "stored": True,
+            "refreshed_at": summary.refreshed_at.isoformat() if summary.refreshed_at else None,
+        }
+    if kind in PANEL_KINDS:
+        # Panel types, not pours (sql/077); the rentals group gets its own total.
+        d = _panel_forming_drivers(db, section_id, kind)
         d["pour_count"] = summary.pour_count
         return {
             "drivers": d,

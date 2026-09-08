@@ -39,6 +39,7 @@ from app.models.estimate_section import (
     PIER_KINDS,
     WALL_KINDS,
     BEAM_KINDS,
+    PANEL_KINDS,
     EstimateSection,
 )
 from app.models.mix_design import MixDesign
@@ -641,6 +642,61 @@ def _deck_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
     return lines
 
 
+# ----------------------------------------------------------------- panels ---
+
+
+def _panel_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
+    """Panel concrete by mix and the steel, the way the section was costed (sql/077)."""
+    from app.models.panel_type import PanelType
+
+    rows = list(
+        db.scalars(
+            select(PanelType)
+            .where(PanelType.section_id == section.id)
+            .order_by(PanelType.sort_order, PanelType.created_at)
+        ).all()
+    )
+    quotes = qt.load_quotes(db, section.id)
+    rebar_q = quotes.get(qt.REBAR)
+    quoted_lb = rebar_q.per_lb() if rebar_q else None
+
+    concrete = _Acc()
+    rebar = _Acc()
+    for r in rows:
+        cy = _d(r.calc_concrete_cy)
+        if cy > 0:
+            mix = db.get(MixDesign, r.mix_design_id) if r.mix_design_id else None
+            concrete.add_priced(
+                cy,
+                _mix_unit_cost(db, r.mix_design_id),
+                getattr(mix, "name", None) or getattr(mix, "code", None) or "mix (none chosen)",
+            )
+        lb = _d(r.calc_total_rebar_lb)
+        if lb > 0 and not (rebar_q and rebar_q.is_lump):
+            if quoted_lb is not None:
+                rebar.add(lb, lb * quoted_lb)
+            else:
+                mat = resolve_rebar(db, False, section.kind) or {}
+                rebar.add_priced(
+                    lb, _rebar_unit_cost(db, False, section.kind), mat.get("name") or "rebar"
+                )
+        elif lb > 0:
+            rebar.add(lb, _ZERO)
+
+    lines: list[MaterialLine] = []
+    if concrete.live:
+        lines.append(_from(concrete, "concrete", "Concrete", "CY", detail=_blend_note(concrete)))
+    if rebar.live:
+        if rebar_q and rebar_q.is_lump:
+            lines.append(_quote_line("rebar", "Rebar", rebar_q, rebar.qty, "LB"))
+        else:
+            lines.append(_from(rebar, "rebar", "Rebar", "LB",
+                source="quote" if quoted_lb is not None else "catalog",
+                detail=_blend_note(rebar, "quoted $/lb"),
+            ))
+    return lines
+
+
 # ----------------------------------------------------------------- public ----
 
 
@@ -676,6 +732,8 @@ def _section_material_costs(db: Session, section: EstimateSection) -> dict[str, 
         lines = _column_lines(db, section)
     elif section.kind in DECK_KINDS:
         lines = _deck_lines(db, section)
+    elif section.kind in PANEL_KINDS:
+        lines = _panel_lines(db, section)
     else:
         lines = _slab_lines(db, section)
 

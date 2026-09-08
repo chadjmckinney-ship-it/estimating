@@ -9,6 +9,7 @@ from app.models.estimate_price import EstimatePrice
 from app.models.mix_design import ConcreteSupplier, MixDesign
 from app.models.beam_type import EstimateBeamType
 from app.models.column_type import ColumnType
+from app.models.panel_type import PanelType
 from app.models.estimate_section import EstimateSection
 from app.models.session import LoginSession
 from app.models.audit_log import AuditLog
@@ -27,6 +28,7 @@ __all__ = [
     "LoginSession",
     "AuditLog",
     "ColumnType",
+    "PanelType",
     "Project",
     "ProjectEstimator",
     "Estimate",

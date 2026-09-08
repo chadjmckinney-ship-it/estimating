@@ -80,6 +80,14 @@ COLUMN_KINDS = frozenset({"columns"})
 # first assembly that hangs in the air: shoring, reshoring, a crane and
 # post-tension all exist here because there is nothing underneath.
 DECK_KINDS = frozenset({"cip_deck"})
+# Tilt-wall panels take off as a panel TYPE and a count — the seventh shape
+# (sql/077), the 12-PANELS tab. Measured and sold in SF, GROSS of openings
+# (the tab's W column), and allocated by it. Chad seeded the tab on
+# 2026-09-08 ("lets do panels, I can seed a couple of panels real quick")
+# and asked for four opening slots per type where the tab has one: each
+# opening comes off the concrete, adds a set of the edge bars and puts its
+# perimeter on the lumber and the chamfer.
+PANEL_KINDS = frozenset({"panels"})
 
 # What each assembly is measured in — a property of the assembly, not the job.
 DEFAULT_UNIT_BY_KIND = {

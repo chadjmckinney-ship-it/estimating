@@ -30,6 +30,13 @@ class LaborDrivers(BaseModel):
     # Sidewalks (sql/076): the edge and the treads carry labor per LF.
     thick_edge_lf: Decimal = Decimal("0")
     stair_tread_lf: Decimal = Decimal("0")
+    # Panels (sql/077): the count, the types, the bottom LF the backfill runs on.
+    panel_count: int = 0
+    type_count: int = 0
+    bottom_lf: Decimal = Decimal("0")
+    opening_lf: Decimal = Decimal("0")
+    opening_sf: Decimal = Decimal("0")
+    perimeter_lf: Decimal = Decimal("0")
     # Columns: the only assembly whose duration comes from a COUNT rather than
     # an area or a typed number of days — 20 a week on a five-day week. The
     # screen spells the derivation out, so it needs the two divisors and not

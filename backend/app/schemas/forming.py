@@ -39,6 +39,16 @@ class FormingDrivers(BaseModel):
     column_count: int = 0
     form_sf: Decimal = Decimal("0")
     chamfer_lf: Decimal = Decimal("0")
+    # Panels (sql/077): the formed perimeter is the edges plus every opening,
+    # split by thickness; the inserts count the panels; the carton forms and
+    # the retainer run along the bottom.
+    panel_count: int = 0
+    type_count: int = 0
+    opening_sf: Decimal = Decimal("0")
+    opening_lf: Decimal = Decimal("0")
+    bottom_lf: Decimal = Decimal("0")
+    thin_lf: Decimal = Decimal("0")
+    thick_lf: Decimal = Decimal("0")
     drops_ff: Decimal
     mesh_sf: Decimal
     total_rebar_lb: Decimal

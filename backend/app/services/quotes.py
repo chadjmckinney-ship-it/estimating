@@ -44,6 +44,7 @@ from app.models.estimate_section import (
     PIER_KINDS,
     WALL_KINDS,
     BEAM_KINDS,
+    PANEL_KINDS,
     EstimateSection,
 )
 from app.models.section_quote import SectionQuote
@@ -63,7 +64,7 @@ SHORING = "shoring"
 
 STEEL_KINDS = (
     frozenset({"mono_slab", "piers"})
-    | PAVING_KINDS | WALL_KINDS | COLUMN_KINDS | DECK_KINDS | BEAM_KINDS
+    | PAVING_KINDS | WALL_KINDS | COLUMN_KINDS | DECK_KINDS | BEAM_KINDS | PANEL_KINDS
 )
 
 QUOTE_KINDS: dict[str, dict[str, Any]] = {

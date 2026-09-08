@@ -55,6 +55,8 @@ INSERT INTO monetary_keys (key, label, unit) VALUES
     ('integral_color_cy', 'Integral color', 'CY'),
     ('acid_etch_sf', 'Acid etch / sandblast', 'SF'),
     ('equip_backhoe_day_rate', 'Backhoe', 'DAY'),
+    ('panel_engineering_ea', 'Panel engineering', 'EA'),
+    ('equip_compactor_day_rate', 'Compactor', 'DAY'),
     ('labor_pilasters_ff', 'Pilaster labor', 'FF'),
     ('carton_forms_lf', 'Carton forms (beams)', 'LF'),
     ('durrock_retainer_lf', 'Durrock retainer', 'LF'),
