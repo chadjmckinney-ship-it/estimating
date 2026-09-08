@@ -44,6 +44,7 @@ from app.models.estimate_section import (
     COLUMN_KINDS,
     DECK_KINDS,
     PIER_KINDS,
+    SPOT_KINDS,
     WALL_KINDS,
     EstimateSection,
 )
@@ -326,6 +327,11 @@ def _pt_sf_unit_cost(db: Session) -> Decimal | None:
 
 def _sand_unit_cost(db: Session) -> Decimal | None:
     return _priced(_find_material(db, "SAND"))
+
+
+def _weld_plate_unit_cost(db: Session) -> Decimal | None:
+    """The embedded plate on a spot footing (sql/072): a catalog item, unpriced until Chad names it."""
+    return _priced(_find_material(db, "WELD PLATE"))
 
 
 def _mesh_unit_cost(db: Session) -> Decimal | None:
@@ -978,6 +984,13 @@ def _wall_units(db: Session, section: EstimateSection) -> list[_Unit]:
         if sand > 0:
             materials += sand * sand_rate
 
+        # Weld plates (sql/072): one per spot footing that carries one. No
+        # catalog price yet costs nothing here and is reported as unpriced.
+        if r.weld_plate and _d(r.footing_count) > 0:
+            plate = _weld_plate_unit_cost(db)
+            if plate is not None:
+                materials += _d(r.footing_count) * plate
+
         # Allocate on FORM FEET + FOOTING SF, the sheet's own basis (BF36 +
         # BG36), but keep FORM FEET as the unit the section is measured in.
         #
@@ -992,7 +1005,8 @@ def _wall_units(db: Session, section: EstimateSection) -> list[_Unit]:
                 row=r,
                 weight=ff + _d(r.calc_footing_sf),
                 cy=_d(r.calc_concrete_cy),
-                quantity=ff,
+                # A spot footings section is sold per footing (sql/072).
+                quantity=_d(r.footing_count) if section.kind in SPOT_KINDS else ff,
                 direct_taxable=materials.quantize(_Q2),
                 direct_untaxed=Decimal("0"),
                 per_unit_fields=("calc_cost_per_unit", "calc_sale_per_unit"),
@@ -1223,6 +1237,8 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
             if not rebar_quoted:
                 need(rebar_label(False), _rebar_unit_cost(db, False, kind), r.calc_total_rebar_lb)
             need("SAND", _sand_unit_cost(db), getattr(r, "calc_sand_cy", 0))
+            if getattr(r, "weld_plate", False):
+                need("WELD PLATE — material", _weld_plate_unit_cost(db), getattr(r, "footing_count", 0))
 
     elif kind in DECK_KINDS:
         from app.models.deck_level import DeckLevel

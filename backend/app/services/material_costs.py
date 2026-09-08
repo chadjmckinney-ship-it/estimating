@@ -47,6 +47,7 @@ from app.services.costing import (
     _d,
     _find_material,
     _mesh_unit_cost,
+    _weld_plate_unit_cost,
     _mix_unit_cost,
     _z,
     _poly_cost,
@@ -430,6 +431,12 @@ def _wall_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
     if sand.live:
         lines.append(_from(sand, "sand", "Sand", "CY",
                                   detail=_blend_note(sand)))
+    # Weld plates (sql/072): one per spot footing that carries one.
+    plates = Decimal(sum(int(r.footing_count or 0) for r in rows if r.weld_plate))
+    if plates > 0:
+        acc = _Acc()
+        acc.add_priced(plates, _weld_plate_unit_cost(db), "WELD PLATE")
+        lines.append(_from(acc, "weld_plates", "Weld plates", "EA"))
     return lines
 
 

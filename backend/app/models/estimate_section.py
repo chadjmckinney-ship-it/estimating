@@ -18,6 +18,7 @@ SECTION_KINDS = (
     "piers",
     "grade_beams",
     "walls_footings",
+    "spot_footings",
     "columns",
     "slabs",
     "cip_deck",
@@ -34,7 +35,11 @@ PAVING_KINDS = frozenset({"paving", "sidewalk"})
 PIER_KINDS = frozenset({"piers"})
 # Walls take off as a wall-plus-footing run and are measured in FORM FEET —
 # the third takeoff shape, after the pour and the group (sql/040).
-WALL_KINDS = frozenset({"walls_footings"})
+# Spot footings (sql/072) ride the walls engine with the wall left blank —
+# the workbook's 06-Footings IS the walls tab. Chad, 2026-09-07: "for spot
+# footings, the wall calc works if we do l w and h with a count.. t&b mats".
+WALL_KINDS = frozenset({"walls_footings", "spot_footings"})
+SPOT_KINDS = frozenset({"spot_footings"})
 # Columns take off as a TYPE and a count — the fourth shape (sql/045). Measured
 # in EA like piers, but shared cost allocates by form contact area, because
 # forming is what a column job spends its money on.

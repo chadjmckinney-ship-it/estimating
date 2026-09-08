@@ -966,6 +966,7 @@ const SECTION_LABELS = {
   piers: "Piers",
   grade_beams: "Grade beams",
   walls_footings: "Walls & footings",
+  spot_footings: "Spot footings",
   columns: "Columns",
   slabs: "Slabs",
   cip_deck: "CIP elevated deck",
@@ -990,6 +991,8 @@ const PIER_KINDS = new Set(["piers"]);
 // Walls take off as a wall-plus-footing run, measured in FORM FEET — the third
 // takeoff shape, after the pour and the pier group (sql/040).
 const WALL_KINDS = new Set(["walls_footings"]);
+// Spot footings (sql/072) ride the walls engine with the wall left blank.
+const SPOT_KINDS = new Set(["spot_footings"]);
 // Columns are the fourth takeoff shape, and the only one with no geometry to
 // measure across: a pour has SF, a pier group has LF, a wall run has form feet,
 // and a column type has a SCHEDULE and a COUNT. Everything shared on the
@@ -1874,6 +1877,39 @@ function columnColumns(mixes) {
  * wall line is horizontal + vertical + laps, the footing line its own bars —
  * the same split services/walls.py costs them on; the two sum to the type.
  */
+/**
+ * Spot footings (sql/072): one line per footing type, on the walls engine
+ * with the wall left blank. Count x length of each is the run's length, the
+ * way the workbook's 06-Footings tab types E = B x size.
+ */
+function spotFootingColumns(mixes) {
+  return [
+    { f: "label", label: "Type", placeholder: "F1" },
+    { f: "footing_count", label: "Qty", type: "number", step: "1" },
+    { f: "footing_each_ft", label: "L ft", type: "number" },
+    { f: "ftg_width_in", label: 'W"', type: "number" },
+    { f: "ftg_thick_in", label: 'H"', type: "number" },
+    { f: "footing_mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    { f: "ftg_bot_size", label: "Bot #", type: "select", options: barSizeChoices() },
+    { f: "ftg_bot_spacing_in", label: 'Bot sp"', type: "number" },
+    { f: "ftg_top_size", label: "Top #", type: "select", options: barSizeChoices() },
+    { f: "ftg_top_spacing_in", label: 'Top sp"', type: "number" },
+    { f: "weld_plate", label: "Weld plate", type: "check" },
+    { f: "backfill", label: "Backfill", type: "check" },
+    { label: "SF", derived: (r) => num(r.calc_footing_sf, 0), title: () => "plan area, what footing labor is priced on" },
+    { label: "CY", derived: (r) => num(r.calc_footing_concrete_cy, 2) },
+    { label: "Steel lb", derived: (r) => num(r.calc_footing_rebar_lb, 0) },
+    {
+      label: "Cost / ea",
+      derived: (r) =>
+        r.calc_cost != null && Number(r.footing_count) > 0
+          ? usd(Number(r.calc_cost) / Number(r.footing_count), 0)
+          : "—",
+      title: (r) => `${usd(r.calc_cost, 0)} for ${num(r.footing_count, 0)}`,
+    },
+  ];
+}
+
 function wallColumns(mixes, section = null) {
   // What a blank footing mix means on this section: the section's footing mix
   // (the select above the grid) when one is set, else the wall's own.
@@ -2437,12 +2473,13 @@ async function renderSectionDetail(root) {
   const isPaving = PAVING_KINDS.has(section.kind);
   const isPiers = PIER_KINDS.has(section.kind);
   const isWalls = WALL_KINDS.has(section.kind);
+  const isSpot = SPOT_KINDS.has(section.kind);
   const isColumns = COLUMN_KINDS.has(section.kind);
   const isDeck = DECK_KINDS.has(section.kind);
   // Piers, walls, columns and decks keep their takeoffs in their own tables,
   // not in pours.
   const notPours = isPiers || isWalls || isColumns || isDeck;
-  const isGrid = isPaving || isPiers || isWalls || isColumns || isDeck;
+  const isGrid = isPaving || isPiers || isWalls || isSpot || isColumns || isDeck;
 
   const [
     slabs, totals, beamTypes, forming, labor, equip,
@@ -2456,8 +2493,8 @@ async function renderSectionDetail(root) {
     Api.estimateEquipment(section.id).catch(() => null),
     isPiers ? Api.listPierGroups(section.id) : Promise.resolve([]),
     isPiers ? Api.pierTotals(section.id) : Promise.resolve(null),
-    isWalls ? Api.listWallRuns(section.id) : Promise.resolve([]),
-    isWalls ? Api.wallTotals(section.id) : Promise.resolve(null),
+    isWalls || isSpot ? Api.listWallRuns(section.id) : Promise.resolve([]),
+    isWalls || isSpot ? Api.wallTotals(section.id) : Promise.resolve(null),
     isColumns ? Api.listColumnTypes(section.id) : Promise.resolve([]),
     isColumns ? Api.columnTotals(section.id) : Promise.resolve(null),
     isDeck ? Api.listDeckLevels(section.id) : Promise.resolve([]),
@@ -2539,7 +2576,7 @@ async function renderSectionDetail(root) {
           }</span>
         </p>
         ${
-          isWalls
+          isWalls || isSpot
             ? `<p style="margin:0.4rem 0 0;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;font-size:0.85rem">
                  <label class="muted" for="sec-footing-mix">Footing mix</label>
                  <select id="sec-footing-mix"
@@ -2592,6 +2629,8 @@ async function renderSectionDetail(root) {
             ? `<button class="btn ghost" id="btn-jump-areas" type="button">${
                 isPiers
                   ? "Pier groups"
+                  : isSpot
+                  ? "Spot footings"
                   : isWalls
                   ? "Wall runs"
                   : isColumns
@@ -2632,6 +2671,19 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? colT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
       <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? colT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
       <div class="card stat"><div class="label">Sale / column</div><div class="value">${usd(section.calc_sale_per_unit ?? colT.total_sale_per_unit, 0)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? colT.total_cost_per_unit, 0)}/column</div></div>
+    </div>`
+        : isSpot
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Footings</div><div class="value">${num(wallT.footing_count, 0)}</div><div class="hint">${wallT.run_count} type${wallT.run_count === 1 ? "" : "s"} · ${num(wallT.total_length_ft, 0)} LF end to end</div></div>
+      <div class="card stat"><div class="label">Footing SF</div><div class="value">${num(wallT.total_footing_sf, 0)}</div><div class="hint">plan area, what footing labor is priced on</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(wallT.total_footing_concrete_cy, 2)}</div><div class="hint">with waste</div>${moneyRow(matCost(mat, "footing_concrete"))}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(wallT.total_footing_rebar_lb, 0)}</div><div class="hint">lb, both mats both ways, with laps</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Earthwork</div><div class="value">${num(wallT.total_excavate_cy, 0)}</div><div class="hint">CY dug · ${num(wallT.total_backfill_cy, 0)} CY backfilled</div></div>
+      <div class="card stat"><div class="label">Weld plates</div><div class="value">${num(wallT.weld_plate_count, 0)}</div><div class="hint">one per footing that carries one</div>${moneyRow(matCost(mat, "weld_plates"))}</div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? wallT.total_cost, 0)}</div><div class="hint">direct + takeoff lines + supervision + equipment</div></div>
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? wallT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + contingency)</div></div>
+      <div class="card stat"><div class="label">Cost / footing</div><div class="value">${usd(section.calc_cost_per_unit, 0)}</div><div class="hint">sale ${usd(section.calc_sale_per_unit, 0)}</div></div>
+      <div class="card stat"><div class="label">Footing / SF</div><div class="value">${usd(wallT.footing_sale_per_sf, 2)}</div><div class="hint">cost ${usd(wallT.footing_cost_per_sf, 2)} — the sheet's Z column</div></div>
     </div>`
         : isWalls
         ? `<div class="grid stats">
@@ -2784,6 +2836,24 @@ async function renderSectionDetail(root) {
             rows: colRows,
             addLabel: "Column type",
             saveLabel: "Save column types",
+          })
+        : isSpot
+        ? gridCardHtml({
+            id: "spot-footings",
+            title: "Spot footings",
+            blurb:
+              "One line per footing type: <strong>how many</strong>, and the length, " +
+              "width and thickness of each. The workbook's 06-Footings tab is the walls " +
+              "tab with the wall left blank, and so is this: every footing formula, rate " +
+              "and lumber line is the walls section's. The <strong>bottom and top mats</strong> " +
+              "are each their own bar set running both ways. <strong>Weld plate</strong> puts " +
+              "one plate per footing on the material list, priced from the catalog — " +
+              "unpriced, not free, until the catalog has a price for it. " +
+              "<strong>Backfill</strong> turns on excavation swell.",
+            columns: spotFootingColumns(state.mixes),
+            rows: wallRows,
+            addLabel: "Footing type",
+            saveLabel: "Save footings",
           })
         : isWalls
         ? gridCardHtml({
@@ -3014,6 +3084,14 @@ async function renderSectionDetail(root) {
         required: ["qty", "height_ft"],
         save: (rows) => Api.bulkSaveColumnTypes(section.id, rows),
         remove: (id) => Api.deleteColumnType(id),
+      });
+    } else if (isSpot) {
+      wireGrid(root, {
+        id: "spot-footings",
+        columns: spotFootingColumns(state.mixes),
+        required: ["footing_count", "footing_each_ft", "ftg_width_in", "ftg_thick_in"],
+        save: (rows) => Api.bulkSaveWallRuns(section.id, rows),
+        remove: (id) => Api.deleteWallRun(id),
       });
     } else if (isWalls) {
       wireGrid(root, {
@@ -3941,6 +4019,9 @@ function renderFormingCard(forming) {
                    <strong>${num(d.form_sf, 0)} SF</strong> of form contact
                    <span title="The faces you actually build. A free-standing column is wrapped on all four; a pilaster has a wall on one or two of them, set per type in the schedule. A wall, by contrast, is formed on the face you can reach — which is why the $/SF rates here look small beside the wall sheet's $/FF.">(formed faces only)</span>
                    · chamfer <strong>${num(d.chamfer_lf, 0)} LF</strong>`
+                : SPOT_KINDS.has(d.kind)
+                ? `footing <strong>${num(d.footing_sf, 0)} SF</strong>
+                   <span title="Spot footings: the lumber block runs off the footing alone, the way the sheet's 06-Footings tab does">(no wall)</span>`
                 : WALL_KINDS.has(d.kind)
                 ? `<strong>${num(d.wall_lf, 0)} LF</strong> of wall ·
                    <strong>${num(d.form_ff, 0)} FF</strong>
@@ -4143,6 +4224,7 @@ function renderLaborCard(labor) {
   // wording. A zero next to a label that does not apply is worse than no
   // label: it reads as a takeoff that came back empty.
   const isWal = WALL_KINDS.has(d.kind);
+  const isSpot = SPOT_KINDS.has(d.kind);
   // The elevated deck. Its labor can be SUBCONTRACTED — one switch on the
   // section (sql/052), which sets the flag on every FIELD line and leaves
   // supervision alone, because a superintendent is yours whoever swings the
@@ -4228,6 +4310,8 @@ function renderLaborCard(labor) {
                 ? "01-PIERS LABOR"
                 : isCol
                 ? "07-COLUMNS LABOR"
+                : isSpot
+                ? "06-FOOTINGS LABOR"
                 : isWal
                 ? "06-WALLS LABOR"
                 : isPav
@@ -4242,6 +4326,8 @@ function renderLaborCard(labor) {
                 ? `<strong>${num(d.pier_count, 0)} piers</strong> · <strong>${num(d.total_lf, 0)} LF</strong>`
                 : isCol
                 ? `<strong>${num(d.column_count, 0)} columns</strong> · form <strong>${num(d.form_sf, 0)} SF</strong>`
+                : isSpot
+                ? `footing <strong>${num(d.footing_sf, 0)} SF</strong>`
                 : isWal
                 ? `<strong>${num(d.wall_lf, 0)} LF</strong> of wall · <strong>${num(d.form_ff, 0)} FF</strong> · footing <strong>${num(d.footing_sf, 0)} SF</strong>`
                 : isDck
@@ -4301,12 +4387,12 @@ function renderLaborCard(labor) {
       </div>
       ${groupTable(
         "labor",
-        isPie ? "Pier labor" : isCol ? "Column labor" : isWal ? "Wall labor" : isPav ? "Paving labor" : isDck ? "Deck labor" : "Slab labor"
+        isPie ? "Pier labor" : isCol ? "Column labor" : isSpot ? "Footing labor" : isWal ? "Wall labor" : isPav ? "Paving labor" : isDck ? "Deck labor" : "Slab labor"
       )}
       ${groupTable("supervision", "Supervision")}
       <p style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0">
         Toggle <strong>On</strong> and edit <strong>rate</strong>, then <strong>Save</strong>.
-        ${isPie ? "Pier" : isCol ? "Column" : isWal ? "Wall" : isPav ? "Paving" : "Slab"} labor
+        ${isPie ? "Pier" : isCol ? "Column" : isSpot ? "Footing" : isWal ? "Wall" : isPav ? "Paving" : "Slab"} labor
         <strong>qty is from ${
           isPie
             ? "the groups"
@@ -4444,6 +4530,8 @@ function renderEquipmentCard(equip) {
                 ? "01-PIERS EQUIPMENT"
                 : COLUMN_KINDS.has(d.kind)
                 ? "07-COLUMNS EQUIPMENT"
+                : SPOT_KINDS.has(d.kind)
+                ? "06-FOOTINGS EQUIPMENT"
                 : WALL_KINDS.has(d.kind)
                 ? "06-WALLS EQUIPMENT"
                 : PAVING_KINDS.has(d.kind)

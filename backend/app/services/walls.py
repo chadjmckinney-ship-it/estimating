@@ -286,6 +286,12 @@ def refresh_wall_run_calcs(
     sand_in = _rate_numeric(db, kind, "sand_in_under_form", Decimal("3"))
     swell = _rate_numeric(db, kind, "backfill_swell", Decimal("1.3"))
 
+    # A spot footing (sql/072) is typed as a count and the length of each;
+    # the run's length is their product, the way the sheet's E column is
+    # B x size. A wall run leaves footing_each_ft blank and types its length.
+    if run.footing_each_ft is not None:
+        run.length_ft = (_d(run.footing_count) * _d(run.footing_each_ft)).quantize(_Q3)
+
     L = _d(run.length_ft)
     H = _d(run.wall_height_in)
 
@@ -364,6 +370,8 @@ def section_wall_totals(db: Session, section_id: Any) -> dict[str, Any]:
             """
             SELECT
               count(*)::int AS run_count,
+              coalesce(sum(footing_count), 0)::int AS footing_count,
+              coalesce(sum(CASE WHEN weld_plate THEN footing_count ELSE 0 END), 0)::int AS weld_plate_count,
               coalesce(sum(length_ft), 0) AS total_length_ft,
               coalesce(sum(calc_form_ff), 0) AS total_form_ff,
               coalesce(sum(calc_footing_sf), 0) AS total_footing_sf,

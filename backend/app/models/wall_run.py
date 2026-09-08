@@ -72,6 +72,11 @@ class WallRun(StampedBy, Base):
 
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    # Spot footings (sql/072): how many of this type, the length of each
+    # (length_ft = count x each, the sheet's E = B x size), and the plate.
+    footing_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    footing_each_ft: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    weld_plate: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     calc_form_ff: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     calc_footing_sf: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))

@@ -10,6 +10,7 @@ section holding stale shares.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -141,9 +142,14 @@ def bulk_save_wall_runs(
             row.updated_at = datetime.now(timezone.utc)
             updated += 1
         else:
+            # A spot footing (sql/072) types a count and the length of each;
+            # the run's length is their product, and recalc keeps it so.
+            if data.get("footing_each_ft") is not None:
+                data["length_ft"] = Decimal(str(data.get("footing_count", 1))) * Decimal(str(data["footing_each_ft"]))
             if not data.get("length_ft"):
                 raise HTTPException(
-                    status_code=400, detail="a new row needs at least a length"
+                    status_code=400,
+                    detail="a new row needs at least a length, or a count and the length of each",
                 )
             row = WallRun(section_id=body.section_id, **data)
             db.add(row)

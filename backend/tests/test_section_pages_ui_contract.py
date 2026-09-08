@@ -26,6 +26,7 @@ from tests import mono_slab_fixture as mf
 from tests import paving_fixture as pf
 from tests import piers_fixture as pif
 from tests import walls_fixture as wf
+from tests import spot_footings_fixture as sf
 
 # What every mono-slab or paving page reads off /api/mono-slabs/totals.
 SLAB_TOTALS = {
@@ -127,6 +128,38 @@ PAGES = {
         labor={"wall_lf", "form_ff", "footing_sf", "total_rebar_tons", "super_weeks", "super_days"},
         # the wall and its footing are priced as two concrete lines (sql/040)
         money={"wall_concrete", "footing_concrete", "rebar"},
+    ),
+    # Spot footings (sql/072): the walls page with the wall left blank — the
+    # same rows and totals plus the count, the length of each and the plate.
+    "spot_footings": dict(
+        build=sf.build,
+        rows="/api/wall-runs", totals="/api/wall-runs/totals",
+        totals_keys={
+            "footing_cost_per_sf", "footing_sale_per_sf", "run_count", "total_backfill_cy",
+            "total_concrete_cy", "total_cost", "total_drain_lf", "total_excavate_cy",
+            "total_footing_concrete_cy", "total_footing_rebar_lb", "total_footing_sale",
+            "total_footing_sf", "total_form_ff", "total_horiz_rebar_lb", "total_length_ft",
+            "total_rebar_lb", "total_sale", "total_sand_cy", "total_vert_rebar_lb",
+            "total_wall_concrete_cy", "total_wall_sale", "wall_cost_per_ff", "wall_sale_per_ff",
+            "footing_count", "weld_plate_count",
+        },
+        row_keys={
+            "id", "label", "length_ft", "wall_thick_in", "ftg_width_in", "wall_height_in",
+            "ftg_thick_in", "backfill", "mix_design_id", "footing_mix_design_id",
+            "horiz_spacing_in", "ftg_bot_spacing_in", "horiz_size", "ftg_bot_size", "horiz_mats",
+            "vert_spacing_in", "ftg_top_spacing_in", "vert_size", "ftg_top_size", "vert_mats",
+            "footing_count", "footing_each_ft", "weld_plate",
+            "calc_backfill_cy", "calc_concrete_cy", "calc_drain_lf", "calc_excavate_cy",
+            "calc_footing_concrete_cy", "calc_footing_cost", "calc_footing_cost_per_sf",
+            "calc_footing_rebar_lb", "calc_footing_sale_per_sf", "calc_footing_sf", "calc_form_ff",
+            "calc_horiz_rebar_lb", "calc_lap_rebar_lb", "calc_sand_cy", "calc_total_rebar_lb",
+            "calc_vert_rebar_lb", "calc_wall_concrete_cy", "calc_wall_cost", "calc_wall_cost_per_ff",
+            "calc_wall_sale_per_ff",
+        },
+        nonnull={"calc_footing_sf", "calc_concrete_cy", "calc_total_rebar_lb", "calc_footing_cost"},
+        forming={"kind", "footing_sf"},
+        labor={"footing_sf", "total_rebar_tons", "super_days"},
+        money={"footing_concrete", "rebar", "weld_plates"},
     ),
 }
 

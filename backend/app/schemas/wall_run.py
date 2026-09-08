@@ -48,6 +48,10 @@ class WallRunBase(BaseModel):
 
     notes: str | None = None
     sort_order: int = 0
+    # Spot footings (sql/072). On a wall run: 1, blank, false.
+    footing_count: int = Field(1, ge=0, description="How many of this footing type")
+    footing_each_ft: Decimal | None = Field(None, ge=0, description="Length of each; length_ft = count x each")
+    weld_plate: bool = Field(False, description="One WELD PLATE per footing, from the catalog")
 
     # A grid sends an empty cell as null, and on a QUANTITY that is a zero —
     # no footing under this wall — not a type error. A default only applies
@@ -58,6 +62,7 @@ class WallRunBase(BaseModel):
     # a NEW row with no length, so a blank that mattered is still caught — and
     # api.js now names the cell.
     @field_validator(
+        "footing_count", "footing_each_ft", "weld_plate",
         "length_ft", "wall_thick_in", "wall_height_in", "ftg_width_in", "ftg_thick_in",
         mode="before",
     )
@@ -72,6 +77,10 @@ class WallRunCreate(WallRunBase):
 
 class WallRunUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    footing_count: int | None = Field(None, ge=0)
+    footing_each_ft: Decimal | None = Field(None, ge=0)
+    weld_plate: bool | None = None
 
     label: str | None = None
     description: str | None = None
@@ -99,6 +108,7 @@ class WallRunUpdate(BaseModel):
     # Same rule on a single-row PATCH: these five are NOT NULL in the table,
     # so an explicit null here was an IntegrityError on the way in.
     @field_validator(
+        "footing_count", "footing_each_ft", "weld_plate",
         "length_ft", "wall_thick_in", "wall_height_in", "ftg_width_in", "ftg_thick_in",
         mode="before",
     )
@@ -166,6 +176,8 @@ class WallRunBulkSave(BaseModel):
 class WallTotals(BaseModel):
     section_id: UUID
     run_count: int = 0
+    footing_count: int = 0
+    weld_plate_count: int = 0
     total_length_ft: Decimal = Decimal("0")
     total_form_ff: Decimal = Decimal("0")
     total_footing_sf: Decimal = Decimal("0")

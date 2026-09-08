@@ -30,6 +30,7 @@ from app.models.estimate_section import (
     DECK_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
+    SPOT_KINDS,
     WALL_KINDS,
 )
 from app.services.calc import _rate_numeric, _setting_numeric, section_kind
@@ -852,6 +853,11 @@ def _wall_labor_lines(
 
     Excavate, backfill and the french drain all come off the takeoff's own
     stored quantities rather than being re-derived here.
+
+    A spot footing (sql/072) has no wall: the four form-foot lines and the
+    drain are not built for it, so their rates are never read and never
+    seed its rate sheet. The lines the sheet's 06-Footings tab carries at
+    zero are the ones a footing cannot have, not ones it might.
     """
     ff = float(d["form_ff"])
     ftg_sf = float(d["footing_sf"])
@@ -859,36 +865,47 @@ def _wall_labor_lines(
     exc = float(d["excavate_cy"])
     bkf = float(d["backfill_cy"])
     drain = float(d["drain_lf"])
+    wall = kind not in SPOT_KINDS
 
-    return [
+    lines = [
         _line(group="labor", code="footings", label="FOOTINGS",
               rate=_rate(db, kind, "labor_footings_sf", Decimal("8")),
               unit="/SF", qty=ftg_sf, formula="footing SF × rate",
               notes="Per SF of footing plan area, not per form foot", order=10),
-        _line(group="labor", code="forming", label="FORMING",
-              rate=_rate(db, kind, "labor_forming_sf", Decimal("3.5")),
-              unit="/FF", qty=ff, formula="form FF × rate", order=20),
-        _line(group="labor", code="place_finish", label="PLACE AND FINISH",
-              rate=_rate(db, kind, "labor_place_finish_sf", Decimal("3.5")),
-              unit="/FF", qty=ff, formula="form FF × rate", order=30),
-        _line(group="labor", code="wreck", label="WRECK AND CLEAN UP",
-              rate=_rate(db, kind, "labor_wreck_sf", Decimal("1")),
-              unit="/FF", qty=ff, formula="form FF × rate", order=40),
-        _line(group="labor", code="rub_patch", label="RUB AND PATCH",
-              rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.25")),
-              unit="/FF", qty=ff, formula="form FF × rate",
-              notes="A wall finish operation — no slab equivalent", order=50),
+    ]
+    if wall:
+        lines += [
+            _line(group="labor", code="forming", label="FORMING",
+                  rate=_rate(db, kind, "labor_forming_sf", Decimal("3.5")),
+                  unit="/FF", qty=ff, formula="form FF × rate", order=20),
+            _line(group="labor", code="place_finish", label="PLACE AND FINISH",
+                  rate=_rate(db, kind, "labor_place_finish_sf", Decimal("3.5")),
+                  unit="/FF", qty=ff, formula="form FF × rate", order=30),
+            _line(group="labor", code="wreck", label="WRECK AND CLEAN UP",
+                  rate=_rate(db, kind, "labor_wreck_sf", Decimal("1")),
+                  unit="/FF", qty=ff, formula="form FF × rate", order=40),
+            _line(group="labor", code="rub_patch", label="RUB AND PATCH",
+                  rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.25")),
+                  unit="/FF", qty=ff, formula="form FF × rate",
+                  notes="A wall finish operation — no slab equivalent", order=50),
+        ]
+    lines.append(
         _line(group="labor", code="tie_steel", label="TIE STEEL",
               rate=_rate(db, kind, "labor_tie_steel_ton", Decimal("450")),
               unit="/TON", qty=tons, formula="total steel lb / 2000 × rate",
               notes=f"All {d['total_rebar_lb']:,.0f} lb — a wall cage carries no "
                     f"support-steel allowance to exclude",
               order=60),
-        _line(group="labor", code="french_drains", label="FRENCH DRAINS",
-              rate=_rate(db, kind, "labor_french_drain_lf", Decimal("10")),
-              unit="/LF", qty=drain, formula="drained LF × rate",
-              notes="Installation; the pipe itself is a forming-package line",
-              order=70),
+    )
+    if wall:
+        lines.append(
+            _line(group="labor", code="french_drains", label="FRENCH DRAINS",
+                  rate=_rate(db, kind, "labor_french_drain_lf", Decimal("10")),
+                  unit="/LF", qty=drain, formula="drained LF × rate",
+                  notes="Installation; the pipe itself is a forming-package line",
+                  order=70),
+        )
+    lines += [
         _line(group="labor", code="excavate", label="EXCAVATE",
               rate=_rate(db, kind, "labor_excavate_cy", Decimal("12")),
               unit="/CY", qty=exc, formula="excavation CY × rate", order=80),
@@ -898,6 +915,7 @@ def _wall_labor_lines(
         _line(group="labor", code="extra_hours", label="EXTRA HOURS", rate=0,
               unit="LS", qty=0, formula="manual lump sum", order=100),
     ]
+    return lines
 
 
 def calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
