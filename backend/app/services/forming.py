@@ -65,6 +65,7 @@ from app.models.estimate_section import (
     SIDEWALK_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
+    MISC_KINDS,
     PANEL_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
@@ -414,6 +415,37 @@ def _panel_forming_drivers(
     }
 
 
+def _misc_forming_drivers(db: Session, section_id: UUID, kind: str | None) -> dict[str, Any]:
+    """
+    A miscellaneous section has NO forming line set (sql/078): every item
+    carries its own forms as a typed allowance, the way the 13 tab does.
+    The drivers exist so the summary can be written and the page can say so.
+    """
+    from app.services.misc import misc_drivers
+
+    m = misc_drivers(db, section_id)
+    zero = Decimal("0")
+    return {
+        "section_id": section_id,
+        "kind": kind,
+        "pour_count": m["row_count"],
+        "item_count": m["item_count"],
+        "total_sf": zero,
+        "total_concrete_cy": m["total_concrete_cy"],
+        "total_rebar_lb": m["total_rebar_lb"],
+        "pier_count": 0,
+        "column_count": 0,
+        "form_sf": zero, "chamfer_lf": zero, "wall_lf": zero, "form_ff": zero, "footing_sf": zero,
+        "drain_lf": zero, "total_lf": zero, "perimeter_lf": zero, "curb_lf": zero, "thin_sf": zero,
+        "thick_sf": zero, "drops_ff": zero, "support_rebar_lb": zero, "mesh_sf": zero,
+        "ledge_lf": zero, "ledge_face_sf": zero, "construction_joint_lf": zero, "control_joint_lf": zero,
+        "form_percent": zero,
+        "form_percent_is_override": False,
+        "form_percent_system_default": zero,
+        "form_waste": zero,
+    }
+
+
 def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
     """Roll up pour-level drivers used by forming formulas."""
     kind_now = section_kind(db, section_id)
@@ -429,6 +461,8 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _deck_forming_drivers(db, section_id, kind_now)
     if kind_now in PANEL_KINDS:
         return _panel_forming_drivers(db, section_id, kind_now)
+    if kind_now in MISC_KINDS:
+        return _misc_forming_drivers(db, section_id, kind_now)
 
     row = db.execute(
         text(
@@ -1986,6 +2020,9 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _column_lines(db, d)
     elif d["kind"] in PANEL_KINDS:
         lines = _panel_lines(db, d)
+    elif d["kind"] in MISC_KINDS:
+        # The items carry their own forms (sql/078) — no line set, no rates read.
+        lines = []
     elif d["kind"] in DECK_KINDS:
         lines = _deck_lines(db, d, section_id)
     elif d["kind"] in SIDEWALK_KINDS:
@@ -1994,7 +2031,7 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _paving_lines(db, d)
     else:
         lines = _mono_slab_lines(db, d)
-    total_ext = sum((ln["ext_cost"] or Decimal("0")) for ln in lines)
+    total_ext = sum(((ln["ext_cost"] or Decimal("0")) for ln in lines), Decimal("0"))
 
     return {
         "drivers": {

@@ -36,6 +36,7 @@ from app.models.estimate_section import (
     SIDEWALK_KINDS,
     SPOT_KINDS,
     PANEL_KINDS,
+    MISC_KINDS,
     WALL_KINDS,
 )
 from app.services.calc import _rate_numeric, _setting_numeric, section_kind
@@ -123,6 +124,8 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _deck_labor_drivers(db, section_id, kind)
     if kind in PANEL_KINDS:
         return _panel_labor_drivers(db, section_id, kind)
+    if kind in MISC_KINDS:
+        return _misc_labor_drivers(db, section_id, kind)
 
     row = db.execute(
         text(
@@ -1229,6 +1232,37 @@ def _panel_labor_lines(
     ]
 
 
+def _misc_labor_drivers(db: Session, section_id: UUID, kind: str | None) -> dict[str, Any]:
+    """
+    A miscellaneous section has NO labor line set and NO supervision ladder
+    (sql/078): every item carries its own labor, supervision and equipment
+    as typed figures, the way the 13 tab does. Zero drivers, so nothing
+    downstream derives a day from them.
+    """
+    from app.services.misc import misc_drivers
+
+    m = misc_drivers(db, section_id)
+    zero = Decimal("0")
+    rebar = m["total_rebar_lb"]
+    return {
+        "kind": kind,
+        "pour_count": m["row_count"],
+        "item_count": m["item_count"],
+        "pier_count": 0,
+        "total_sf": zero, "drops_ff": zero, "ledge_lf": zero, "curb_lf": zero, "paving_add": zero,
+        "total_rebar_lb": rebar,
+        "tied_rebar_lb": rebar,
+        "total_rebar_tons": (rebar / Decimal("2000")).quantize(Decimal("0.0001")),
+        "total_concrete_cy": m["total_concrete_cy"],
+        "total_slab_cy": zero,
+        "super_days": zero,
+        "super_weeks": zero,
+        "sf_per_week": zero,
+        "days_per_week": Decimal("7"),
+        "super_days_are_typed": True,
+    }
+
+
 def calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     """A price gate (sql/049): every labor rate below prices from the
     estimate's sheet. See services/price_book.py."""
@@ -1264,6 +1298,9 @@ def _calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _deck_labor_lines(db, kind, d)
     elif kind in PANEL_KINDS:
         lines = _panel_labor_lines(db, kind, d)
+    elif kind in MISC_KINDS:
+        # The items carry their own labor and supervision (sql/078).
+        lines = []
     elif kind in SIDEWALK_KINDS:
         lines = _sidewalk_labor_lines(db, kind, d)
     elif is_paving:
@@ -1282,10 +1319,11 @@ def _calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         pm_days = 0.0
     else:
         pm_days = float(d["super_days"])
-    lines += _supervision_lines(
-        db, kind, d, pm_days=pm_days,
-        foreman_days=float(d.get("foreman_days") or 0),
-    )
+    if kind not in MISC_KINDS:
+        lines += _supervision_lines(
+            db, kind, d, pm_days=pm_days,
+            foreman_days=float(d.get("foreman_days") or 0),
+        )
 
     labor_cost = sum(
         (_d(ln["ext_cost"]) for ln in lines if ln["group_name"] == "labor"),
@@ -1535,7 +1573,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
         "pour_count": summary.pour_count,
         "pier_count": int(extra["pier_count"] or 0),
         "total_lf": _d(extra["pier_lf"]),
-        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS or kind in RB_SLAB_KINDS or kind in PANEL_KINDS,
+        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS or kind in RB_SLAB_KINDS or kind in PANEL_KINDS or kind in MISC_KINDS,
         "total_sf": summary.total_sf,
         "drops_ff": summary.drops_ff,
         "curb_lf": _d(extra["curb_lf"]),

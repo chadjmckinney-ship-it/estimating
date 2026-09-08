@@ -46,6 +46,7 @@ from app.models.estimate_section import (
     PIER_KINDS,
     BEAM_KINDS,
     DECK_SLAB_KINDS,
+    MISC_KINDS,
     PANEL_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
@@ -298,6 +299,12 @@ def resolve_rebar(
             # $3,513.21 light on LBJ. A deck buys grade-beam bar whether or
             # not it is post-tensioned.
             mat = _find_material(db, "REBAR GRADE BEAM")
+            if mat is not None:
+                return mat
+        if kind in MISC_KINDS:
+            # The 13 tab's D22 and D24 — the piers bar and the paving bar,
+            # both $0.60 on every Pricing sheet in the folder (sql/078).
+            mat = _find_material(db, "REBAR PIERS")
             if mat is not None:
                 return mat
         if kind in DECK_SLAB_KINDS:
@@ -668,6 +675,9 @@ class _Unit:
     direct_taxable: Decimal  # materials bought for this unit
     direct_untaxed: Decimal  # services sitting on it — drilling a shaft
     per_unit_fields: tuple[str, str]
+    # A miscellaneous item SELLS at its typed price (sql/078) — the one
+    # shape whose sale is not the cost at the section's markup.
+    sale_override: Decimal | None = None
 
     @property
     def direct(self) -> Decimal:
@@ -706,6 +716,11 @@ def allocation_basis(kind: str | None) -> str:
         # column is not the same share of a supervisor as a 12-foot one. Same
         # split as walls: the weight and the unit are different columns.
         return "SF"
+    if kind in MISC_KINDS:
+        # Nothing is shared on a miscellaneous section (sql/078) — every item
+        # carries its own forms, labor, supervision and equipment — so the
+        # basis only names what the rows are counted in.
+        return "EA"
     if kind in PANEL_KINDS:
         # Gross panel SF (sql/077) — the tab's own per-panel columns (BA, BD)
         # divide by AR, the section's square feet, and the section sells in SF.
@@ -1123,6 +1138,74 @@ def _panel_units(db: Session, section: EstimateSection) -> list[_Unit]:
     return units
 
 
+def _misc_units(db: Session, section: EstimateSection) -> list[_Unit]:
+    """
+    One priced ITEM (sql/078). Concrete and steel from the shape, priced off
+    the catalog; forms, labor, supervision and equipment as the row's typed
+    allowances; the sale as typed. The six pieces are written back onto the
+    row here, because this is the only place they are priced.
+
+    Taxed: the concrete, the steel and the forms — purchases. Not taxed: the
+    labor, the supervision and the equipment, which the tab types as dollars
+    with no fuel or tax on them, unlike a rental day on every other tab.
+    """
+    from app.models.misc_item import MiscItem
+
+    kind = section.kind
+    rows = list(
+        db.scalars(
+            select(MiscItem)
+            .where(MiscItem.section_id == section.id)
+            .order_by(MiscItem.sort_order, MiscItem.created_at)
+        ).all()
+    )
+    quotes = qt.load_quotes(db, section.id)
+    rebar_q = quotes.get(qt.REBAR)
+    quoted_lb = rebar_q.per_lb() if rebar_q else None
+
+    units: list[_Unit] = []
+    for r in rows:
+        qty = _d(r.qty)
+        cy = _d(r.calc_concrete_cy)
+        lb = _d(r.calc_steel_lb)
+        concrete = cy * _z(_mix_unit_cost(db, r.mix_design_id)) if cy > 0 else Decimal("0")
+        steel = Decimal("0")
+        if lb > 0 and not (rebar_q and rebar_q.is_lump):
+            rate = quoted_lb if quoted_lb is not None else _z(_rebar_unit_cost(db, False, kind))
+            steel = lb * rate
+        forms = (
+            qty * (_d(r.unit_sale) * _d(r.forms_pct_of_sale) + _d(r.forms_per_unit))
+            + _d(r.calc_face_sf) * _d(r.forms_per_face_sf)
+            + concrete * _d(r.forms_pct_of_concrete)
+        )
+        labor = qty * _d(r.labor_per_unit)
+        sup = labor * _d(r.super_pct_of_labor)
+        equip = qty * _d(r.equip_per_unit) + labor * _d(r.equip_pct_of_labor)
+        if qty > 0 and _d(r.equip_min) > equip:
+            equip = _d(r.equip_min)      # the tab's IF(qty < 11, 300, qty x 30): a minimum charge
+
+        r.calc_concrete_cost = concrete.quantize(_Q2)
+        r.calc_steel_cost = steel.quantize(_Q2)
+        r.calc_forms_cost = forms.quantize(_Q2)
+        r.calc_labor_cost = labor.quantize(_Q2)
+        r.calc_super_cost = sup.quantize(_Q2)
+        r.calc_equip_cost = equip.quantize(_Q2)
+        units.append(
+            _Unit(
+                row=r,
+                weight=qty,
+                cy=cy,
+                quantity=qty,
+                direct_taxable=(concrete + steel + forms).quantize(_Q2),
+                direct_untaxed=(labor + sup + equip).quantize(_Q2),
+                per_unit_fields=("calc_cost_per_unit", "calc_sale_per_unit"),
+                sale_override=_d(r.calc_sale),
+            )
+        )
+    _apply_lump_quotes(db, section, units, quotes)
+    return units
+
+
 def cost_units(db: Session, section: EstimateSection) -> list[_Unit]:
     """
     The rows this section's cost is spread across, whatever shape they are.
@@ -1145,6 +1228,8 @@ def cost_units(db: Session, section: EstimateSection) -> list[_Unit]:
             return _deck_units(db, section)
         if section.kind in PANEL_KINDS:
             return _panel_units(db, section)
+        if section.kind in MISC_KINDS:
+            return _misc_units(db, section)
         return _slab_units(db, section)
 
 
@@ -1217,7 +1302,12 @@ def _refresh_pour_costs(db: Session, section: EstimateSection) -> dict[str, Any]
         tax = ((unit.direct_taxable + taxable_alloc[i]) * tax_rate).quantize(_Q2)
 
         cost = (direct + alloc + fuel + tax).quantize(_Q2)
-        sale = sale_from_cost(cost, margin, conting)
+        # A miscellaneous item sells at its typed price (sql/078); everywhere
+        # else the sale is the cost at the section's markup.
+        sale = (
+            unit.sale_override.quantize(_Q2) if unit.sale_override is not None
+            else sale_from_cost(cost, margin, conting)
+        )
 
         if hasattr(row, "calc_sf_per_cy"):
             row.calc_sf_per_cy = sf_per_cy(unit.quantity, unit.cy)
@@ -1227,6 +1317,9 @@ def _refresh_pour_costs(db: Session, section: EstimateSection) -> dict[str, Any]
         row.calc_tax = tax
         row.calc_cost = cost
         row.calc_sale = sale
+        if hasattr(row, "calc_margin"):
+            # The tab's Z: what falls out of a typed sale (sql/078).
+            row.calc_margin = ((sale - cost) / sale).quantize(_Q4) if sale > 0 else None
         cost_field, sale_field = unit.per_unit_fields
         setattr(row, cost_field, per_sf(cost, unit.quantity))
         setattr(row, sale_field, per_sf(sale, unit.quantity))
@@ -1386,6 +1479,14 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
             need_mix(r.mix_design_id, r.calc_concrete_cy)
             if not rebar_quoted:
                 need(rebar_label(False), _rebar_unit_cost(db, False, kind), r.calc_total_rebar_lb)
+
+    elif kind in MISC_KINDS:
+        from app.models.misc_item import MiscItem
+
+        for r in db.scalars(select(MiscItem).where(MiscItem.section_id == section.id)):
+            need_mix(r.mix_design_id, r.calc_concrete_cy)
+            if not rebar_quoted:
+                need(rebar_label(False), _rebar_unit_cost(db, False, kind), r.calc_steel_lb)
 
     elif kind in PANEL_KINDS:
         from app.models.panel_type import PanelType

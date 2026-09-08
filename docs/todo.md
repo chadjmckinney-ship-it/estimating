@@ -216,6 +216,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Walls & footings
 - [x] Elevated / CIP deck / slab on deck — CIP deck `sql/052`, slab on deck `sql/075` (2026-09-08)
 - [x] Panels / columns — columns `sql/045` (2026-09-01); tilt panels `sql/077` (2026-09-08)
+- [x] Miscellaneous — the 13 tab's priced item library, four families, the sale typed: `sql/078` (2026-09-08)
 - [ ] Generic `assemblies` engine if needed
 
 ---

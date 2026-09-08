@@ -1020,6 +1020,10 @@ const DECK_KINDS = new Set(["cip_deck"]);
 // with four opening slots. Sold per SF, gross of the openings — the tab's W
 // column — and every shared cost allocates by that SF.
 const PANEL_KINDS = new Set(["panels"]);
+// Miscellaneous is the eighth shape (sql/078): a priced library of site items
+// in four families. The sale is typed per item and the margin is the answer;
+// there is no forming, labor or equipment line set — every item carries its own.
+const MISC_KINDS = new Set(["miscellaneous"]);
 
 async function renderEstimateSummary(root) {
   root.innerHTML = `<div class="loading">Loading job…</div>`;
@@ -1501,7 +1505,7 @@ function isWebLink(s) {
   return /^https?:[/][/]/i.test(String(s || ""));
 }
 
-function wireGrid(root, { id, columns, required, save, remove }) {
+function wireGrid(root, { id, columns, required, save, remove, blank }) {
   const bodyEl = $(`#${id}-body`, root);
   if (!bodyEl) return;
   const unsaved = $(`#${id}-unsaved`, root);
@@ -1532,7 +1536,8 @@ function wireGrid(root, { id, columns, required, save, remove }) {
   if (addBtn) {
     addBtn.onclick = () => {
       const tmp = document.createElement("tbody");
-      tmp.innerHTML = gridRowHtml({}, columns);
+      // A grid may name what a NEW row starts as (sql/078: a family's defaults).
+      tmp.innerHTML = gridRowHtml(blank || {}, columns);
       const lines = [...tmp.querySelectorAll("tr")]; // one, or a wall line and its footing line
       for (const line of lines) bodyEl.appendChild(line);
       markDirty(lines[0]);
@@ -1932,6 +1937,139 @@ function columnColumns(mixes) {
  * wall line is horizontal + vertical + laps, the footing line its own bars —
  * the same split services/walls.py costs them on; the two sum to the type.
  */
+/**
+ * Miscellaneous (sql/078): the 13 tab's four families of priced site items.
+ * A new miscellaneous section is seeded with the tab's 22 items at no quantity;
+ * each family's "+ Add" puts the tab's own blank row on the grid (1305 for the
+ * round bases, 1324-1326 for the boxes). Chad, 2026-09-08: "have the 4 sections
+ * with the ones shown as defaults, minus the quantities.. then a button for each
+ * section to add another row".
+ */
+const MISC_FAMILIES = [
+  {
+    shape: "round", title: "Round bases", short: "bases", addLabel: "Round base",
+    dims: [["dim_a", 'Dia"'], ["dim_b", "Depth ft"]],
+    blurb:
+      "Light pole and bollard bases, bike racks, pipe bollards: a diameter and a depth. Concrete is " +
+      "π r² × depth ÷ 27; steel is dia × depth × the lb factor (the tab's 0.95). Type a " +
+      "<strong>quantity</strong> and a <strong>mix</strong> on the ones the job has; every other number " +
+      "on the row is the tab's default and can be changed.",
+    blank: {
+      shape: "round", unit: "EA", unit_sale: 300, labor_per_unit: 100, subcontracted: true, pours_concrete: true,
+      dim_a: 12, dim_b: 3, steel_lb_per_in_ft: 0.95, forms_pct_of_sale: 0.1, forms_per_unit: 37.5,
+      super_pct_of_labor: 0.2, equip_per_unit: 52,
+    },
+  },
+  {
+    shape: "block", title: "Pits, pads and bases", short: "pits and pads", addLabel: "Pit or pad",
+    dims: [["dim_a", "LF"], ["dim_b", 'W"'], ["dim_c", 'H"']],
+    blurb:
+      "Elevator pits, monument bases, transformer pads, gate track: a length, a section and a height. " +
+      "Concrete is L × W × H ÷ 3888 with 15% waste, plus a floor (L ÷ 4)² ÷ 27; steel per CY. Forms are a " +
+      "share of the sale, plus $ per face SF (L × H ÷ 12) on a pit.",
+    blank: {
+      shape: "block", unit: "EA", labor_per_unit: 150, subcontracted: true, pours_concrete: true,
+      dim_a: 36, dim_b: 12, dim_c: 24, concrete_waste: 0.15, steel_lb_per_cy: 55, forms_pct_of_sale: 0.1,
+      super_pct_of_labor: 0.3, equip_per_unit: 50,
+    },
+  },
+  {
+    shape: "slab", title: "Footings and slabs", short: "footings", addLabel: "Footing",
+    dims: [["dim_a", "SF"], ["dim_b", 'Thk"']],
+    blurb:
+      "Trellis, gate column, fire pit, site wall and grill footings, landscape curb, counters: an area and a " +
+      "thickness. Concrete is SF × thk ÷ 324; steel 132.32 lb a CY (1% of 13,232). Forms as a share of the " +
+      "sale or of the concrete.",
+    blank: {
+      shape: "slab", unit: "EA", labor_per_unit: 150, subcontracted: true, pours_concrete: true,
+      dim_a: 9, dim_b: 12, steel_lb_per_cy: 132.32, forms_pct_of_concrete: 0.5, super_pct_of_labor: 0.15,
+    },
+  },
+  {
+    shape: "box", title: "Pits, treads, blockouts and ramps", short: "boxes", addLabel: "Box",
+    dims: [["dim_a", 'L"'], ["dim_b", 'W"'], ["dim_c", 'D"']],
+    blurb:
+      "Radon pits, stair treads, pour-back blockouts, ADA ramps: three inch dimensions. Concrete is " +
+      "L × W × D ÷ 46656 with 20% waste; steel per CY. The tab's blank rows carry $30 a unit of equipment " +
+      "with a $300 minimum and supervision equal to the labor.",
+    blank: {
+      shape: "box", unit: "LF", labor_per_unit: 150, subcontracted: true, pours_concrete: true,
+      dim_a: 48, dim_b: 36, dim_c: 8, concrete_waste: 0.2, steel_lb_per_cy: 211.7, forms_pct_of_concrete: 0.5,
+      super_pct_of_labor: 1, equip_per_unit: 30, equip_min: 300,
+    },
+  },
+];
+
+function miscColumns(fam, mixes) {
+  const dims = fam.dims.map(([f, label]) => ({ f, label, type: "number" }));
+  const steel =
+    fam.shape === "round"
+      ? [{ f: "steel_lb_per_in_ft", label: "Steel lb/in·ft", type: "number" }]
+      : [{ f: "steel_lb_per_cy", label: "Steel lb/CY", type: "number" }];
+  const blockOnly =
+    fam.shape === "block"
+      ? [
+          { f: "steel_lb_per_unit", label: "Steel lb ea", type: "number" },
+          { f: "forms_per_face_sf", label: "Forms $/face SF", type: "number" },
+        ]
+      : [];
+  const concForms =
+    fam.shape === "slab" || fam.shape === "box"
+      ? [{ f: "forms_pct_of_concrete", label: "Forms % conc", type: "number" }]
+      : [];
+  const minimum = fam.shape === "box" ? [{ f: "equip_min", label: "Equip min $", type: "number" }] : [];
+  return [
+    { f: "code", label: "Code", placeholder: "13xx" },
+    { f: "description", label: "Item", placeholder: fam.addLabel },
+    {
+      f: "unit", label: "U/M", type: "select",
+      options: [{ id: "EA", label: "EA" }, { id: "LF", label: "LF" }, { id: "SF", label: "SF" }],
+    },
+    { f: "qty", label: "Qty", type: "number" },
+    { f: "unit_sale", label: "Sale ea", type: "number" },
+    { f: "labor_per_unit", label: "Labor ea", type: "number" },
+    { f: "subcontracted", label: "Sub", type: "check" },
+    { f: "pours_concrete", label: "Conc", type: "check" },
+    { f: "mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
+    ...dims,
+    { f: "concrete_waste", label: "Waste", type: "number" },
+    ...steel,
+    ...blockOnly,
+    { f: "forms_pct_of_sale", label: "Forms % sale", type: "number" },
+    { f: "forms_per_unit", label: "Forms $ ea", type: "number" },
+    ...concForms,
+    { f: "super_pct_of_labor", label: "Super % labor", type: "number" },
+    { f: "equip_per_unit", label: "Equip $ ea", type: "number" },
+    { f: "equip_pct_of_labor", label: "Equip % labor", type: "number" },
+    ...minimum,
+    {
+      label: "CY",
+      derived: (r) => num(r.calc_concrete_cy, 2),
+      title: () => "from the shape, with the row's waste — decimal yards, where the tab rounds each row up",
+    },
+    { label: "Steel lb", derived: (r) => num(r.calc_steel_lb, 0) },
+    {
+      label: "Sale",
+      derived: (r) => usd(r.calc_sale, 0),
+      title: (r) => `${num(r.qty, 0)} × ${usd(r.unit_sale, 0)} — typed, the tab's K column`,
+    },
+    {
+      label: "Cost",
+      derived: (r) => usd(r.calc_cost, 0),
+      title: (r) =>
+        `concrete ${usd(r.calc_concrete_cost, 0)} + steel ${usd(r.calc_steel_cost, 0)} + forms ` +
+        `${usd(r.calc_forms_cost, 0)} + labor ${usd(r.calc_labor_cost, 0)} + supervision ` +
+        `${usd(r.calc_super_cost, 0)} + equipment ${usd(r.calc_equip_cost, 0)} + tax ${usd(r.calc_tax, 0)}`,
+    },
+    { label: "Cost ea", derived: (r) => usd(r.calc_cost_per_unit, 0) },
+    {
+      label: "Margin",
+      derived: (r) => (r.calc_margin == null ? "—" : num(Number(r.calc_margin) * 100, 1) + "%"),
+      title: () => "1 − cost ÷ sale — the tab's Z column, what falls out of the typed sale",
+    },
+  ];
+}
+
 /**
  * Panel types (sql/077): one line per tilt-wall panel type — the 12-PANELS
  * tab's row, with FOUR opening slots where the tab has one (Chad, 2026-09-08).
@@ -2676,14 +2814,15 @@ async function renderSectionDetail(root) {
   const isColumns = COLUMN_KINDS.has(section.kind);
   const isDeck = DECK_KINDS.has(section.kind);
   const isPanels = PANEL_KINDS.has(section.kind);
-  // Piers, walls, columns, decks and panels keep their takeoffs in their own
-  // tables, not in pours.
-  const notPours = isPiers || isWalls || isColumns || isDeck || isBeams || isPanels;
-  const isGrid = isPaving || isPiers || isWalls || isSpot || isColumns || isDeck || isBeams || isPanels;
+  const isMisc = MISC_KINDS.has(section.kind);
+  // Piers, walls, columns, decks, panels and misc items keep their takeoffs
+  // in their own tables, not in pours.
+  const notPours = isPiers || isWalls || isColumns || isDeck || isBeams || isPanels || isMisc;
+  const isGrid = isPaving || isPiers || isWalls || isSpot || isColumns || isDeck || isBeams || isPanels || isMisc;
 
   const [
     slabs, totals, beamTypes, forming, labor, equip,
-    pierRows, pierT, wallRows, wallT, beamRows, beamT, colRows, colT, deckRows, deckT, panRows, panT, rates, mats,
+    pierRows, pierT, wallRows, wallT, beamRows, beamT, colRows, colT, deckRows, deckT, panRows, panT, miscRows, miscT, rates, mats,
   ] = await Promise.all([
     notPours ? Promise.resolve([]) : Api.listMonoSlabs(section.id),
     notPours ? Promise.resolve(null) : Api.monoSlabTotals(section.id),
@@ -2703,6 +2842,8 @@ async function renderSectionDetail(root) {
     isDeck ? Api.deckTotals(section.id) : Promise.resolve(null),
     isPanels ? Api.listPanelTypes(section.id) : Promise.resolve([]),
     isPanels ? Api.panelTotals(section.id) : Promise.resolve(null),
+    isMisc ? Api.listMiscItems(section.id) : Promise.resolve([]),
+    isMisc ? Api.miscTotals(section.id) : Promise.resolve(null),
     // The rate ladder for this section (sql/055). Never fatal: a section
     // whose takeoff will not build still shows its quantities.
     Api.sectionRates(section.id).catch(() => null),
@@ -2845,6 +2986,8 @@ async function renderSectionDetail(root) {
                   ? "Wall runs"
                   : isColumns
                   ? "Column types"
+                  : isMisc
+                  ? "Misc items"
                   : isDeck
                   ? "Deck levels"
                   : "Paving areas"
@@ -2852,10 +2995,10 @@ async function renderSectionDetail(root) {
             : `<button class="btn primary" id="btn-add-slab">+ Mono slab pour</button>
         <button class="btn ghost" id="btn-jump-beams" type="button">Beam schedule</button>`
         }
-        <button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>
+        ${isMisc ? "" : `<button class="btn ghost" id="btn-jump-forming" type="button">Forming materials</button>`}
         ${isDeck || isBeams || isPanels ? `<button class="btn ghost" id="btn-jump-rentals" type="button">Rentals</button>` : ""}
-        <button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
-        <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>
+        ${isMisc ? "" : `<button class="btn ghost" id="btn-jump-labor" type="button">Labor &amp; supervision</button>
+        <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>`}
         <button class="btn" id="btn-recalc-estimate" type="button"
           title="Rewrite pours and stored takeoffs from current inputs — use after changing company defaults">Recalculate</button>
         <button class="btn danger" id="btn-del-estimate">Delete section</button>
@@ -2881,6 +3024,18 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? colT.total_cost, 0)}</div><div class="hint">direct + takeoffs + tax</div></div>
       <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? colT.total_sale, 0)}</div><div class="hint">cost × (1 + margin + conting)</div></div>
       <div class="card stat"><div class="label">Sale / column</div><div class="value">${usd(section.calc_sale_per_unit ?? colT.total_sale_per_unit, 0)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? colT.total_cost_per_unit, 0)}/column</div></div>
+    </div>`
+        : isMisc
+        ? `<div class="grid stats">
+      <div class="card stat"><div class="label">Sale</div><div class="value">${usd(section.calc_total_sale ?? miscT.total_sale, 0)}</div><div class="hint">typed per item, the tab's K · at this section's ${num(Number(section.margin_pct ?? 0) * 100, 0)}% the cost would sell for ${usd(miscT.sale_at_markup, 0)}</div></div>
+      <div class="card stat"><div class="label">Cost</div><div class="value">${usd(section.calc_total_cost ?? miscT.total_cost, 0)}</div><div class="hint">concrete, steel, forms, labor, supervision, equipment, and tax on the purchases</div></div>
+      <div class="card stat"><div class="label">Margin</div><div class="value">${miscT.total_margin == null ? "—" : num(Number(miscT.total_margin) * 100, 1) + "%"}</div><div class="hint">1 − cost ÷ sale — the answer on this tab, not the input</div></div>
+      <div class="card stat"><div class="label">Items</div><div class="value">${num(miscT.item_count, 0)}</div><div class="hint">of ${num(miscT.row_count, 0)} on the page carry a quantity</div></div>
+      <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(miscT.total_concrete_cy, 2)}</div><div class="hint">decimal yards — the tab rounds each row up</div>${moneyRow(matCost(mat, "concrete"))}</div>
+      <div class="card stat"><div class="label">Steel</div><div class="value">${num(miscT.total_steel_lb, 0)}</div><div class="hint">lb, from each item's shape</div>${moneyRow(matCost(mat, "rebar"))}</div>
+      <div class="card stat"><div class="label">Labor</div><div class="value">${usd(miscT.total_labor_cost, 0)}</div><div class="hint">typed per item · supervision ${usd(miscT.total_super_cost, 0)} · sub ${usd(miscT.total_sub_labor_cost, 0)}</div></div>
+      <div class="card stat"><div class="label">Forms</div><div class="value">${usd(miscT.total_forms_cost, 0)}</div><div class="hint">allowances, taxed as the purchase they are</div></div>
+      <div class="card stat"><div class="label">Equipment</div><div class="value">${usd(miscT.total_equip_cost, 0)}</div><div class="hint">typed per item — no ladder, no fuel</div></div>
     </div>`
         : isPanels
         ? `<div class="grid stats">
@@ -3093,6 +3248,21 @@ async function renderSectionDetail(root) {
             addLabel: "Column type",
             saveLabel: "Save column types",
           })
+        : isMisc
+        ? MISC_FAMILIES.map((fam) =>
+            gridCardHtml({
+              id: `misc-${fam.shape}`,
+              title: fam.title,
+              blurb: fam.blurb,
+              columns: miscColumns(fam, state.mixes),
+              rows: (() => {
+                const rs = miscRows.filter((r) => r.shape === fam.shape);
+                return rs.length ? rs : [fam.blank];
+              })(),
+              addLabel: fam.addLabel,
+              saveLabel: `Save ${fam.short}`,
+            })
+          ).join("")
         : isPanels
         ? gridCardHtml({
             id: "panel-types",
@@ -3356,11 +3526,11 @@ async function renderSectionDetail(root) {
     </div>`}
 
     ${isGrid ? "" : renderBeamTypesCard(beamTypes)}
-    ${renderFormingCard(forming)}
+    ${isMisc ? "" : renderFormingCard(forming)}
     ${isDeck || isBeams || isPanels ? renderRentalsCard(forming, isBeams || isPanels ? "Form rental" : null) : ""}
-    ${renderLaborCard(labor)}
-    ${renderEquipmentCard(equip)}
-    ${renderSectionRatesCard(rates)}
+    ${isMisc ? "" : renderLaborCard(labor)}
+    ${isMisc ? "" : renderEquipmentCard(equip)}
+    ${isMisc ? "" : renderSectionRatesCard(rates)}
   `;
 
   // Up from a section is the job, not the project — the job is where the other
@@ -3395,6 +3565,20 @@ async function renderSectionDetail(root) {
         save: (rows) => Api.bulkSaveColumnTypes(section.id, rows),
         remove: (id) => Api.deleteColumnType(id),
       });
+    } else if (isMisc) {
+      // One grid a family, each saving its own rows; the bulk route leaves the
+      // rows it was not sent alone, so the other three families keep theirs.
+      for (const fam of MISC_FAMILIES) {
+        wireGrid(root, {
+          id: `misc-${fam.shape}`,
+          columns: miscColumns(fam, state.mixes),
+          required: ["qty", "unit_sale"],
+          blank: fam.blank,
+          save: (rows) =>
+            Api.bulkSaveMiscItems(section.id, rows.map((r) => ({ shape: fam.shape, ...r }))),
+          remove: (id) => Api.deleteMiscItem(id),
+        });
+      }
     } else if (isPanels) {
       wireGrid(root, {
         id: "panel-types",
@@ -3464,6 +3648,8 @@ async function renderSectionDetail(root) {
             ? "column-types"
             : isPanels
             ? "panel-types"
+            : isMisc
+            ? "misc-round"
             : isDeck
             ? "deck-levels"
             : "paving-areas"
@@ -3708,7 +3894,7 @@ async function renderSectionDetail(root) {
     };
   }
 
-  if (rates) wireSectionRates(root, section);
+  if (rates && !isMisc) wireSectionRates(root, section);
 
   const btnRefreshEquip = $("#btn-refresh-equip");
   if (btnRefreshEquip) {

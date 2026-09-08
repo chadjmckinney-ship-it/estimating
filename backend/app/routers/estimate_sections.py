@@ -18,6 +18,7 @@ from app.db import get_db
 from app.models.estimate import Estimate
 from app.models.estimate_section import (
     DEFAULT_UNIT_BY_KIND,
+    MISC_KINDS,
     PIER_KINDS,
     SECTION_KINDS,
     EstimateSection,
@@ -198,6 +199,15 @@ def create_section(
     from app.services import section_rates as sr
 
     sr.seed(db, row)
+    if row.kind in MISC_KINDS:
+        # The 13 tab's 22 items at no quantity (sql/078) — Chad, 2026-09-08:
+        # "the 4 sections with the ones shown as defaults, minus the quantities".
+        from app.services.costing import refresh_pour_costs
+        from app.services.misc import seed_from_library
+
+        seed_from_library(db, row)
+        # Priced at once, so the page opens on $0.00 rather than a blank.
+        refresh_pour_costs(db, row)
     db.commit()
     return _to_read(db, row)
 
@@ -325,6 +335,7 @@ def _takeoff_rows(db: Session, section_id: UUID) -> dict[str, int]:
     from app.models.mono_slab import MonoSlab
     from app.models.pier_group import PierGroup
     from app.models.beam_run import BeamRun
+    from app.models.misc_item import MiscItem
     from app.models.panel_type import PanelType
     from app.models.wall_run import WallRun
 
@@ -332,7 +343,7 @@ def _takeoff_rows(db: Session, section_id: UUID) -> dict[str, int]:
     for name, model in (
         ("pours", MonoSlab), ("pier groups", PierGroup), ("wall runs", WallRun),
         ("column types", ColumnType), ("deck levels", DeckLevel), ("beam runs", BeamRun),
-        ("panel types", PanelType),
+        ("panel types", PanelType), ("misc items", MiscItem),
     ):
         n = db.scalar(
             select(func.count()).select_from(model).where(model.section_id == section_id)

@@ -275,6 +275,19 @@ export const Api = {
       body: { section_id: sectionId, rows, delete_missing: deleteMissing },
     }),
 
+  // Miscellaneous — the eighth shape (sql/078): priced site items in four
+  // families, each grid saving its own rows and leaving the others alone.
+  listMiscItems: (sectionId) =>
+    api(`/misc-items?section_id=${encodeURIComponent(sectionId)}`),
+  miscTotals: (sectionId) =>
+    api(`/misc-items/totals?section_id=${encodeURIComponent(sectionId)}`),
+  deleteMiscItem: (id) => api(`/misc-items/${id}`, { method: "DELETE" }),
+  bulkSaveMiscItems: (sectionId, rows, deleteMissing = false) =>
+    api("/misc-items/bulk", {
+      method: "PUT",
+      body: { section_id: sectionId, rows, delete_missing: deleteMissing },
+    }),
+
   // The CIP elevated deck — the fifth takeoff shape: a LEVEL (sql/052). An
   // area, a thickness, two mats and the grade beams running through it. The
   // beams are a nested list on the row, so the grid sends them with it.

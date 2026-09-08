@@ -32,6 +32,7 @@ from tests import slabs_fixture as rsf
 from tests import slab_on_deck_fixture as sodf
 from tests import sidewalks_fixture as swf
 from tests import panels_fixture as pnf
+from tests import misc_fixture as mcf
 
 # What every mono-slab or paving page reads off /api/mono-slabs/totals.
 SLAB_TOTALS = {
@@ -163,6 +164,30 @@ PAGES = {
         nonnull={"calc_sf", "calc_concrete_cy", "calc_total_rebar_lb", "calc_cost"},
         forming={"kind", "panel_count", "perimeter_lf", "opening_lf", "bottom_lf", "form_percent"},
         labor={"panel_count", "total_sf", "bottom_lf", "total_rebar_tons", "super_days"},
+        money={"concrete", "rebar"},
+    ),
+    # Miscellaneous (sql/078): priced site items in four families, the sale typed.
+    "miscellaneous": dict(
+        build=mcf.build,
+        rows="/api/misc-items", totals="/api/misc-items/totals",
+        totals_keys={
+            "row_count", "item_count", "total_qty", "total_sale", "total_concrete_cy", "total_steel_lb",
+            "total_concrete_cost", "total_steel_cost", "total_forms_cost", "total_labor_cost",
+            "total_sub_labor_cost", "total_super_cost", "total_equip_cost", "total_tax", "total_cost",
+            "total_margin", "sale_at_markup",
+        },
+        row_keys={
+            "id", "code", "description", "shape", "unit", "qty", "unit_sale", "labor_per_unit", "subcontracted",
+            "pours_concrete", "mix_design_id", "dim_a", "dim_b", "dim_c", "concrete_waste", "steel_lb_per_cy",
+            "steel_lb_per_in_ft", "steel_lb_per_unit", "forms_pct_of_sale", "forms_per_unit", "forms_per_face_sf",
+            "forms_pct_of_concrete", "super_pct_of_labor", "equip_per_unit", "equip_pct_of_labor", "equip_min",
+            "calc_concrete_cy", "calc_steel_lb", "calc_sale", "calc_concrete_cost", "calc_steel_cost",
+            "calc_forms_cost", "calc_labor_cost", "calc_super_cost", "calc_equip_cost", "calc_tax",
+            "calc_cost", "calc_cost_per_unit", "calc_margin",
+        },
+        nonnull={"calc_sale", "calc_cost"},
+        forming={"kind"},
+        labor={"super_days"},
         money={"concrete", "rebar"},
     ),
     "piers": dict(

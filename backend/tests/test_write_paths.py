@@ -51,6 +51,8 @@ ASSEMBLIES = [
     # Absent until 2026-09-04 (audit P2 #9): the deck — the largest section
     # on the job — was in none of the four matrices, against the docstring.
     ("deck",    "deck_fixture",      "deck-levels",  "area_sf"),
+    ("panels",  "panels_fixture",    "panel-types",  "qty"),
+    ("misc",    "misc_fixture",      "misc-items",   "qty"),
 ]
 
 

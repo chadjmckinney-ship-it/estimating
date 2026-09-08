@@ -33,6 +33,7 @@ from app.models.estimate_section import (
     SIDEWALK_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
+    MISC_KINDS,
     PANEL_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
@@ -166,6 +167,26 @@ def _super_days(db: Session, section_id: UUID) -> Decimal:
 
 def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
     kind = section_kind(db, section_id)
+    if kind in MISC_KINDS:
+        # No ladder and no line set (sql/078): the items carry their own
+        # equipment as typed dollars.
+        from app.services.misc import misc_drivers
+
+        m = misc_drivers(db, section_id)
+        zero = Decimal("0")
+        return {
+            "kind": kind,
+            "pour_count": m["row_count"],
+            "pier_count": 0,
+            "column_count": 0,
+            "total_sf": zero,
+            "total_lf": zero,
+            "super_days": zero,
+            "equip_days": zero,
+            "total_concrete_cy": m["total_concrete_cy"],
+            "curb_lf": zero, "demo_lf": zero, "slip_form_sf": zero, "traffic_control_sf": zero,
+            "construction_joint_lf": zero, "control_joint_lf": zero,
+        }
     if kind in PIER_KINDS:
         # Piers keeps its quantities in pier_groups, and its CY is what pumping
         # and haul-off ride on.
@@ -506,6 +527,11 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
     kind = section_kind(db, section_id)
     days = float(d["equip_days"])
     cy = float(d["total_concrete_cy"])
+    if kind in MISC_KINDS:
+        # The items carry their own equipment (sql/078): no ladder, no lines,
+        # no mobilization to ask about — and no rate read, so the section's
+        # rates card stays empty.
+        return _totals(d, [], True)
     use_tiers = _use_rental_tiers(db, kind)
 
     vault_rate = float(_rate_numeric(db, kind, "equip_vault_day_rate", Decimal("25")))

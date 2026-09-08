@@ -26,7 +26,7 @@ from app.models.estimate_equipment import EstimateEquipmentSummary
 from app.models.estimate_forming import EstimateFormingSummary
 from app.models.estimate_labor import EstimateLaborSummary
 from app.services.calc import refresh_section_slab_calcs
-from app.models.estimate_section import BEAM_KINDS, COLUMN_KINDS, DECK_KINDS, PANEL_KINDS
+from app.models.estimate_section import BEAM_KINDS, COLUMN_KINDS, DECK_KINDS, MISC_KINDS, PANEL_KINDS
 from app.services.costing import PIER_KINDS, WALL_KINDS
 from app.services.estimate_equipment import refresh_and_store_equipment
 from app.services.forming import refresh_and_store_forming
@@ -180,6 +180,11 @@ def recalc_section(
             from app.services.panels import refresh_section_panel_calcs
 
             done["pours"] = refresh_section_panel_calcs(db, section)
+        elif section.kind in MISC_KINDS:
+            # Eighth shape: a priced ITEM with a typed sale (sql/078).
+            from app.services.misc import refresh_section_misc_calcs
+
+            done["pours"] = refresh_section_misc_calcs(db, section)
         else:
             done["pours"] = refresh_section_slab_calcs(db, section)
 

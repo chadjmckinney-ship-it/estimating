@@ -88,6 +88,14 @@ DECK_KINDS = frozenset({"cip_deck"})
 # opening comes off the concrete, adds a set of the edge bars and puts its
 # perimeter on the lumber and the chamfer.
 PANEL_KINDS = frozenset({"panels"})
+# Miscellaneous is the last tab and the eighth shape (sql/078): a priced
+# LIBRARY of site items — light pole bases, elevator pits, transformer pads,
+# ADA ramps — each with a typed unit sale, a typed labor cost and a shape the
+# concrete and steel come from. The sale is the sum of the rows' typed sales
+# and the margin is the answer. Chad, 2026-09-08: "have the 4 sections with
+# the ones shown as defaults, minus the quantities.. then a button for each
+# section to add another row".
+MISC_KINDS = frozenset({"miscellaneous"})
 
 # What each assembly is measured in — a property of the assembly, not the job.
 DEFAULT_UNIT_BY_KIND = {
