@@ -58,6 +58,8 @@ from sqlalchemy.orm import Session
 
 from app.services import paving as pv
 from app.models.estimate_section import (
+    BEAM_KINDS,
+    CONT_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
     PAVING_KINDS,
@@ -157,6 +159,51 @@ def _wall_forming_drivers(db: Session, section_id: UUID, kind: str | None) -> di
         "total_concrete_cy": _d(row["cy"]),
         "total_rebar_lb": _d(row["steel"]),
         "pier_count": 0,
+        "total_lf": Decimal("0"),
+        "total_sf": Decimal("0"),
+        "perimeter_lf": Decimal("0"),
+        "curb_lf": Decimal("0"),
+        "thin_sf": Decimal("0"),
+        "thick_sf": Decimal("0"),
+        "drops_ff": Decimal("0"),
+        "support_rebar_lb": Decimal("0"),
+        "mesh_sf": Decimal("0"),
+        "ledge_lf": Decimal("0"),
+        "ledge_face_sf": Decimal("0"),
+        "construction_joint_lf": Decimal("0"),
+        "control_joint_lf": Decimal("0"),
+        "form_percent": form_pct,
+        "form_percent_is_override": False,
+        "form_percent_system_default": form_pct,
+        "form_waste": _rate_numeric(db, kind, "form_waste", Decimal("0")),
+    }
+
+
+def _beam_forming_drivers(db: Session, section_id: UUID, kind: str | None) -> dict[str, Any]:
+    """
+    The beam tab's lumber block (sql/073) runs off FACE FEET (one face, the
+    tab's I63), CONTACT FEET (both faces, BA36) and beam LENGTH. Nothing runs
+    off an area.
+    """
+    from app.services.beams import beam_drivers
+
+    b = beam_drivers(db, section_id)
+    form_pct = _rate_numeric(db, kind, "form_percent", Decimal("0.50"))
+    return {
+        "section_id": section_id,
+        "kind": kind,
+        "pour_count": b["run_count"],
+        "beam_lf": b["beam_lf"],
+        "contact_ff": b["contact_ff"],
+        "face_ff": b["face_ff"],
+        "pilaster_ff": b["pilaster_ff"],
+        "total_concrete_cy": b["total_concrete_cy"],
+        "total_rebar_lb": b["total_rebar_lb"],
+        "pier_count": 0,
+        "wall_lf": Decimal("0"),
+        "form_ff": Decimal("0"),
+        "footing_sf": Decimal("0"),
+        "drain_lf": Decimal("0"),
         "total_lf": Decimal("0"),
         "total_sf": Decimal("0"),
         "perimeter_lf": Decimal("0"),
@@ -314,6 +361,8 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _pier_forming_drivers(db, section_id, kind_now)
     if kind_now in WALL_KINDS:
         return _wall_forming_drivers(db, section_id, kind_now)
+    if kind_now in BEAM_KINDS:
+        return _beam_forming_drivers(db, section_id, kind_now)
     if kind_now in COLUMN_KINDS:
         return _column_forming_drivers(db, section_id, kind_now)
     if kind_now in DECK_KINDS:
@@ -1367,6 +1416,146 @@ def _wall_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _beam_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    02-Gd Beams' lumber and accessory block (sql/073), rows 48–89 of the tab.
+
+    Lumber runs off FACE FEET x the tab's "% OF FORMING" (T48: 0.5 on the
+    template, 0 on the Podium job); stakes and chamfer off beam LENGTH; wall
+    ties off CONTACT FEET; camlocks off face feet. Three lines the tab
+    carries but zeroes by formula — keyway, water stop, the slab dowels —
+    are here and OFF until switched on: a keyed cold joint at the slab is
+    real on a separately poured beam, and a line that exists but reads zero
+    is how the tab says "when the job calls for it". Form rental is the
+    same: the tab's rate cell is blank on both jobs.
+
+    Two switch lines the walls block has no equivalent of: CARTON FORMS
+    under the beam and the DURROCK RETAINER either side, each per LF of
+    beam with the tab's own 10% waste (K57), priced by rate. The LBJ
+    template types Y for both; the Podium beams typed n, its continuous
+    footings Y. A continuous footing (CONT_KINDS) starts with wall ties and
+    camlocks OFF, the way the Podium tab types them.
+
+    Left out on purpose, each a template leftover whose cell reads a junk
+    reference or a blank price: anchor bolts (AM28), patch (BI57), slab
+    chairs (priced from BL65 = 0), slab cure (blank), form release (BI64),
+    poly, insulation, the two "special material" rows, PPE, bolsters.
+
+    Where this differs from the tab, named in the fixture: accessories at
+    the catalog's $0.04/lb where the tab types $0.02 (prices live in the
+    catalog, sql/044), and concrete haul-off untaxed, as on every other
+    assembly (a service, sql/036), where this tab taxes its whole lumber
+    column.
+    """
+    kind = d["kind"]
+    cont = kind in CONT_KINDS
+    lf = float(d["beam_lf"])
+    face = float(d["face_ff"])
+    contact = float(d["contact_ff"])
+    cy = float(d["total_concrete_cy"])
+    steel = float(d["total_rebar_lb"])
+    pct = float(d["form_percent"])
+    waste = d["form_waste"]
+
+    n16 = float(_rate_numeric(db, kind, "nails_16p_per_sf", Decimal("1800")))
+    n8 = float(_rate_numeric(db, kind, "nails_8p_per_sf", Decimal("1000")))
+    haul_load = float(_rate_numeric(db, kind, "haul_off_cy_per_load", Decimal("300")))
+    ply_rate = float(_rate_numeric(db, kind, "lumber_ply_per_ff", Decimal("0.0625")))
+    carton_waste = _rate_numeric(db, kind, "carton_forms_waste", Decimal("0.10"))
+    rental_pct = _rate_numeric(db, kind, "form_rental_percent", Decimal("0.3"))
+
+    m_2x4 = _find_material(db, "2 X 4")
+    m_2x6 = _find_material(db, "2 X 6")
+    m_2x10 = _find_material(db, "2 X 10")
+    m_ply = _find_material(db, "FORMING PLY") or _find_material(db, "PLY")
+    m_stakes = _find_material(db, "2 x 2", "Stake") or _find_material(db, "2 x 2")
+    m_16p = _find_material(db, "16p")
+    m_8p = _find_material(db, "8p")
+    m_6p = _find_material(db, "6p")
+    m_key = _find_material(db, "KEYWAY")
+    m_chamfer = _find_material(db, "CHAMFER")
+    m_ties = _find_material(db, "WALL TIE")
+    m_stop = _find_material(db, "WATER STOP")
+    m_cam = _find_material(db, "CAMLOCK")
+    m_turn = _find_material(db, "TURNBUCKLE")
+    m_haul = _find_material(db, "CONCRETE HAUL")
+    m_acc = _find_material(db, "ACCESSORIES")
+    m_dowel = _find_material(db, "1/2", "SMOOTH DOWELS")
+
+    def L(**kw: Any) -> dict[str, Any]:
+        return _line(db=db, kind=kind, form_waste=waste, **kw)
+
+    def off(ln: dict[str, Any]) -> dict[str, Any]:
+        ln["enabled"] = False
+        return ln
+
+    ties = L(code="wall_ties", label="WALL TIES", qty=_ceil(contact * 0.55 / 2.0 / 100.0), unit="BOX",
+             formula="ceil(contact FF × 0.55 / 2 / 100)", material=m_ties, sheet_unit_cost="45",
+             notes="Both faces are formed, so the ties run off contact feet (T62)")
+    cams = L(code="camlocks", label="CAMLOCKS", qty=face / 3.0 * 2.0, unit="EA",
+             formula="face FF / 3 × 2", material=m_cam, sheet_unit_cost="0.8594")
+    if cont:
+        off(ties)
+        off(cams)
+        ties["notes"] = "Off on a continuous footing — the Podium tab types 0; switch on if the footing is tied"
+        cams["notes"] = "Off on a continuous footing — the Podium tab types 0"
+
+    return [
+        L(code="2x4", label="2 X 4 X 16'", qty=face * pct, unit="LF",
+          formula="face FF × form%", material=m_2x4, sheet_unit_cost="0.859375"),
+        L(code="2x6", label="2 X 6 X 16'", qty=face * pct, unit="LF",
+          formula="= 2x4", material=m_2x6, sheet_unit_cost="1.4453125"),
+        L(code="2x10", label="2 X 10 X 16'", qty=face * pct * 0.1, unit="LF",
+          formula="2x4 × 0.10", material=m_2x10, sheet_unit_cost="1.09375"),
+        L(code="ply", label='3/4" FORMING PLY', qty=face * ply_rate * pct, unit="SHT",
+          formula="face FF × 2/32 × form%", material=m_ply, sheet_unit_cost="74.75",
+          notes="Not rounded and no cutting allowance — the beam tab has neither"),
+        L(code="stakes", label="2 x 2 x 30 STAKES", qty=_ceil(lf / 2.0 / 25.0), unit="BUNDLE",
+          formula="ceil(beam LF / 2 / 25)", material=m_stakes, sheet_unit_cost="24",
+          notes="Whole bundles, and form% does not apply here (T55)"),
+        L(code="16p", label="16p NAILS DUPLEX", qty=_ceil(face / n16) if n16 else 0, unit="BOX",
+          formula=f"ceil(face FF / {n16:g})", material=m_16p, sheet_unit_cost="45"),
+        L(code="8p", label="8p DUPLEX", qty=_ceil(face / n8) if n8 else 0, unit="BOX",
+          formula=f"ceil(face FF / {n8:g})", material=m_8p, sheet_unit_cost="68.2"),
+        L(code="6p", label="6p NAILS", qty=_ceil(face / n8) if n8 else 0, unit="BOX",
+          formula="= 8p", material=m_6p, sheet_unit_cost="68.2"),
+        off(L(code="keyway", label="KEYWAY", qty=lf, unit="LF",
+              formula="beam LF — off until switched on", material=m_key, sheet_unit_cost="0.95",
+              notes="A keyed cold joint at the slab. The tab's own cell reads 0; switch on where the beam is keyed")),
+        L(code="chamfer", label="CHAMFER", qty=lf * 2.0, unit="LF",
+          formula="beam LF × 2", material=m_chamfer, sheet_unit_cost="0.25",
+          notes="Both top edges"),
+        ties,
+        off(L(code="water_stop", label="WATER STOP", qty=lf, unit="LF",
+              formula="beam LF — off until switched on", material=m_stop, sheet_unit_cost="2.25",
+              notes="The tab's formula subtracts it out (F36 − F36); switch on for a wet joint")),
+        cams,
+        L(code="turnbuckles", label="TURNBUCKLES", qty=face / 3.0 * pct, unit="EA",
+          formula="camlocks / 2 × form%", material=m_turn, sheet_unit_cost="1.4453"),
+        L(code="haul_off", label="CONCRETE HAUL OFF", qty=cy / haul_load if cy > 0 and haul_load else 0,
+          unit="LOADS", formula=f"concrete CY / {haul_load:g}", material=m_haul, taxable=False,
+          notes="Hauling is a service, not a purchase — not taxed, though this tab taxes it"),
+        L(code="accessories", label="ACCESSORIES", qty=steel, unit="LB",
+          formula="total steel lb", material=m_acc, sheet_unit_cost="0.04",
+          notes="The tab types $0.02/lb where the catalog says $0.04 — the catalog wins (sql/044)"),
+        off(L(code="dowels", label='1/2" SMOOTH DOWELS', qty=lf * 12.0 / 18.0, unit="PCS",
+              formula='beam LF × 12 / 18" — off until switched on', material=m_dowel,
+              notes='Slab dowels at the cold joint, 18" c.c. (the tab\'s T88). Switch on with the keyway')),
+        _rate_line(db, kind=kind, code="carton_forms", label="CARTON FORMS", qty=Decimal(str(lf)) * (Decimal("1") + carton_waste),
+                   unit="LF", formula="beam LF × (1 + waste) × $/LF", rate_key="carton_forms_lf",
+                   notes="Void forms under the beam (G58). The template says Y; the Podium beams typed n — switch off where there are none"),
+        _rate_line(db, kind=kind, code="durrock_retainer", label="DURROCK RETAINER",
+                   qty=Decimal(str(lf)) * Decimal("2") * (Decimal("1") + carton_waste),
+                   unit="LF", formula="beam LF × 2 × (1 + waste) × $/LF", rate_key="durrock_retainer_lf",
+                   notes="Both sides (G59)"),
+        off(_rate_line(db, kind=kind, code="form_rental", label="FORM RENTAL",
+                       qty=Decimal(str(contact)) * rental_pct, unit="CONTACT FT",
+                       formula="contact FF × form rental % × $/contact ft", rate_key="form_rental_contact_ft",
+                       group="rentals",
+                       notes="The tab rents a share of the contact area (K60, 30%); its rate cell G60 is blank on both jobs — off until a rate is named")),
+    ]
+
+
 def calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
     """One of the four price gates (sql/048): the whole takeoff prices from the
     estimate's sheet. See services/price_book.py."""
@@ -1387,6 +1576,8 @@ def _calc_forming_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines = _pier_lines(db, d)
     elif d["kind"] in WALL_KINDS:
         lines = _wall_lines(db, d)
+    elif d["kind"] in BEAM_KINDS:
+        lines = _beam_lines(db, d)
     elif d["kind"] in COLUMN_KINDS:
         lines = _column_lines(db, d)
     elif d["kind"] in DECK_KINDS:
@@ -1506,7 +1697,10 @@ def refresh_and_store_forming(db: Session, section_id: UUID) -> dict[str, Any]:
             stored_lines.append(m)
             continue
 
-        on = ln["code"] not in was_off
+        # A decision already taken on this section wins; a NEW line takes the
+        # default its line set gave it — some start OFF (sql/073: the beam
+        # tab's keyway, water stop, dowels and form rental exist and read 0).
+        on = existing[ln["code"]].enabled if ln["code"] in existing else ln.get("enabled", True)
         row = EstimateFormingLine(
             section_id=section_id,
             code=ln["code"],
@@ -1722,6 +1916,19 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
             "drivers": d,
             "lines": lines,
             "total_ext_cost": summary.total_ext_cost,
+            "missing_prices": [ln["code"] for ln in lines if ln.get("missing_price")],
+            "stored": True,
+            "refreshed_at": summary.refreshed_at.isoformat() if summary.refreshed_at else None,
+        }
+    if kind in BEAM_KINDS:
+        # Beam runs, not pours (sql/073); the rentals group gets its own total.
+        d = _beam_forming_drivers(db, section_id, kind)
+        d["pour_count"] = summary.pour_count
+        return {
+            "drivers": d,
+            "lines": lines,
+            "total_ext_cost": summary.total_ext_cost,
+            **_group_totals(lines),
             "missing_prices": [ln["code"] for ln in lines if ln.get("missing_price")],
             "stored": True,
             "refreshed_at": summary.refreshed_at.isoformat() if summary.refreshed_at else None,

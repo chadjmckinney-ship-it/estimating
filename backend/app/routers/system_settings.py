@@ -47,6 +47,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Waste & allowances", (
         "waste_", "support_rebar_lb_per_sf", "pt_lb_per_sf",
         "labor_tie_steel_free_lb_per_sf", "haul_off_swell", "backfill_swell",
+        "pilaster_steel_pct", "carton_forms_waste",
     )),
     # After the allowances above, so `labor_tie_steel_free_lb_per_sf`
     # files as the allowance it is rather than as a rate.
@@ -58,6 +59,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "waterproofing_sf", "barricades_", "engineering_sf", "freight_load",
         "form_rental_", "shoring_rental_sf", "rock_cy", "misc_contract_ls",
     )),
+    ("Beam materials", ("carton_forms_lf", "durrock_retainer_lf")),
     ("Forming quantities", (
         "form_percent", "form_waste", "lumber_", "nails_", "stakes_",
         "chamfer_", "chairs_", "patch_", "camlocks_", "wall_ties_",

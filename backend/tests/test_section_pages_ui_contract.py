@@ -27,6 +27,7 @@ from tests import paving_fixture as pf
 from tests import piers_fixture as pif
 from tests import walls_fixture as wf
 from tests import spot_footings_fixture as sf
+from tests import grade_beams_fixture as gbf
 
 # What every mono-slab or paving page reads off /api/mono-slabs/totals.
 SLAB_TOTALS = {
@@ -160,6 +161,54 @@ PAGES = {
         forming={"kind", "footing_sf"},
         labor={"footing_sf", "total_rebar_tons", "super_days"},
         money={"footing_concrete", "rebar", "weld_plates"},
+    ),
+    # Separately poured grade beams and continuous footings (sql/073): one row
+    # a beam type with a length, two kinds on one engine, sold per LF.
+    "grade_beams": dict(
+        build=gbf.build,
+        rows="/api/beam-runs", totals="/api/beam-runs/totals",
+        totals_keys={
+            "run_count", "pilaster_count", "total_length_ft", "total_contact_ff", "total_face_ff",
+            "total_pilaster_ff", "total_concrete_cy", "total_rebar_lb", "total_excavate_cy",
+            "total_backfill_cy", "total_cost", "total_sale", "cost_per_ff", "sale_per_ff",
+        },
+        row_keys={
+            "id", "label", "mix_design_id", "length_ft", "width_in", "height_in",
+            "top_bars_count", "top_bars_size", "bottom_bars_count", "bottom_bars_size",
+            "mid_bars_count", "mid_bars_size", "stirrup_size", "stirrup_spacing_in",
+            "l_bars_size", "l_bars_spacing_in", "l_bars_length_ft",
+            "pilaster_count", "pilaster_length_in", "pilaster_width_in",
+            "calc_face_ff", "calc_contact_ff", "calc_concrete_cy", "calc_total_rebar_lb",
+            "calc_excavate_cy", "calc_backfill_cy", "calc_cost", "calc_sale",
+            "calc_cost_per_unit", "calc_sale_per_unit",
+        },
+        nonnull={"calc_face_ff", "calc_concrete_cy", "calc_total_rebar_lb", "calc_excavate_cy"},
+        forming={"kind", "beam_lf", "face_ff", "contact_ff", "form_percent"},
+        labor={"beam_lf", "face_ff", "total_rebar_tons", "super_days"},
+        money={"concrete", "rebar"},
+    ),
+    "cont_footings": dict(
+        build=gbf.build_footings,
+        rows="/api/beam-runs", totals="/api/beam-runs/totals",
+        totals_keys={
+            "run_count", "pilaster_count", "total_length_ft", "total_contact_ff", "total_face_ff",
+            "total_pilaster_ff", "total_concrete_cy", "total_rebar_lb", "total_excavate_cy",
+            "total_backfill_cy", "total_cost", "total_sale", "cost_per_ff", "sale_per_ff",
+        },
+        row_keys={
+            "id", "label", "mix_design_id", "length_ft", "width_in", "height_in",
+            "top_bars_count", "top_bars_size", "bottom_bars_count", "bottom_bars_size",
+            "mid_bars_count", "mid_bars_size", "stirrup_size", "stirrup_spacing_in",
+            "l_bars_size", "l_bars_spacing_in", "l_bars_length_ft",
+            "pilaster_count", "pilaster_length_in", "pilaster_width_in",
+            "calc_face_ff", "calc_contact_ff", "calc_concrete_cy", "calc_total_rebar_lb",
+            "calc_excavate_cy", "calc_backfill_cy", "calc_cost", "calc_sale",
+            "calc_cost_per_unit", "calc_sale_per_unit",
+        },
+        nonnull={"calc_face_ff", "calc_concrete_cy", "calc_total_rebar_lb", "calc_excavate_cy"},
+        forming={"kind", "beam_lf", "face_ff", "contact_ff", "form_percent"},
+        labor={"beam_lf", "face_ff", "total_rebar_tons", "super_days"},
+        money={"concrete", "rebar"},
     ),
 }
 

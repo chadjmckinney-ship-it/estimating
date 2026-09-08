@@ -22,6 +22,11 @@ class LaborDrivers(BaseModel):
     wall_lf: Decimal = Decimal("0")
     form_ff: Decimal = Decimal("0")
     footing_sf: Decimal = Decimal("0")
+    # Beam runs (sql/073): LF of beam, one face, both faces, pilaster face.
+    beam_lf: Decimal = Decimal("0")
+    face_ff: Decimal = Decimal("0")
+    contact_ff: Decimal = Decimal("0")
+    pilaster_ff: Decimal = Decimal("0")
     # Columns: the only assembly whose duration comes from a COUNT rather than
     # an area or a typed number of days — 20 a week on a five-day week. The
     # screen spells the derivation out, so it needs the two divisors and not

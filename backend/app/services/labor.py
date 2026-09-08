@@ -30,6 +30,7 @@ from app.models.estimate_section import (
     DECK_KINDS,
     PAVING_KINDS,
     PIER_KINDS,
+    BEAM_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
 )
@@ -110,6 +111,8 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
         return _pier_labor_drivers(db, section_id, kind)
     if kind in WALL_KINDS:
         return _wall_labor_drivers(db, section_id, kind)
+    if kind in BEAM_KINDS:
+        return _beam_labor_drivers(db, section_id, kind)
     if kind in COLUMN_KINDS:
         return _column_labor_drivers(db, section_id, kind)
     if kind in DECK_KINDS:
@@ -837,6 +840,110 @@ def _deck_labor_lines(
     ]
 
 
+def _beam_labor_drivers(db: Session, section_id: UUID, kind: str | None) -> dict[str, Any]:
+    """
+    Beams, like walls, TYPE their supervision days (the tab's E73) and the
+    equipment ladder rides that number. Every other driver is a sum off
+    beam_runs (sql/073).
+    """
+    from app.services.beams import beam_drivers
+
+    b = beam_drivers(db, section_id)
+    typed_days = db.execute(
+        text(
+            "SELECT qty FROM estimate_labor_lines "
+            "WHERE section_id = :sid AND code = 'superintendent'"
+        ),
+        {"sid": str(section_id)},
+    ).scalar()
+    days = _d(typed_days)
+    rebar = b["total_rebar_lb"]
+    days_per_week = _rate_numeric(db, kind, "labor_super_days_per_week", Decimal("7"))
+    return {
+        "kind": kind,
+        "pour_count": b["run_count"],
+        "pier_count": 0,
+        "beam_lf": b["beam_lf"],
+        "contact_ff": b["contact_ff"],
+        "face_ff": b["face_ff"],
+        "pilaster_ff": b["pilaster_ff"],
+        "excavate_cy": b["excavate_cy"],
+        "backfill_cy": b["backfill_cy"],
+        "wall_lf": Decimal("0"),
+        "form_ff": Decimal("0"),
+        "footing_sf": Decimal("0"),
+        "drain_lf": Decimal("0"),
+        "total_sf": Decimal("0"),
+        "total_lf": Decimal("0"),
+        "drops_ff": Decimal("0"),
+        "ledge_lf": Decimal("0"),
+        "curb_lf": Decimal("0"),
+        "paving_add": Decimal("0"),
+        "total_rebar_lb": rebar,
+        # Every pound in a beam cage is tied — no support-steel allowance.
+        "tied_rebar_lb": rebar,
+        "total_rebar_tons": (rebar / Decimal("2000")).quantize(Decimal("0.0001")),
+        "total_concrete_cy": b["total_concrete_cy"],
+        "total_slab_cy": Decimal("0"),
+        "super_days": days,
+        "super_weeks": (days / days_per_week).quantize(Decimal("0.0001"))
+        if days_per_week > 0
+        else Decimal("0"),
+        "sf_per_week": Decimal("0"),
+        "days_per_week": days_per_week,
+        "super_days_are_typed": True,
+    }
+
+
+def _beam_labor_lines(
+    db: Session, kind: str | None, d: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """
+    02-Gd Beams rows 62–70 (sql/073).
+
+    Four rates run off FACE FEET — one face, the tab's I63 — and one more
+    off the pilasters' own face feet. Tie steel per ton, excavation and
+    backfill per CY of the takeoff's stored trench figures.
+    """
+    face = float(d["face_ff"])
+    pil = float(d["pilaster_ff"])
+    tons = float(d["total_rebar_tons"])
+    exc = float(d["excavate_cy"])
+    bkf = float(d["backfill_cy"])
+
+    return [
+        _line(group="labor", code="pilasters", label="PILASTERS",
+              rate=_rate(db, kind, "labor_pilasters_ff", Decimal("8")),
+              unit="/FF", qty=pil, formula="pilaster face FF × rate",
+              notes="(L\" + W\") × H / 144 per pilaster — the tab's BC column", order=5),
+        _line(group="labor", code="forming", label="FORMING",
+              rate=_rate(db, kind, "labor_forming_sf", Decimal("4")),
+              unit="/FF", qty=face, formula="face FF × rate",
+              notes="One face — the tab's I63; both faces are formed, and the rate knows it", order=10),
+        _line(group="labor", code="place_finish", label="PLACE AND FINISH",
+              rate=_rate(db, kind, "labor_place_finish_sf", Decimal("4")),
+              unit="/FF", qty=face, formula="face FF × rate", order=20),
+        _line(group="labor", code="wreck", label="WRECK AND CLEAN UP",
+              rate=_rate(db, kind, "labor_wreck_sf", Decimal("1")),
+              unit="/FF", qty=face, formula="face FF × rate", order=30),
+        _line(group="labor", code="rub_patch", label="RUB AND PATCH",
+              rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.25")),
+              unit="/FF", qty=face, formula="face FF × rate", order=40),
+        _line(group="labor", code="tie_steel", label="TIE STEEL",
+              rate=_rate(db, kind, "labor_tie_steel_ton", Decimal("450")),
+              unit="/TON", qty=tons, formula="total steel lb / 2000 × rate", order=60),
+        _line(group="labor", code="excavate", label="EXCAVATE",
+              rate=_rate(db, kind, "labor_excavate_cy", Decimal("4")),
+              unit="/CY", qty=exc, formula="trench + beam CY × rate",
+              notes="A trench as deep as the beam is tall and as wide as it is tall, plus the beam itself (FT)", order=80),
+        _line(group="labor", code="backfill", label="BACKFILL/COMPACTION",
+              rate=_rate(db, kind, "labor_backfill_cy", Decimal("8")),
+              unit="/CY", qty=bkf, formula="trench CY × rate", order=90),
+        _line(group="labor", code="extra_hours", label="EXTRA HOURS", rate=0,
+              unit="LS", qty=0, formula="manual lump sum", order=100),
+    ]
+
+
 def _wall_labor_lines(
     db: Session, kind: str | None, d: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -945,6 +1052,8 @@ def _calc_labor_materials(db: Session, section_id: UUID) -> dict[str, Any]:
         lines: list[dict[str, Any]] = _pier_labor_lines(db, kind, d)
     elif kind in WALL_KINDS:
         lines = _wall_labor_lines(db, kind, d)
+    elif kind in BEAM_KINDS:
+        lines = _beam_labor_lines(db, kind, d)
     elif kind in COLUMN_KINDS:
         lines = _column_labor_lines(db, kind, d)
     elif kind in DECK_KINDS:
@@ -1218,7 +1327,7 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
         "pour_count": summary.pour_count,
         "pier_count": int(extra["pier_count"] or 0),
         "total_lf": _d(extra["pier_lf"]),
-        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS,
+        "super_days_are_typed": kind in PIER_KINDS or kind in WALL_KINDS or kind in BEAM_KINDS,
         "total_sf": summary.total_sf,
         "drops_ff": summary.drops_ff,
         "curb_lf": _d(extra["curb_lf"]),
@@ -1238,12 +1347,14 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
     # a columns header says "68 ÷ 20 a week × 5", which needs both divisors and
     # not just the answer. Nothing already in the dict is touched — every
     # stored cost, day and total above survives — so this can only add.
-    if kind in WALL_KINDS or kind in COLUMN_KINDS or kind in DECK_KINDS:
+    if kind in WALL_KINDS or kind in COLUMN_KINDS or kind in DECK_KINDS or kind in BEAM_KINDS:
         live = labor_drivers(db, section_id)
         for key in (
             "column_count", "form_sf", "chamfer_lf",
             "sf_per_week", "days_per_week", "foreman_days",
             "wall_lf", "form_ff", "footing_sf",
+            # A beams header says "1,248 LF · 3,120 FF (one face)" (sql/073).
+            "beam_lf", "face_ff", "contact_ff", "pilaster_ff", "excavate_cy", "backfill_cy",
             # A deck header says "32,100 SF, 1,684 LF of edge, 480 FF of beam
             # face" — the summary table has none of those columns.
             "level_count", "total_sf", "perm_edge_lf", "gb_form_ff",

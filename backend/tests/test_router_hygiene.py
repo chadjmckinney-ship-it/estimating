@@ -29,6 +29,7 @@ from app.services.calc import _setting_numeric
 from tests import mono_slab_fixture as mf
 from tests import piers_fixture as pif
 from tests import walls_fixture as wf
+from tests import grade_beams_fixture as gbf
 
 D = Decimal
 
@@ -67,7 +68,7 @@ def test_a_beam_type_edit_that_cannot_recalc_changes_nothing(client, db, estimat
 
 def test_every_assembly_is_guarded_on_section_delete(client, db, estimate):
     """Until now only mono-slab pours stood between a section and its deletion."""
-    for build, word in ((wf.build, "wall runs"), (pif.build, "pier groups")):
+    for build, word in ((wf.build, "wall runs"), (pif.build, "pier groups"), (gbf.build, "beam runs")):
         section = build(db, estimate)
         r = client.delete(f"/api/sections/{section.id}")
         assert r.status_code == 409, r.text

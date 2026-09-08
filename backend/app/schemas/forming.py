@@ -22,6 +22,11 @@ class FormingDrivers(BaseModel):
     wall_lf: Decimal = Decimal("0")
     form_ff: Decimal = Decimal("0")
     footing_sf: Decimal = Decimal("0")
+    # Beam runs (sql/073): LF of beam, one face, both faces, pilaster face.
+    beam_lf: Decimal = Decimal("0")
+    face_ff: Decimal = Decimal("0")
+    contact_ff: Decimal = Decimal("0")
+    pilaster_ff: Decimal = Decimal("0")
     drain_lf: Decimal = Decimal("0")
     # Columns form off CONTACT AREA — all four faces, since a column is wrapped
     # — and a count. `form_sf` is also mirrored into `total_sf` so anything

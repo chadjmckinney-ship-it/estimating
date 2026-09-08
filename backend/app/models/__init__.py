@@ -16,6 +16,7 @@ from app.models.grade_beam import GradeBeam
 from app.models.deck_level import DeckLevel, DeckLevelBeam
 from app.models.section_quote import SectionQuote
 from app.models.wall_run import WallRun
+from app.models.beam_run import BeamRun
 from app.models.mono_slab import MonoSlab
 from app.models.pier_group import PierGroup
 from app.models.project import Project, ProjectEstimator
@@ -48,4 +49,5 @@ __all__ = [
     "Material",
     "SectionQuote",
     "WallRun",
+    "BeamRun",
 ]

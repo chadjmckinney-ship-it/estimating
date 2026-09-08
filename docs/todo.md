@@ -211,7 +211,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Paving
 - [ ] Sidewalks / hardscape
 - [ ] Piers
-- [ ] Grade beams / continuous footings standalone (`02-Gd Beams` sheet)
+- [x] Grade beams / continuous footings standalone (`02-Gd Beams` sheet) — `sql/073`, 2026-09-07
 - [x] Exposed GBs + drops on mono pour (with grade beams)
 - [ ] Walls & footings
 - [ ] Elevated / CIP deck / slab on deck

@@ -44,6 +44,7 @@ from app.models.estimate_section import (
     COLUMN_KINDS,
     DECK_KINDS,
     PIER_KINDS,
+    BEAM_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
     EstimateSection,
@@ -678,6 +679,9 @@ def allocation_basis(kind: str | None) -> str:
     """
     if kind in PIER_KINDS:
         return "EA"
+    if kind in BEAM_KINDS:
+        # Face feet, one face (sql/073) — the beam tab's own I63. Sold per LF.
+        return "FF"
     if kind in WALL_KINDS:
         # Form feet — contact area on one face (sql/040). A walls section has
         # no square footage either, so the same zero-weight trap applies.
@@ -1016,6 +1020,52 @@ def _wall_units(db: Session, section: EstimateSection) -> list[_Unit]:
     return units
 
 
+def _beam_units(db: Session, section: EstimateSection) -> list[_Unit]:
+    """
+    One beam run, weighted by FACE FEET plus pilaster face feet — what the
+    labor is priced on — and measured in LF, the unit both beam kinds sell
+    in (Chad, 2026-09-07). Concrete from the row's own mix; steel from the
+    resolved rebar item or the section's rebar quote (sql/073).
+    """
+    from app.models.beam_run import BeamRun
+
+    kind = section.kind
+    runs = list(
+        db.scalars(
+            select(BeamRun)
+            .where(BeamRun.section_id == section.id)
+            .order_by(BeamRun.sort_order, BeamRun.created_at)
+        ).all()
+    )
+    quotes = qt.load_quotes(db, section.id)
+    rebar_q = quotes.get(qt.REBAR)
+    quoted_lb = rebar_q.per_lb() if rebar_q else None
+
+    units: list[_Unit] = []
+    for r in runs:
+        materials = Decimal("0")
+        cy = _d(r.calc_concrete_cy)
+        if cy > 0:
+            materials += cy * _z(_mix_unit_cost(db, r.mix_design_id))
+        steel = _d(r.calc_total_rebar_lb)
+        if steel > 0 and not (rebar_q and rebar_q.is_lump):
+            rate = quoted_lb if quoted_lb is not None else _z(_rebar_unit_cost(db, False, kind))
+            materials += steel * rate
+        units.append(
+            _Unit(
+                row=r,
+                weight=_d(r.calc_face_ff) + _d(r.calc_pilaster_ff),
+                cy=cy,
+                quantity=_d(r.length_ft),
+                direct_taxable=materials.quantize(_Q2),
+                direct_untaxed=Decimal("0"),
+                per_unit_fields=("calc_cost_per_unit", "calc_sale_per_unit"),
+            )
+        )
+    _apply_lump_quotes(db, section, units, quotes)
+    return units
+
+
 def cost_units(db: Session, section: EstimateSection) -> list[_Unit]:
     """
     The rows this section's cost is spread across, whatever shape they are.
@@ -1030,6 +1080,8 @@ def cost_units(db: Session, section: EstimateSection) -> list[_Unit]:
             return _pier_units(db, section)
         if section.kind in WALL_KINDS:
             return _wall_units(db, section)
+        if section.kind in BEAM_KINDS:
+            return _beam_units(db, section)
         if section.kind in COLUMN_KINDS:
             return _column_units(db, section)
         if section.kind in DECK_KINDS:
@@ -1240,6 +1292,14 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
             if getattr(r, "weld_plate", False):
                 need("WELD PLATE — material", _weld_plate_unit_cost(db), getattr(r, "footing_count", 0))
 
+    elif kind in BEAM_KINDS:
+        from app.models.beam_run import BeamRun
+
+        for r in db.scalars(select(BeamRun).where(BeamRun.section_id == section.id)):
+            need_mix(r.mix_design_id, r.calc_concrete_cy)
+            if not rebar_quoted:
+                need(rebar_label(False), _rebar_unit_cost(db, False, kind), r.calc_total_rebar_lb)
+
     elif kind in DECK_KINDS:
         from app.models.deck_level import DeckLevel
         from app.services.calc import _rate_optional
@@ -1300,10 +1360,11 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
     # beside it, and supervision itself at $0 — proven −$19,638.67 on piers,
     # −$14,403.10 on walls (audit 2026-09-02 #5). Not an unpriced ITEM, but
     # the same lie in the total, so it goes on the same list.
-    if kind in PIER_KINDS or kind in WALL_KINDS or kind in DECK_KINDS:
+    if kind in PIER_KINDS or kind in WALL_KINDS or kind in DECK_KINDS or kind in BEAM_KINDS:
         table = (
             "pier_groups" if kind in PIER_KINDS
             else "wall_runs" if kind in WALL_KINDS
+            else "beam_runs" if kind in BEAM_KINDS
             else "deck_levels"
         )
         has_work = db.execute(

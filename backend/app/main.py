@@ -35,6 +35,7 @@ from app.routers import (
     deck_levels,
     estimate_prices,
     wall_runs,
+    beam_runs,
 )
 
 @asynccontextmanager
@@ -66,7 +67,7 @@ app.include_router(auth.router, prefix="/api")
 # The CORS middleware is gone: the SPA is served from this same origin, and
 # nothing else is meant to call the API from a browser.
 for _r in (
-    estimators, projects, estimates, estimate_sections, forming, labor, estimate_equipment, mono_slabs, pier_groups, wall_runs, column_types, deck_levels, estimate_prices, section_quotes, section_rates, estimate_rules, grade_beams, beam_types, mix_designs, equipment, materials, system_settings, bar_sizes, audit,
+    estimators, projects, estimates, estimate_sections, forming, labor, estimate_equipment, mono_slabs, pier_groups, wall_runs, beam_runs, column_types, deck_levels, estimate_prices, section_quotes, section_rates, estimate_rules, grade_beams, beam_types, mix_designs, equipment, materials, system_settings, bar_sizes, audit,
 ):
     app.include_router(_r.router, prefix="/api", dependencies=[Depends(authorize)])
 

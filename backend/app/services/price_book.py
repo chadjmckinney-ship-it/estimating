@@ -133,6 +133,8 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "labor_french_drain_lf":     ("French drain labor", "LF"),
     "labor_build_up_sf":         ("Build-up labor", "SF"),
     "labor_rub_patch_sf":        ("Rub & patch labor", "SF"),
+    # The beam tab's E62 (sql/073): pilaster forming per face foot of pilaster.
+    "labor_pilasters_ff":        ("Pilaster labor", "FF"),
     "labor_layout_ea":           ("Layout labor", "EA"),
     "labor_cleanup_ea":          ("Cleanup labor", "EA"),
     "labor_pier_cap_ea":         ("Pier cap labor", "EA"),
@@ -189,6 +191,10 @@ MONETARY_KEYS: dict[str, tuple[str, str]] = {
     "pt_cable_sf":               ("PT cable", "SF"),
     "stud_rails_lb":             ("Stud rails", "LB"),
     "carton_forms_sf":           ("Carton forms", "SF"),
+    # The beam tab's G58 and G59 (sql/073): void forms under a separately
+    # poured beam and the retainer board either side, both per LF of beam.
+    "carton_forms_lf":           ("Carton forms (beams)", "LF"),
+    "durrock_retainer_lf":       ("Durrock retainer", "LF"),
     "plywood_forming_sf":        ("Plywood forming", "SF"),
     # The deck's rentals (sql/071). The sheet's F84 $1.25 was forms and
     # shoring together; Chad, 2026-09-07: "$0.5 forms, $0.75 shoring and
@@ -209,6 +215,9 @@ RULE_KEYS: frozenset[str] = frozenset({
     # waste and allowances
     "waste_concrete", "waste_sand", "waste_poly", "waste_rebar",
     "waste_rebar_beams",
+    # the beam tab's (sql/073): pilaster steel as a share of volume, and the
+    # waste on carton forms and the retainer (K57)
+    "pilaster_steel_pct", "carton_forms_waste",
     "support_rebar_lb_per_sf", "pt_lb_per_sf", "labor_tie_steel_free_lb_per_sf",
     # forming quantities and divisors — SF per box, LF per SF, sheets per SF
     "form_percent", "form_waste", "form_rental_percent",
@@ -248,6 +257,7 @@ RULE_BOUNDS: dict[str, tuple[Decimal, Decimal]] = {
     **{k: _FRACTION for k in (
         "waste_concrete", "waste_sand", "waste_poly", "waste_rebar", "waste_rebar_beams",
         "form_waste", "form_rental_percent", "quote_warn_low_ratio",
+        "pilaster_steel_pct", "carton_forms_waste",
         "equip_use_rental_tiers", "vapor_barrier_enabled",
     )},
     "form_percent": (Decimal("0"), Decimal("2")),

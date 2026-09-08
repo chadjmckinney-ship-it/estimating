@@ -26,7 +26,7 @@ from app.models.estimate_equipment import EstimateEquipmentSummary
 from app.models.estimate_forming import EstimateFormingSummary
 from app.models.estimate_labor import EstimateLaborSummary
 from app.services.calc import refresh_section_slab_calcs
-from app.models.estimate_section import COLUMN_KINDS, DECK_KINDS
+from app.models.estimate_section import BEAM_KINDS, COLUMN_KINDS, DECK_KINDS
 from app.services.costing import PIER_KINDS, WALL_KINDS
 from app.services.estimate_equipment import refresh_and_store_equipment
 from app.services.forming import refresh_and_store_forming
@@ -160,6 +160,11 @@ def recalc_section(
             from app.services.walls import refresh_section_wall_calcs
 
             done["pours"] = refresh_section_wall_calcs(db, section)
+        elif section.kind in BEAM_KINDS:
+            # Sixth shape: a beam TYPE with a length (sql/073).
+            from app.services.beams import refresh_section_beam_calcs
+
+            done["pours"] = refresh_section_beam_calcs(db, section)
         elif section.kind in COLUMN_KINDS:
             # Fourth shape: a column TYPE and a count (sql/045).
             from app.services.columns import refresh_section_column_calcs

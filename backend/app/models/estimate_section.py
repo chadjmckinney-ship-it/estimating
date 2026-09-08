@@ -17,6 +17,7 @@ SECTION_KINDS = (
     "sidewalk",
     "piers",
     "grade_beams",
+    "cont_footings",
     "walls_footings",
     "spot_footings",
     "columns",
@@ -40,6 +41,15 @@ PIER_KINDS = frozenset({"piers"})
 # footings, the wall calc works if we do l w and h with a count.. t&b mats".
 WALL_KINDS = frozenset({"walls_footings", "spot_footings"})
 SPOT_KINDS = frozenset({"spot_footings"})
+# Separately poured grade beams take off as a beam TYPE with a length — the
+# sixth shape (sql/073), the workbook's 02-Gd Beams tab. Not the mono slab's
+# beams: those are monolithic, and the two are different cost models (vault,
+# 2026-08-02). Continuous footings are the same tab with four cells typed
+# differently, so they ride the same engine as a kind of their own. Chad,
+# 2026-09-07: "we can do cont footings when we do grade beams" — and, on the
+# unit, "we use LF for both of those."
+BEAM_KINDS = frozenset({"grade_beams", "cont_footings"})
+CONT_KINDS = frozenset({"cont_footings"})
 # Columns take off as a TYPE and a count — the fourth shape (sql/045). Measured
 # in EA like piers, but shared cost allocates by form contact area, because
 # forming is what a column job spends its money on.
@@ -62,6 +72,7 @@ DEFAULT_UNIT_BY_KIND = {
     "sidewalk": "SF",
     "piers": "EA",
     "grade_beams": "LF",
+    "cont_footings": "LF",
     "walls_footings": "FF",
     "columns": "EA",
     "slabs": "SF",

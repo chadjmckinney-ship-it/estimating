@@ -324,12 +324,13 @@ def _takeoff_rows(db: Session, section_id: UUID) -> dict[str, int]:
     from app.models.deck_level import DeckLevel
     from app.models.mono_slab import MonoSlab
     from app.models.pier_group import PierGroup
+    from app.models.beam_run import BeamRun
     from app.models.wall_run import WallRun
 
     out: dict[str, int] = {}
     for name, model in (
         ("pours", MonoSlab), ("pier groups", PierGroup), ("wall runs", WallRun),
-        ("column types", ColumnType), ("deck levels", DeckLevel),
+        ("column types", ColumnType), ("deck levels", DeckLevel), ("beam runs", BeamRun),
     ):
         n = db.scalar(
             select(func.count()).select_from(model).where(model.section_id == section_id)

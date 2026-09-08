@@ -236,6 +236,18 @@ export const Api = {
       method: "PUT",
       body: { section_id: sectionId, rows, delete_missing: deleteMissing },
     }),
+  // Beams — separately poured grade beams and continuous footings, one row a
+  // beam TYPE with a length, sold per LF (sql/073).
+  listBeamRuns: (sectionId) =>
+    api(`/beam-runs?section_id=${encodeURIComponent(sectionId)}`),
+  beamTotals: (sectionId) =>
+    api(`/beam-runs/totals?section_id=${encodeURIComponent(sectionId)}`),
+  deleteBeamRun: (id) => api(`/beam-runs/${id}`, { method: "DELETE" }),
+  bulkSaveBeamRuns: (sectionId, rows, deleteMissing = false) =>
+    api("/beam-runs/bulk", {
+      method: "PUT",
+      body: { section_id: sectionId, rows, delete_missing: deleteMissing },
+    }),
   // Columns — the fourth takeoff shape: a TYPE and how many of it (sql/045).
   // There is no area and no run; the row is a schedule entry with a count, and
   // the section allocates by form contact SF.

@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.services import paving as pv
 from app.models.estimate_section import (
+    BEAM_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
     PAVING_KINDS,
@@ -255,6 +256,37 @@ def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             "super_days": sd,
             "equip_days": equip_days_from_super(sd),
             "total_concrete_cy": _d(crow["cy"]),
+            "curb_lf": Decimal("0"),
+            "demo_lf": Decimal("0"),
+            "slip_form_sf": Decimal("0"),
+            "traffic_control_sf": Decimal("0"),
+            "construction_joint_lf": Decimal("0"),
+            "control_joint_lf": Decimal("0"),
+        }
+
+    if kind in BEAM_KINDS:
+        # Beam runs (sql/073) — the CY that pumping and haul-off ride, and a
+        # TYPED duration, exactly as on walls.
+        brow = db.execute(
+            text(
+                "SELECT count(*)::int AS n, "
+                "       coalesce(sum(calc_concrete_cy), 0) AS cy, "
+                "       coalesce(sum(calc_face_ff), 0) AS ff, "
+                "       coalesce(sum(length_ft), 0) AS lf "
+                "FROM beam_runs WHERE section_id = :sid"
+            ),
+            {"sid": str(section_id)},
+        ).mappings().one()
+        super_days = _super_days(db, section_id)
+        return {
+            "kind": kind,
+            "pour_count": int(brow["n"] or 0),
+            "pier_count": 0,
+            "total_sf": _d(brow["ff"]),
+            "total_lf": _d(brow["lf"]),
+            "super_days": super_days,
+            "equip_days": equip_days_from_super(super_days),
+            "total_concrete_cy": _d(brow["cy"]),
             "curb_lf": Decimal("0"),
             "demo_lf": Decimal("0"),
             "slip_form_sf": Decimal("0"),
@@ -835,6 +867,85 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 code="out_of_town", label="OUT OF TOWN EXPENSE",
                 rate=_rate_numeric(db, kind, "out_of_town_day_rate", Decimal("200")),
                 qty=0, unit="/DAY", formula="days away (manual)", order=160,
+            ),
+        ]
+        lines.append(mobilization)
+        return _totals(d, lines, use_tiers)
+
+    if kind in BEAM_KINDS:
+        # 02-Gd Beams rows 78–90 (sql/073). The walls ladder off TYPED
+        # superintendent days — but with every machine on it: the tab derives
+        # the sky track's and the vault's days from the same cell as the
+        # excavator's (E78 = E82 = the ladder), where the walls tab types 0.
+        # Pumping at this tab's $20 and haul-off per CY of concrete poured,
+        # automatic (E89 reads the pour), where walls leave haul-off manual.
+        sky = _find_equip(db, "SkyTrack") or _find_equip(db, "SKY")
+        mini = _find_equip(db, "MINI EXCAVATOR") or _find_equip(db, "MINI")
+        skid = _find_equip(db, "SKID STEER") or _find_equip(db, "SKID")
+        tower = _find_equip(db, "TOWER LIGHT") or _find_equip(db, "LIGHT")
+
+        lines = [
+            day_line(
+                code="skytrack", label="SKY TRACK",
+                **_priced(db, kind, sky, "equip_skytrack_day_rate", 425),
+                equipment_id=sky["id"] if sky else None, order=10,
+                notes="On the ladder — the tab's E78 reads the same days as the excavator",
+            ),
+            day_line(
+                code="mini_excavator", label="MINI EXCAVATOR",
+                **_priced(db, kind, mini, "equip_mini_excavator_day_rate", 475),
+                equipment_id=mini["id"] if mini else None, order=20,
+                notes="Digs the trench",
+            ),
+            day_line(
+                code="skid_steer", label="SKID STEER",
+                **_priced(db, kind, skid, "equip_skid_steer_day_rate", 325),
+                equipment_id=skid["id"] if skid else None, order=30,
+            ),
+            day_line(
+                code="light_tower", label="LIGHT TOWER",
+                **_priced(db, kind, tower, "equip_light_tower_day_rate", 100),
+                equipment_id=tower["id"] if tower else None, order=40,
+            ),
+            day_line(code="vault", label="VAULT", rate=vault_rate,
+                     equipment_id=None, order=50,
+                     notes="On the ladder — the tab's E82 reads the same days as the excavator"),
+            day_line(code="misc_equip", label="MISCELLANEOUS", rate=misc_rate,
+                     equipment_id=None, order=60,
+                     notes="The sheet bills this flat days × rate; the rental "
+                           "tier is applied here as it is everywhere else"),
+            qty_line(
+                code="concrete_pump", label="CONCRETE PUMPING",
+                rate=_rate_numeric(db, kind, "concrete_pump_cy", Decimal("20")),
+                qty=cy, unit="CY", formula="concrete CY × $/CY", order=120,
+                equipment_id=pump["id"] if pump else None,
+            ),
+            qty_line(
+                code="waterproofing", label="WATERPROOFING",
+                rate=_rate_numeric(db, kind, "waterproofing_sf", Decimal("5.25")),
+                qty=0, unit="/SF", formula="beam face SF (manual)", order=130,
+                notes="Priced per SF of face when the job calls for it — the tab leaves it at zero",
+            ),
+            qty_line(
+                code="saw_cutting", label="SAW CUTTING",
+                rate=_rate_numeric(db, kind, "saw_cutting_lf", Decimal("2.5")),
+                qty=0, unit="/LF", formula="LF cut (manual)", order=135,
+            ),
+            qty_line(
+                code="haul_off", label="HAUL OFF",
+                rate=_rate_numeric(db, kind, "haul_off_cy", Decimal("6")),
+                qty=cy, unit="CY", formula="concrete CY × $/CY", order=140,
+                notes="The tab's E89 reads the concrete poured — spoil hauled per yard of beam",
+            ),
+            qty_line(
+                code="out_of_town", label="OUT OF TOWN EXPENSE",
+                rate=_rate_numeric(db, kind, "out_of_town_day_rate", Decimal("200")),
+                qty=0, unit="MAN-DAY", formula="man-days away (manual)", order=150,
+            ),
+            qty_line(
+                code="misc_contract", label="MISCELLANEOUS",
+                rate=float(_rate_numeric(db, kind, "misc_contract_ls", Decimal("500"))),
+                qty=0, unit="LS", formula="lump sum (manual)", order=160,
             ),
         ]
         lines.append(mobilization)
