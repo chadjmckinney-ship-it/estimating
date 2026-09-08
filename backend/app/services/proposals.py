@@ -126,6 +126,17 @@ def _name(row: Any, fallback: str) -> str:
     return label or desc or fallback
 
 
+def describe_footing(db: Session, row: Any, section: EstimateSection, fallback: str = "Footing") -> str:
+    """The footing under a wall run as its own line: `W1 footing: 70" x 12" footing, w/ #4 @ 12" OCEW bot, 4000 PSI`."""
+    name = _name(row, fallback)
+    mix = _mix_name(db, row.footing_mix_for(section))
+    what = f'{_n(row.ftg_width_in)}" x {_n(row.ftg_thick_in)}" footing'
+    bot = _bar(row.ftg_bot_size, row.ftg_bot_spacing_in, tail=" OCEW bot") if getattr(row, "ftg_bot_size", None) else None
+    top = _bar(row.ftg_top_size, row.ftg_top_spacing_in, tail=" OCEW top") if getattr(row, "ftg_top_size", None) else None
+    bars = _join(bot, top, sep=" / ")
+    return f"{name} footing: {_join(what, f'w/ {bars}' if bars else None, mix, sep=', ')}"
+
+
 def describe_row(db: Session, row: Any, kind: str | None, fallback: str = "Item") -> str:
     """The seeded description for a takeoff row: its name, then what it is in parentheses."""
     from app.models.estimate_section import CONT_KINDS, PAVING_KINDS, SIDEWALK_KINDS, SPOT_KINDS
@@ -167,17 +178,13 @@ def describe_row(db: Session, row: Any, kind: str | None, fallback: str = "Item"
             mat = _bar(row.ftg_bot_size, row.ftg_bot_spacing_in, tail=" OCEW bot") if getattr(row, "ftg_bot_size", None) else None
             plate = "weld plate" if getattr(row, "weld_plate", False) else None
             return f"{name}: {_join(what, mix, f'w/ {mat}' if mat else None, plate, sep=', ')}"
+        # The wall alone: its footing is a line of its own (sql/081).
         wall = (
             f'{_n(row.wall_height_in)}" tall x {_n(row.wall_thick_in)}" wall'
             if row.wall_height_in is not None and row.wall_thick_in is not None
             else None
         )
-        ftg = (
-            f'on {_n(row.ftg_width_in)}" x {_n(row.ftg_thick_in)}" footing'
-            if _d(row.ftg_width_in) > 0 and _d(row.ftg_thick_in) > 0
-            else None
-        )
-        return f"{name}: {_join(wall, ftg, mix, sep=', ')}"
+        return f"{name}: {_join(wall, mix, sep=', ')}"
 
     if table == "column_types":
         name = _name(row, fallback)
@@ -248,10 +255,15 @@ def takeoff_lines(db: Session, section: EstimateSection) -> list[dict[str, Any]]
     qty 0 — is not a line. The unit price is the row's stored sale over its
     quantity, to four places; a row not yet costed prices as nothing.
     """
+    from app.models.estimate_section import SPOT_KINDS, WALL_KINDS
     from app.services.costing import cost_units
 
     out: list[dict[str, Any]] = []
     for i, u in enumerate(cost_units(db, section)):
+        fallback = f"{section.name} {i + 1}"
+        if section.kind in WALL_KINDS and section.kind not in SPOT_KINDS:
+            out.extend(_wall_run_lines(db, u.row, section, fallback))
+            continue
         qty = _d(u.quantity)
         if qty <= 0:
             continue
@@ -261,13 +273,55 @@ def takeoff_lines(db: Session, section: EstimateSection) -> list[dict[str, Any]]
             {
                 "source_table": u.row.__tablename__,
                 "source_id": u.row.id,
-                "label": describe_row(db, u.row, section.kind, fallback=f"{section.name} {i + 1}"),
+                "source_part": None,
+                "label": describe_row(db, u.row, section.kind, fallback=fallback),
                 "qty": qty.quantize(Decimal("0.001")),
-                "unit": section.unit,
+                # A spot footing sells per footing (sql/072) whatever the section's label says.
+                "unit": "EA" if section.kind in SPOT_KINDS else section.unit,
                 "unit_price": price,
             }
         )
     return out
+
+
+def _wall_run_lines(db: Session, row: Any, section: EstimateSection, fallback: str) -> list[dict[str, Any]]:
+    """
+    A wall run as two lines (sql/081): the wall on its form feet at the
+    wall's own sale, the footing under it on its length at the footing's —
+    the split the costing keeps (sql/042), which always adds up to the run.
+    A run with no footing is the wall line only; a run with no wall, the
+    footing line only.
+    """
+    lines: list[dict[str, Any]] = []
+    ff = _d(row.calc_form_ff)
+    if ff > 0:
+        sale = row.calc_wall_sale
+        lines.append(
+            {
+                "source_table": row.__tablename__,
+                "source_id": row.id,
+                "source_part": "wall",
+                "label": describe_row(db, row, section.kind, fallback=fallback),
+                "qty": ff.quantize(Decimal("0.001")),
+                "unit": "FF",
+                "unit_price": (_d(sale) / ff).quantize(_Q4) if sale is not None else None,
+            }
+        )
+    lf = _d(row.length_ft)
+    if _d(row.calc_footing_sf) > 0 and lf > 0:
+        sale = row.calc_footing_sale
+        lines.append(
+            {
+                "source_table": row.__tablename__,
+                "source_id": row.id,
+                "source_part": "footing",
+                "label": describe_footing(db, row, section, fallback=fallback),
+                "qty": lf.quantize(Decimal("0.001")),
+                "unit": "LF",
+                "unit_price": (_d(sale) / lf).quantize(_Q4) if sale is not None else None,
+            }
+        )
+    return lines
 
 
 def job_label(project: Project | None, estimate: Estimate) -> str:
@@ -353,6 +407,7 @@ def seed_proposal(db: Session, estimate: Estimate) -> Proposal:
                     unit_price=ln["unit_price"],
                     source_table=ln["source_table"],
                     source_id=ln["source_id"],
+                    source_part=ln["source_part"],
                 )
             )
     copy_library(db, proposal)
@@ -374,12 +429,14 @@ def refresh_from_estimate(db: Session, proposal: Proposal) -> dict[str, int]:
     psections = _proposal_sections(db, proposal.id)
     by_section = {ps.section_id: ps for ps in psections if ps.section_id is not None}
     lines = _lines(db, proposal.id)
-    by_source = {(ln.source_table, ln.source_id): ln for ln in lines if ln.source_id is not None}
+    by_source = {
+        (ln.source_table, ln.source_id, ln.source_part): ln for ln in lines if ln.source_id is not None
+    }
     last_order: dict[Any, int] = {}
     for ln in lines:
         last_order[ln.proposal_section_id] = max(last_order.get(ln.proposal_section_id, 0), ln.sort_order)
 
-    seen: set[tuple[str | None, Any]] = set()
+    seen: set[tuple[str | None, Any, str | None]] = set()
     updated = added = added_sections = 0
     next_section_order = max((ps.sort_order for ps in psections), default=0)
 
@@ -395,9 +452,16 @@ def refresh_from_estimate(db: Session, proposal: Proposal) -> dict[str, int]:
             by_section[section.id] = ps
             added_sections += 1
         for ln in takeoff_lines(db, section):
-            key = (ln["source_table"], ln["source_id"])
+            key = (ln["source_table"], ln["source_id"], ln["source_part"])
             seen.add(key)
             line = by_source.get(key)
+            if line is None and ln["source_part"] == "wall":
+                # A line seeded before sql/081 was the whole run. It becomes the
+                # wall half and keeps its words; the footing half arrives beside it.
+                line = by_source.pop((ln["source_table"], ln["source_id"], None), None)
+                if line is not None:
+                    line.source_part = "wall"
+                    by_source[key] = line
             if line is None:
                 order = last_order.get(ps.id, 0) + 10
                 last_order[ps.id] = order
@@ -411,6 +475,7 @@ def refresh_from_estimate(db: Session, proposal: Proposal) -> dict[str, int]:
                         unit_price=ln["unit_price"],
                         source_table=ln["source_table"],
                         source_id=ln["source_id"],
+                        source_part=ln["source_part"],
                     )
                 )
                 added += 1
@@ -456,7 +521,10 @@ def source_label(db: Session, line: ProposalLine) -> str | None:
     if model is None:
         return None
     row = db.get(model, line.source_id)
-    return row_label(row) if row is not None else None
+    if row is None:
+        return None
+    label = row_label(row)
+    return f"{label} · {line.source_part}" if line.source_part else label
 
 
 def proposal_read(db: Session, proposal: Proposal) -> dict[str, Any]:
@@ -489,6 +557,7 @@ def proposal_read(db: Session, proposal: Proposal) -> dict[str, Any]:
                     "extended": ext,
                     "source_table": ln.source_table,
                     "source_id": ln.source_id,
+                    "source_part": ln.source_part,
                     "source_label": source_label(db, ln),
                     "source_missing": ln.source_missing,
                     "notes": ln.notes,

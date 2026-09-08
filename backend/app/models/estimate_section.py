@@ -106,6 +106,8 @@ DEFAULT_UNIT_BY_KIND = {
     "grade_beams": "LF",
     "cont_footings": "LF",
     "walls_footings": "FF",
+    # Sold per footing (sql/072); the label said SF until sql/081.
+    "spot_footings": "EA",
     "columns": "EA",
     "slabs": "SF",
     "cip_deck": "SF",

@@ -121,6 +121,7 @@ class ProposalLineRead(BaseModel):
     extended: Decimal
     source_table: str | None
     source_id: UUID | None
+    source_part: str | None = None
     source_label: str | None = None
     source_missing: bool
     notes: str | None

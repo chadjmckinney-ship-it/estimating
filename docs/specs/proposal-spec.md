@@ -42,6 +42,14 @@ totals.
 * **The tie-out.** Beside each section, the estimate section's sale against
   the proposal section's total; at the top, the job against the form. A
   fresh seed differs only by the rounding of a unit price to four places.
+* **Walls and their footings are separate lines** (`sql/081`; Chad, on the
+  first proposal: "I want the walls and associated footings separate"). A
+  wall run seeds two lines from the split the costing keeps: the wall on
+  its form feet at the wall's rate, the footing under it on its length at
+  the footing's rate, each described from its own fields. A run with no
+  footing gets the wall line only. Each line remembers which half it is,
+  so a refresh moves both. Spot footings sell per each, and a new spot
+  footings section defaults to EA (it defaulted to SF).
 * **Excluded is a status, not a deletion.** The line keeps its quantity on
   the form and prices nothing — measured and excluded, not missed. The
   takeoff row behind it still prices; the estimate is untouched.

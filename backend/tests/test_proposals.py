@@ -397,3 +397,106 @@ def test_the_library_is_the_companys_text(client, as_role, db, estimate, job):
     viewer = as_role("user")
     assert viewer.get(f"/api/proposals/{p2['id']}/xlsx").status_code == 200
     assert viewer.post(f"/api/proposals/{p2['id']}/refresh").status_code == 403
+
+
+# ---------------------------------------------------- walls and footings ----
+
+
+def test_a_wall_run_is_two_lines(client, db, estimate):
+    """
+    Chad, 2026-09-08: "I want the walls and associated footings separate."
+    The wall on its form feet at the wall's sale, the footing on its length at
+    the footing's — the split the costing keeps — and the two are the run.
+    """
+    from app.models.wall_run import WallRun
+    from app.services.recalc import recalc_section
+    from tests import walls_fixture as wf
+
+    section = wf.build(db, estimate)
+    refresh_pour_costs(db, section)
+    refresh_estimate_totals(db, estimate)
+    db.flush()
+    p = _make(client, estimate)
+    (walls,) = p["sections"]
+    runs = list(db.scalars(
+        select(WallRun).where(WallRun.section_id == section.id).order_by(WallRun.sort_order, WallRun.created_at)
+    ).all())
+    assert len(runs) == 16 and len(walls["lines"]) == 32
+    for i, run in enumerate(runs):
+        wall, ftg = walls["lines"][2 * i], walls["lines"][2 * i + 1]
+        assert (wall["source_part"], ftg["source_part"]) == ("wall", "footing")
+        assert wall["source_id"] == ftg["source_id"] == str(run.id)
+        assert wall["description"].startswith(f"{run.label}: ") and '" tall x ' in wall["description"]
+        assert ftg["description"].startswith(f"{run.label} footing: ") and '" footing' in ftg["description"]
+        assert (wall["unit"], ftg["unit"]) == ("FF", "LF")
+        assert D(str(wall["qty"])) == D(str(run.calc_form_ff)).quantize(D("0.001"))
+        assert D(str(ftg["qty"])) == D(str(run.length_ft)).quantize(D("0.001"))
+        assert D(str(wall["unit_price"])) == (D(str(run.calc_wall_sale)) / D(str(run.calc_form_ff))).quantize(D("0.0001"))
+        assert D(str(ftg["unit_price"])) == (D(str(run.calc_footing_sale)) / D(str(run.length_ft))).quantize(D("0.0001"))
+        assert wall["source_label"] == f"{run.label} · wall" and ftg["source_label"] == f"{run.label} · footing"
+        # The two halves are the run, to the rounding of two four-place prices.
+        slack = D("0.02") + (D(str(run.calc_form_ff)) + D(str(run.length_ft))) * D("0.00005")
+        assert abs(D(str(wall["extended"])) + D(str(ftg["extended"])) - D(str(run.calc_sale))) <= slack, run.label
+    assert abs(D(str(walls["difference"]))) <= _tolerance(walls)
+
+    # A run stripped of its footing: the footing line is flagged on refresh,
+    # the wall line moves with the split, nothing is added.
+    first = runs[0]
+    first.ftg_width_in = D("0")
+    first.ftg_thick_in = D("0")
+    recalc_section(db, section)
+    db.flush()
+    res = client.post(f"/api/proposals/{p['id']}/refresh").json()
+    assert (res["missing"], res["added_lines"], res["added_sections"]) == (1, 0, 0)
+    lines = res["proposal"]["sections"][0]["lines"]
+    assert lines[1]["source_missing"] is True and lines[0]["source_missing"] is False
+    assert D(str(lines[0]["unit_price"])) == (D(str(first.calc_wall_sale)) / D(str(first.calc_form_ff))).quantize(D("0.0001"))
+
+
+def test_spot_footings_sell_per_each(client, db, estimate):
+    """Sold per footing in the costing since sql/072; the label said SF until sql/081."""
+    from app.models.wall_run import WallRun
+    from tests import spot_footings_fixture as sff
+
+    section = sff.build(db, estimate)
+    refresh_pour_costs(db, section)
+    refresh_estimate_totals(db, estimate)
+    db.flush()
+    p = _make(client, estimate)
+    (spots,) = p["sections"]
+    runs = list(db.scalars(select(WallRun).where(WallRun.section_id == section.id)).all())
+    assert len(spots["lines"]) == len(runs) == 4
+    for ln in spots["lines"]:
+        assert ln["unit"] == "EA" and ln["source_part"] is None
+        assert D(str(ln["qty"])) == D(str(ln["qty"])).to_integral_value()
+    assert sum(D(str(ln["qty"])) for ln in spots["lines"]) == sum(D(str(r.footing_count)) for r in runs)
+    # A new spot footings section defaults to EA, not SF.
+    r = client.post(f"/api/estimates/{estimate.id}/sections", json={"kind": "spot_footings", "name": "Pads"})
+    assert r.status_code == 201, r.text
+    assert r.json()["unit"] == "EA"
+
+
+def test_a_line_seeded_before_the_split_becomes_the_wall_half(client, db, estimate):
+    """The live job's proposal predates sql/081: its wall lines carry no part. A refresh adopts each as the wall and adds the footing."""
+    from app.models.proposal import ProposalLine
+    from tests import walls_fixture as wf
+
+    section = wf.build(db, estimate)
+    refresh_pour_costs(db, section)
+    refresh_estimate_totals(db, estimate)
+    db.flush()
+    p = _make(client, estimate)
+    wall, ftg = p["sections"][0]["lines"][0], p["sections"][0]["lines"][1]
+    # Undo the split on the first run, the way a pre-081 proposal stands.
+    old = db.get(ProposalLine, UUID(wall["id"]))
+    old.source_part = None
+    old.description = "W1 as it was written before the split"
+    db.delete(db.get(ProposalLine, UUID(ftg["id"])))
+    db.flush()
+    res = client.post(f"/api/proposals/{p['id']}/refresh").json()
+    assert (res["missing"], res["added_lines"]) == (0, 1)
+    lines = res["proposal"]["sections"][0]["lines"]
+    adopted = next(ln for ln in lines if ln["id"] == wall["id"])
+    assert adopted["source_part"] == "wall" and adopted["description"] == "W1 as it was written before the split"
+    assert sum(1 for ln in lines if ln["source_id"] == wall["source_id"] and ln["source_part"] == "footing") == 1
+

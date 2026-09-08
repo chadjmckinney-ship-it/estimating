@@ -114,6 +114,8 @@ class ProposalLine(StampedBy, Base):
     unit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     source_table: Mapped[str | None] = mapped_column(Text)
     source_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Which half of a wall run (sql/081): 'wall' or 'footing'; NULL elsewhere.
+    source_part: Mapped[str | None] = mapped_column(Text)
     source_missing: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
