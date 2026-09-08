@@ -31,6 +31,7 @@ from app.models.estimate_section import (
     PAVING_KINDS,
     PIER_KINDS,
     BEAM_KINDS,
+    DECK_SLAB_KINDS,
     RB_SLAB_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
@@ -358,7 +359,10 @@ def _mono_slab_labor_lines(
         _line(group="labor", code="forming", label="FORMING",
               rate=_rate(db, kind, "labor_forming_sf", Decimal("0.45")),
               unit="/SF", qty=sf, formula="total_sf × rate", order=10),
-        _line(group="labor", code="grading", label="GRADING / CABLES",
+        # The 09 tab calls this line SLAB PREP (sql/075): nothing is graded on
+        # a metal deck, and the rate is a tenth of a slab on grade's.
+        _line(group="labor", code="grading",
+              label="SLAB PREP" if kind in DECK_SLAB_KINDS else "GRADING / CABLES",
               rate=_rate(db, kind, "labor_grading_sf", Decimal("0.70")),
               unit="/SF", qty=sf, formula="total_sf × rate", order=20),
         _line(group="labor", code="place_finish", label="PLACE AND FINISH",

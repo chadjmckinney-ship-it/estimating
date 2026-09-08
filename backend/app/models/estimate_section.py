@@ -54,7 +54,13 @@ CONT_KINDS = frozenset({"cont_footings"})
 # the mono-slab engine as a kind of its own (sql/074): the same pour, mat,
 # sand and vapor barrier, at the tab's own rates, with sawn joints and a
 # TYPED superintendent. Chad, 2026-09-07: "ok, lets do slabs".
-RB_SLAB_KINDS = frozenset({"slabs"})
+# A slab on metal deck — the 09-SLAB ON DECK tab — is the same rebar-slab
+# variant with a deck's cells typed in (sql/075): edge forms only, slab prep
+# where a slab on grade grades, PT-slab bar, the pump upstairs, a DEMO line,
+# and the ladder on the trencher alone. Chad, 2026-09-08: "ok, lets do slab
+# on deck". No job in the folder has priced one; the template is the source.
+DECK_SLAB_KINDS = frozenset({"slab_on_deck"})
+RB_SLAB_KINDS = frozenset({"slabs", "slab_on_deck"})
 # Columns take off as a TYPE and a count — the fourth shape (sql/045). Measured
 # in EA like piers, but shared cost allocates by form contact area, because
 # forming is what a column job spends its money on.

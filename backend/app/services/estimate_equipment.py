@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.services import paving as pv
 from app.models.estimate_section import (
     BEAM_KINDS,
+    DECK_SLAB_KINDS,
     RB_SLAB_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
@@ -1143,10 +1144,19 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
     # A rebar slab (sql/074): the 05-Slabs tab types 0 days on the trencher
     # and leaves the skid steer blank, so both start off here.
     rb = kind in RB_SLAB_KINDS
+    deck_slab = kind in DECK_SLAB_KINDS
     parked = (
         {"enabled": False, "default_days": 0, "notes": "The 05-Slabs tab types 0 days — enable when used"}
         if rb else {}
     )
+    # The 09 tab (sql/075) leaves the excavator and the skid steer blank and
+    # puts the TRENCHER on the ladder — the one machine the ground tabs park.
+    parked_mini = (
+        {"enabled": False, "default_days": 0, "notes": "The 09 tab leaves this blank — nothing to dig on a deck"}
+        if deck_slab else {}
+    )
+    parked_trencher = {} if deck_slab else parked
+    parked_skid = parked
     skid = _find_equip(db, "SKID STEER") or _find_equip(db, "SKID")
 
     lines: list[dict[str, Any]] = [
@@ -1166,6 +1176,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             **_priced(db, kind, mini, "equip_mini_excavator_day_rate", 475),
             equipment_id=mini["id"] if mini else None,
             order=20,
+            **parked_mini,
         ),
         day_line(
             code="trencher",
@@ -1173,7 +1184,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             **_priced(db, kind, trench, "equip_trencher_day_rate", 325),
             equipment_id=trench["id"] if trench else None,
             order=30,
-            **parked,
+            **parked_trencher,
         ),
         day_line(
             code="skid_steer",
@@ -1181,7 +1192,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             **_priced(db, kind, skid, "equip_skid_steer_day_rate", 325),
             equipment_id=skid["id"] if skid else None,
             order=40,
-            **parked,
+            **parked_skid,
         ),
         day_line(
             code="vault",
@@ -1227,37 +1238,56 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             notes="Qty starts at 0",
         )
     )
-    lines.append(
-        qty_line(
-            code="engineering",
-            label="ENGINEERING",
-            rate=_rate_numeric(db, kind, "engineering_sf", Decimal("0.20")),
-            qty=d["total_sf"],
-            unit="/SF",
-            formula="total_sf × rate (off by default)",
-            order=120,
-            enabled=False,
+    if deck_slab:
+        # The 09 tab's row 103 is DEMO at $/LF (sql/075), where 04 and 05
+        # carry ENGINEERING per SF.
+        lines.append(
+            qty_line(
+                code="demo", label="DEMO",
+                rate=_rate_numeric(db, kind, "demo_lf", Decimal("1.75")),
+                qty=0, unit="/LF", formula="LF removed (manual)", order=120,
+            )
         )
-    )
+    else:
+        lines.append(
+            qty_line(
+                code="engineering",
+                label="ENGINEERING",
+                rate=_rate_numeric(db, kind, "engineering_sf", Decimal("0.20")),
+                qty=d["total_sf"],
+                unit="/SF",
+                formula="total_sf × rate (off by default)",
+                order=120,
+                enabled=False,
+            )
+        )
     if rb:
         # 05-Slabs rows 104-105 (sql/074): the joints are sawn at a spacing
         # both ways — SF x 2 / spacing — and the sealant on them is a switch
-        # the tab leaves at n.
+        # the tab leaves at n. The 09 tab carries the same two rows with their
+        # rates and NO formula (sql/075): the LF is typed there.
         spacing = _rate_numeric(db, kind, "saw_joint_spacing_ft", Decimal("20"))
         joint_lf = (_d(d["total_sf"]) * Decimal("2") / spacing) if spacing > 0 else Decimal("0")
+        if deck_slab:
+            joint_lf = Decimal("0")
         lines.append(
             qty_line(
                 code="saw_cutting", label="SAW CUTTING",
                 rate=_rate_numeric(db, kind, "saw_cutting_lf", Decimal("0.55")),
-                qty=joint_lf, unit="LF", formula="total_sf × 2 / joint spacing × $/LF", order=130,
-                notes=f"Joints at {spacing} ft both ways (the tab's L105)",
+                qty=joint_lf, unit="LF",
+                formula="LF cut (manual)" if deck_slab else "total_sf × 2 / joint spacing × $/LF",
+                order=130,
+                notes="The 09 tab has no joint formula — enter the LF" if deck_slab
+                else f"Joints at {spacing} ft both ways (the tab's L105)",
             )
         )
         lines.append(
             qty_line(
                 code="saw_joint_sealant", label="SAW JOINT SEALANT",
                 rate=_rate_numeric(db, kind, "joint_control_lf", Decimal("0.65")),
-                qty=joint_lf, unit="LF", formula="joint LF × $/LF (off by default)", order=131,
+                qty=joint_lf, unit="LF",
+                formula="LF sealed (manual)" if deck_slab else "joint LF × $/LF (off by default)",
+                order=131,
                 enabled=False, notes="The tab's D104 is n — switch on where the joints are sealed",
             )
         )

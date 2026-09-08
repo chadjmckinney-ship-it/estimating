@@ -60,6 +60,7 @@ from app.services import paving as pv
 from app.models.estimate_section import (
     BEAM_KINDS,
     CONT_KINDS,
+    DECK_SLAB_KINDS,
     RB_SLAB_KINDS,
     COLUMN_KINDS,
     DECK_KINDS,
@@ -726,8 +727,20 @@ def _mono_slab_lines(db: Session, d: dict[str, Any]) -> list[dict[str, Any]]:
            # tab taxes its whole lumber column.
            L(code="haul_off", label="CONCRETE HAUL OFF",
              qty=cy / haul_load if cy > 0 and haul_load else 0, unit="LOADS",
-             formula=f"concrete CY / {haul_load:g}", material=_find_material(db, "CONCRETE HAUL"),
-             taxable=False, notes="Hauling is a service, not a purchase — not taxed")]
+             formula=f"concrete CY / {haul_load:g}",
+             # The 09 tab types $500 a load where the ground tabs type $250
+             # (sql/075): a deck-priced catalog item wins when one exists.
+             material=(
+                 (_find_material(db, "HAUL OFF", "DECK") if kind in DECK_SLAB_KINDS else None)
+                 or _find_material(db, "CONCRETE HAUL")
+             ),
+             taxable=False,
+             notes=(
+                 "Hauling is a service, not a purchase — not taxed. The 09 tab types $500 a "
+                 "load; add a catalog item named for the deck to price it so"
+                 if kind in DECK_SLAB_KINDS
+                 else "Hauling is a service, not a purchase — not taxed"
+             ))]
           if kind in RB_SLAB_KINDS else []),
         L(code="chairs", label="SLAB CHAIRS", qty=qty_chairs, unit="BAG",
           formula=f"ceil(total_sf / {chair_sf:g})", material=m_chairs),

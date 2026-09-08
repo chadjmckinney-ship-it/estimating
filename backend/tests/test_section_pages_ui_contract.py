@@ -29,6 +29,7 @@ from tests import walls_fixture as wf
 from tests import spot_footings_fixture as sf
 from tests import grade_beams_fixture as gbf
 from tests import slabs_fixture as rsf
+from tests import slab_on_deck_fixture as sodf
 
 # What every mono-slab or paving page reads off /api/mono-slabs/totals.
 SLAB_TOTALS = {
@@ -80,6 +81,25 @@ PAGES = {
         forming={"kind", "perimeter_lf", "drops_ff", "form_percent"},
         labor={"total_sf", "drops_ff", "total_rebar_tons", "super_weeks", "super_days"},
         money={"concrete", "rebar", "sand"},
+    ),
+    # A slab on metal deck (sql/075): the rebar slab's page with a deck's cells.
+    "slab_on_deck": dict(
+        build=sodf.build,
+        rows="/api/mono-slabs", totals="/api/mono-slabs/totals",
+        totals_keys=SLAB_TOTALS,
+        row_keys={
+            "id", "description", "location", "square_footage", "thickness_in", "sand_thickness_in",
+            "perimeter_edge_lf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
+            "slab_bar_spacing_in", "support_rebar_lb_per_sf", "pt_lb_per_sf", "pt_spacing_in", "notes",
+            "calc_allocated_cost", "calc_concrete_cy", "calc_cost", "calc_cost_per_sf",
+            "calc_direct_cost", "calc_poly_sf", "calc_sale", "calc_sale_per_sf", "calc_sf_per_cy",
+            "calc_slab_bar_lb", "calc_slab_bar_lf", "calc_slab_concrete_cy",
+            "calc_support_rebar_lb", "calc_total_rebar_lb",
+        },
+        nonnull={"calc_concrete_cy", "calc_total_rebar_lb", "calc_cost"},
+        forming={"kind", "perimeter_lf", "drops_ff", "form_percent"},
+        labor={"total_sf", "drops_ff", "total_rebar_tons", "super_weeks", "super_days"},
+        money={"concrete", "rebar"},
     ),
     "paving": dict(
         build=pf.build,

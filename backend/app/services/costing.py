@@ -45,6 +45,7 @@ from app.models.estimate_section import (
     DECK_KINDS,
     PIER_KINDS,
     BEAM_KINDS,
+    DECK_SLAB_KINDS,
     SPOT_KINDS,
     WALL_KINDS,
     EstimateSection,
@@ -296,6 +297,12 @@ def resolve_rebar(
             # $3,513.21 light on LBJ. A deck buys grade-beam bar whether or
             # not it is post-tensioned.
             mat = _find_material(db, "REBAR GRADE BEAM")
+            if mat is not None:
+                return mat
+        if kind in DECK_SLAB_KINDS:
+            # The 09 tab's G70 reads Pricing!D22 — the PT-slab bar, as the mono
+            # slab buys (sql/075); the rebar slab on grade reads D23 beside it.
+            mat = _find_material(db, "REBAR PIERS")
             if mat is not None:
                 return mat
 

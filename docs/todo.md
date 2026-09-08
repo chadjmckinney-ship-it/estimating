@@ -214,7 +214,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Grade beams / continuous footings standalone (`02-Gd Beams` sheet) — `sql/073`, 2026-09-07
 - [x] Exposed GBs + drops on mono pour (with grade beams)
 - [ ] Walls & footings
-- [ ] Elevated / CIP deck / slab on deck
+- [x] Elevated / CIP deck / slab on deck — CIP deck `sql/052`, slab on deck `sql/075` (2026-09-08)
 - [ ] Panels / columns
 - [ ] Generic `assemblies` engine if needed
 

@@ -1000,7 +1000,9 @@ const BEAM_KINDS = new Set(["grade_beams", "cont_footings"]);
 const CONT_KINDS = new Set(["cont_footings"]);
 // A rebar slab on grade rides the mono-slab engine (sql/074); it types its
 // superintendent and saws its joints.
-const RB_SLAB_KINDS = new Set(["slabs"]);
+const RB_SLAB_KINDS = new Set(["slabs", "slab_on_deck"]);
+// The slab on metal deck (sql/075): the rebar slab with a deck's cells.
+const DECK_SLAB_KINDS = new Set(["slab_on_deck"]);
 // Columns are the fourth takeoff shape, and the only one with no geometry to
 // measure across: a pour has SF, a pier group has LF, a wall run has form feet,
 // and a column type has a SCHEDULE and a COUNT. Everything shared on the
@@ -4456,6 +4458,8 @@ function renderLaborCard(labor) {
                 ? "10-PAVING LABOR"
                 : isDck
                 ? "08-CIP EL. DECK LABOR"
+                : DECK_SLAB_KINDS.has(d.kind)
+                ? "09-SLAB ON DECK LABOR"
                 : isRb
                 ? "05-SLABS LABOR"
                 : "04 LABOR / SUPERVISION"
@@ -4690,6 +4694,8 @@ function renderEquipmentCard(equip) {
                 ? "10-PAVING EQUIPMENT"
                 : DECK_KINDS.has(d.kind)
                 ? "08-CIP EL. DECK EQUIPMENT"
+                : DECK_SLAB_KINDS.has(d.kind)
+                ? "09-SLAB ON DECK EQUIPMENT"
                 : RB_SLAB_KINDS.has(d.kind)
                 ? "05-SLABS EQUIPMENT"
                 : "04 EQUIPMENT"
