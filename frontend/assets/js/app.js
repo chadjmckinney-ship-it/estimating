@@ -1,4 +1,5 @@
 import { Api } from "./api.js";
+import { toShown, toStored } from "./units.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -1367,11 +1368,15 @@ function gridControlHtml(r, col) {
   }
   if (col.type === "number") {
     // Number() on the way in: the API returns fixed-scale decimals, and
-    // "187752.000" in a narrow box reads as a number nobody typed.
-    const shown = v == null || v === "" ? "" : Number(v);
+    // "187752.000" in a narrow box reads as a number nobody typed. A
+    // column with a `scale` is typed in one unit and stored in another
+    // (units.js): the box shows the stored value ÷ scale, and carries the
+    // scale so the save can multiply it back.
+    const shown = toShown(v, col.scale);
+    const scale = col.scale ? ` data-scale="${esc(col.scale)}"` : "";
     return [
       "<td>",
-      `<input data-f="${col.f}" type="number" min="0" step="${
+      `<input data-f="${col.f}"${scale} type="number" min="0" step="${
         col.step || "any"
       }" value="${esc(shown)}" />`,
     ];
@@ -1451,11 +1456,12 @@ function gridCardHtml({ id, title, blurb, columns, rows, addLabel, saveLabel }) 
     <p style="color:var(--text-muted);font-size:0.82rem;margin:0 0 0.75rem">${blurb}</p>
     <div class="table-wrap"><table class="data grid-entry">
       <thead><tr>${columns
-        .map((c) =>
-          twoLine
-            ? `<th>${esc(c.label)}<span class="sub-label">${esc(c.sub?.label || "")}</span></th>`
-            : `<th>${esc(c.label)}</th>`
-        )
+        .map((c) => {
+          const hint = c.hint ? ` title="${esc(c.hint)}"` : "";
+          return twoLine
+            ? `<th${hint}>${esc(c.label)}<span class="sub-label">${esc(c.sub?.label || "")}</span></th>`
+            : `<th${hint}>${esc(c.label)}</th>`;
+        })
         .join("")}<th></th></tr></thead>
       <tbody id="${id}-body">${body}</tbody>
     </table></div>
@@ -1587,7 +1593,10 @@ function wireGrid(root, { id, columns, required, save, remove, blank }) {
             return;
           }
           const raw = el.value.trim();
-          row[f] = raw === "" ? null : el.type === "number" ? Number(raw) : raw;
+          // A box typed in feet on a column stored in inches (units.js) goes
+          // back through its scale; every other box is what it always was.
+          const scale = el.dataset.scale ? Number(el.dataset.scale) : 1;
+          row[f] = raw === "" ? null : el.type === "number" ? toStored(raw, scale) : raw;
         });
       }
       const empty = required.every((f) => row[f] == null) && !row.description && !row.label;
@@ -2221,7 +2230,16 @@ function spotFootingColumns(mixes) {
     { f: "label", label: "Type", placeholder: "F1" },
     { f: "footing_count", label: "Qty", type: "number", step: "1" },
     { f: "footing_each_ft", label: "L ft", type: "number" },
-    { f: "ftg_width_in", label: 'W"', type: "number" },
+    // Typed in feet, stored in the walls' inches (units.js) — Chad, 2026-09-08:
+    // a spread footing is called out in feet. The row, the API and the engine
+    // never see the feet.
+    {
+      f: "ftg_width_in",
+      label: "W ft",
+      type: "number",
+      scale: 12,
+      hint: 'Width, typed in feet and stored in inches — 4.5 is 54"',
+    },
     { f: "ftg_thick_in", label: 'H"', type: "number" },
     { f: "footing_mix_design_id", label: "Mix", type: "select", options: mixOptions(mixes) },
     { f: "ftg_bot_size", label: "Bot #", type: "select", options: barSizeChoices() },
@@ -3309,8 +3327,8 @@ async function renderSectionDetail(root) {
             id: "spot-footings",
             title: "Spot footings",
             blurb:
-              "One line per footing type: <strong>how many</strong>, and the length, " +
-              "width and thickness of each. The workbook's 06-Footings tab is the walls " +
+              "One line per footing type: <strong>how many</strong>, and the length and " +
+              "width of each in feet, the thickness in inches. The workbook's 06-Footings tab is the walls " +
               "tab with the wall left blank, and so is this: every footing formula, rate " +
               "and lumber line is the walls section's. The <strong>bottom and top mats</strong> " +
               "are each their own bar set running both ways. <strong>Weld plate</strong> puts " +

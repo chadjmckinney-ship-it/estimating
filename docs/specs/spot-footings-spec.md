@@ -73,6 +73,18 @@ in the fixture.
 `tests/spot_footings_fixture.py` states the prices and the golden number;
 `tests/test_spot_footings.py` holds each of the above.
 
+## Width in feet (2026-09-08)
+
+**Chad:** "on spot footings, you have lf x w" x h", can we change it to width
+in feet?" — a spread footing is called out in feet. The grid's width column
+is now **W ft**, typed in decimal feet (4.5 is 4'-6"); the box shows the
+stored inches ÷ 12 and the save multiplies back, to a thousandth of an inch
+(`frontend/assets/js/units.js`, tested in `frontend/tests/units.test.mjs`).
+The row still stores and sends `ftg_width_in`, so the walls engine, the API,
+the wall grid's own Width" box and the sheet's N column all keep their
+inches. Length stays L ft and thickness H". A footing on file at 120" reads
+back as 10.
+
 ## Not built here
 
 Continuous footings (`02-Cont Footings`, `06-Garage Footings` — 1,189 LF and
