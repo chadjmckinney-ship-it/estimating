@@ -50,6 +50,13 @@ class MonoSlab(StampedBy, Base):
     pt_spacing_in: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    # Garden style (sql/079): how many of this pour the row stands for —
+    # the tab's QTY column. The calc_* figures below are the ROW's totals
+    # (per-building geometry × qty), and every section sum over the raw
+    # takeoff columns carries it too. 0 keeps the row and prices nothing.
+    qty: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
     # Paving drivers (sql/036). A paving area is a pour — same SF, thickness,
     # sand, mix and bar mat — so it lives here rather than in a table of its

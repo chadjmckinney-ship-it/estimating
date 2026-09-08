@@ -273,7 +273,7 @@ def beam_type_usage(type_id: UUID, db: Session = Depends(get_db)) -> list[dict]:
     rows = db.execute(
         text(
             """
-            SELECT m.id::text AS mono_slab_id, m.description, gb.length_lf
+            SELECT m.id::text AS mono_slab_id, m.description, gb.length_lf, m.qty
             FROM grade_beams gb
             JOIN mono_slabs m ON m.id = gb.mono_slab_id
             WHERE gb.beam_type_id = :t

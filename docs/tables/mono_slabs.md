@@ -35,6 +35,7 @@ Design field list: [../mono.md](../mono.md)
 | `pt_lb_per_sf` | numeric(8,4) | YES | | PT cable lb/SF override; NULL = system default |
 | `notes` | text | YES | | |
 | `sort_order` | integer | NO | `0` | Display order |
+| `qty` | integer | NO | `1` | Garden style (`sql/079`): buildings of this type. The row's `calc_*` figures and every section sum carry it; 0 keeps the row and prices nothing |
 | `created_at` | timestamptz | NO | `now()` | |
 | `updated_at` | timestamptz | NO | `now()` | |
 

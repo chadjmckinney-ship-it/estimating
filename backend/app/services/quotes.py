@@ -238,11 +238,13 @@ LUMP_DRIVERS = {
     # A deck level stores its PT area outright (`calc_pt_sf`, zero when the
     # level carries no cable); a slab pour stores an area and a flag. Same
     # question, two takeoff shapes.
+    # A garden-style pour (sql/079) is its SF times its qty.
     PT: lambda row: (
         _d(getattr(row, "calc_pt_sf", None))
         if getattr(row, "calc_pt_sf", None) is not None
         else (
             _d(getattr(row, "square_footage", 0))
+            * Decimal(int(getattr(row, "qty", None) if getattr(row, "qty", None) is not None else 1))
             if getattr(row, "post_tension", False)
             else Decimal("0")
         )

@@ -469,38 +469,41 @@ def estimate_forming_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             """
             SELECT
               count(*)::int AS pour_count,
-              coalesce(sum(square_footage), 0) AS total_sf,
-              coalesce(sum(perimeter_edge_lf), 0) AS perimeter_lf,
+              -- Garden style (sql/079): the raw takeoff columns are per
+              -- building and carry the row's qty; the stored calc_* columns
+              -- are the row's totals already.
+              coalesce(sum(square_footage * qty), 0) AS total_sf,
+              coalesce(sum(perimeter_edge_lf * qty), 0) AS perimeter_lf,
               coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
               -- Drops are grade beams (kind='drop') since sql/022; the flat
               -- mono_slabs.drops_ff column is gone.
               coalesce((
-                  SELECT sum(gb.length_lf)
+                  SELECT sum(gb.length_lf * dm.qty)
                   FROM grade_beam_details gb
                   JOIN mono_slabs dm ON dm.id = gb.mono_slab_id
                   WHERE dm.section_id = :sid AND gb.kind = 'drop'
               ), 0) AS drops_ff,
               coalesce(sum(calc_total_rebar_lb), 0) AS total_rebar_lb,
               coalesce(sum(calc_support_rebar_lb), 0) AS support_rebar_lb,
-              coalesce(sum(CASE WHEN wire_mesh THEN square_footage ELSE 0 END), 0)
+              coalesce(sum(CASE WHEN wire_mesh THEN square_footage * qty ELSE 0 END), 0)
                 AS mesh_sf,
               -- Paving (sql/036). Curb drives the whole lumber package, and
               -- the thickness split decides 1x6 against 1x8 sealant board.
-              coalesce(sum(curb_lf), 0) AS curb_lf,
-              coalesce(sum(square_footage) FILTER (WHERE thickness_in <= 8), 0)
+              coalesce(sum(curb_lf * qty), 0) AS curb_lf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE thickness_in <= 8), 0)
                 AS thin_sf,
-              coalesce(sum(square_footage) FILTER (WHERE thickness_in > 8), 0)
+              coalesce(sum(square_footage * qty) FILTER (WHERE thickness_in > 8), 0)
                 AS thick_sf,
               -- Brick ledge (sql/028): a 2x6 runs its length and ply faces its
               -- depth, so forming needs both the LF and the face area.
               coalesce((
-                  SELECT sum(gb.length_lf)
+                  SELECT sum(gb.length_lf * lm.qty)
                   FROM grade_beam_details gb
                   JOIN mono_slabs lm ON lm.id = gb.mono_slab_id
                   WHERE lm.section_id = :sid AND gb.kind = 'brick_ledge'
               ), 0) AS ledge_lf,
               coalesce((
-                  SELECT sum(gb.length_lf * coalesce(gb.form_face_in, gb.height_in) / 12.0)
+                  SELECT sum(gb.length_lf * lm.qty * coalesce(gb.form_face_in, gb.height_in) / 12.0)
                   FROM grade_beam_details gb
                   JOIN mono_slabs lm ON lm.id = gb.mono_slab_id
                   WHERE lm.section_id = :sid AND gb.kind = 'brick_ledge'
@@ -2422,7 +2425,7 @@ def load_stored_forming(db: Session, section_id: UUID) -> dict[str, Any] | None:
     est_row = db.execute(
         text(
             "SELECT form_percent, "
-            "  (SELECT coalesce(sum(curb_lf), 0) FROM mono_slabs WHERE section_id = :sid)"
+            "  (SELECT coalesce(sum(curb_lf * qty), 0) FROM mono_slabs WHERE section_id = :sid)"
             "    AS curb_lf "
             "FROM estimate_sections WHERE id = :sid"
         ),

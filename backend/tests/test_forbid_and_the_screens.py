@@ -237,7 +237,7 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
 
     # openMonoSlabModal — create, then edit
     slab_body = {
-        "description": "Pour Z", "location": None, "square_footage": 1000,
+        "description": "Pour Z", "location": None, "qty": 1, "square_footage": 1000,
         "thickness_in": 4, "sand_thickness_in": 2, "perimeter_edge_lf": 100,
         "mix_design_id": mix, "post_tension": True, "wire_mesh": False,
         "slab_bar_size": 4, "slab_bar_spacing_in": 18, "support_rebar_lb_per_sf": None,

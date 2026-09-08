@@ -352,6 +352,32 @@ def refresh_grade_beam_calcs(
     )
 
 
+# The pour's stored figures that the garden-style qty multiplies (sql/079).
+# Everything derived from the pour's own geometry or its beams; the
+# cost columns are written by costing off these and carry it already.
+_MULTIPLIED_CALCS = (
+    "calc_slab_concrete_cy",
+    "calc_gb_concrete_cy",
+    "calc_edge_concrete_cy",
+    "calc_stair_concrete_cy",
+    "calc_concrete_cy",
+    "calc_sand_cy",
+    "calc_edge_rebar_lb",
+    "calc_slab_bar_lf",
+    "calc_slab_bar_lb",
+    "calc_support_rebar_lb",
+    "calc_pt_cable_lb",
+    "calc_pt_slab_lf",
+    "calc_pt_gb_lf",
+    "calc_pt_cable_lf",
+    "calc_grade_beam_rebar_lb",
+    "calc_total_rebar_lb",
+    "calc_poly_slab_sf",
+    "calc_poly_gb_sf",
+    "calc_poly_sf",
+)
+
+
 def refresh_mono_slab_calcs(
     db: Session, slab: MonoSlab, section: EstimateSection | None = None
 ) -> MonoSlab:
@@ -570,32 +596,44 @@ def refresh_mono_slab_calcs(
         slab.calc_poly_gb_sf = Decimal("0.000")
         slab.calc_poly_sf = Decimal("0.000")
 
+    # Garden style (sql/079): the row stands for `qty` of this pour, so its
+    # stored figures are the row's totals. Applied here, once, AFTER every
+    # per-building figure has been computed and quantized the way it always
+    # was — so a row at qty 8 carries exactly what eight rows would, to the
+    # last decimal, and a section of qty-1 rows is untouched.
+    q = Decimal(int(getattr(slab, "qty", 1) if getattr(slab, "qty", 1) is not None else 1))
+    if q != 1:
+        for col in _MULTIPLIED_CALCS:
+            v = getattr(slab, col, None)
+            if v is not None:
+                setattr(slab, col, Decimal(str(v)) * q)
+
     # Transient breakdown for API (not persisted columns)
     slab._beam_breakdown = {  # type: ignore[attr-defined]
         "grade_beam": {
             "count": None,
-            "length_lf": Decimal(str(gb["gb_lf"] or 0)),
-            "concrete_cy": Decimal(str(gb["gb_cy"] or 0)).quantize(Decimal("0.0001")),
-            "rebar_lb": Decimal(str(gb["gb_rebar_lb"] or 0)),
-            "poly_sf": Decimal(str(gb["gb_poly"] or 0)).quantize(Decimal("0.001")),
+            "length_lf": Decimal(str(gb["gb_lf"] or 0)) * q,
+            "concrete_cy": Decimal(str(gb["gb_cy"] or 0)).quantize(Decimal("0.0001")) * q,
+            "rebar_lb": Decimal(str(gb["gb_rebar_lb"] or 0)) * q,
+            "poly_sf": Decimal(str(gb["gb_poly"] or 0)).quantize(Decimal("0.001")) * q,
         },
         "exposed": {
-            "length_lf": Decimal(str(gb["exposed_lf"] or 0)),
-            "concrete_cy": Decimal(str(gb["exposed_cy"] or 0)).quantize(Decimal("0.0001")),
-            "rebar_lb": Decimal(str(gb["exposed_rebar_lb"] or 0)),
-            "poly_sf": Decimal(str(gb["exposed_poly"] or 0)).quantize(Decimal("0.001")),
+            "length_lf": Decimal(str(gb["exposed_lf"] or 0)) * q,
+            "concrete_cy": Decimal(str(gb["exposed_cy"] or 0)).quantize(Decimal("0.0001")) * q,
+            "rebar_lb": Decimal(str(gb["exposed_rebar_lb"] or 0)) * q,
+            "poly_sf": Decimal(str(gb["exposed_poly"] or 0)).quantize(Decimal("0.001")) * q,
         },
         "drop": {
-            "length_lf": Decimal(str(gb["drop_lf"] or 0)),
-            "concrete_cy": Decimal(str(gb["drop_cy"] or 0)).quantize(Decimal("0.0001")),
-            "rebar_lb": Decimal(str(gb["drop_rebar_lb"] or 0)),
-            "poly_sf": Decimal(str(gb["drop_poly"] or 0)).quantize(Decimal("0.001")),
+            "length_lf": Decimal(str(gb["drop_lf"] or 0)) * q,
+            "concrete_cy": Decimal(str(gb["drop_cy"] or 0)).quantize(Decimal("0.0001")) * q,
+            "rebar_lb": Decimal(str(gb["drop_rebar_lb"] or 0)) * q,
+            "poly_sf": Decimal(str(gb["drop_poly"] or 0)).quantize(Decimal("0.001")) * q,
         },
         # A ledge never carries poly (sql/028), so there is no poly row to show.
         "brick_ledge": {
-            "length_lf": Decimal(str(gb["ledge_lf"] or 0)),
-            "concrete_cy": Decimal(str(gb["ledge_cy"] or 0)).quantize(Decimal("0.0001")),
-            "rebar_lb": Decimal(str(gb["ledge_rebar_lb"] or 0)),
+            "length_lf": Decimal(str(gb["ledge_lf"] or 0)) * q,
+            "concrete_cy": Decimal(str(gb["ledge_cy"] or 0)).quantize(Decimal("0.0001")) * q,
+            "rebar_lb": Decimal(str(gb["ledge_rebar_lb"] or 0)) * q,
             "poly_sf": Decimal("0"),
         },
     }
@@ -622,20 +660,26 @@ def refresh_section_slab_calcs(db: Session, section: EstimateSection) -> int:
 
 
 def beam_kind_breakdown(db: Session, mono_slab_id: Any) -> dict[str, dict[str, Any]]:
-    """Per-kind CY/rebar/LF/poly for a pour (all kinds sum into calc_gb_* totals)."""
+    """
+    Per-kind CY/rebar/LF/poly for a pour (all kinds sum into calc_gb_* totals).
+
+    The row's totals: a garden-style pour (sql/079) multiplies its beams by
+    its qty, so the hover on the pour table adds up to the stored rollup.
+    """
     rows = db.execute(
         text(
             """
             SELECT
-              kind,
+              gb.kind,
               count(*)::int AS n,
-              coalesce(sum(length_lf), 0) AS length_lf,
-              coalesce(sum(calc_rebar_lb), 0) AS rebar_lb,
-              coalesce(sum(calc_concrete_cy), 0) AS concrete_cy,
-              coalesce(sum(calc_poly_sf), 0) AS poly_sf
-            FROM grade_beam_details
-            WHERE mono_slab_id = :id
-            GROUP BY kind
+              coalesce(sum(gb.length_lf * m.qty), 0) AS length_lf,
+              coalesce(sum(gb.calc_rebar_lb * m.qty), 0) AS rebar_lb,
+              coalesce(sum(gb.calc_concrete_cy * m.qty), 0) AS concrete_cy,
+              coalesce(sum(gb.calc_poly_sf * m.qty), 0) AS poly_sf
+            FROM grade_beam_details gb
+            JOIN mono_slabs m ON m.id = gb.mono_slab_id
+            WHERE gb.mono_slab_id = :id
+            GROUP BY gb.kind
             """
         ),
         {"id": str(mono_slab_id)},
@@ -675,26 +719,30 @@ def _mono_totals(db: Session, where: str, params: dict[str, Any]) -> dict[str, A
             """
             SELECT
               count(*)::int AS slab_count,
-              coalesce(sum(square_footage), 0) AS total_sf,
+              -- Garden style (sql/079): the raw takeoff columns are per
+              -- building and carry the row's qty here; the calc_* columns
+              -- are stored as the row's totals and already do.
+              coalesce(sum(qty), 0)::int AS total_qty,
+              coalesce(sum(square_footage * qty), 0) AS total_sf,
               coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
               coalesce(sum(calc_slab_concrete_cy), 0) AS total_slab_concrete_cy,
               coalesce(sum(calc_gb_concrete_cy), 0) AS total_gb_concrete_cy,
               coalesce(sum(calc_edge_concrete_cy), 0) AS total_edge_concrete_cy,
               coalesce(sum(calc_sand_cy), 0) AS total_sand_cy,
               -- Paving drivers (sql/036); all zero on a building slab.
-              coalesce(sum(curb_lf), 0) AS total_curb_lf,
-              coalesce(sum(thick_edge_lf), 0) AS total_thick_edge_lf,
+              coalesce(sum(curb_lf * qty), 0) AS total_curb_lf,
+              coalesce(sum(thick_edge_lf * qty), 0) AS total_thick_edge_lf,
               -- Sidewalk drivers (sql/076); all zero elsewhere.
-              coalesce(sum(stair_tread_lf), 0) AS total_stair_tread_lf,
+              coalesce(sum(stair_tread_lf * qty), 0) AS total_stair_tread_lf,
               coalesce(sum(calc_stair_concrete_cy), 0) AS total_stair_concrete_cy,
-              coalesce(sum(square_footage) FILTER (WHERE stamped), 0) AS total_stamped_sf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE stamped), 0) AS total_stamped_sf,
               coalesce(sum(calc_concrete_cy) FILTER (WHERE integral_color), 0) AS total_integral_color_cy,
-              coalesce(sum(square_footage) FILTER (WHERE acid_etch), 0) AS total_acid_etch_sf,
-              coalesce(sum(demo_lf), 0) AS total_demo_lf,
-              coalesce(sum(square_footage) FILTER (WHERE slip_form), 0) AS total_slip_form_sf,
-              coalesce(sum(square_footage) FILTER (WHERE traffic_control), 0)
+              coalesce(sum(square_footage * qty) FILTER (WHERE acid_etch), 0) AS total_acid_etch_sf,
+              coalesce(sum(demo_lf * qty), 0) AS total_demo_lf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE slip_form), 0) AS total_slip_form_sf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE traffic_control), 0)
                 AS total_traffic_control_sf,
-              coalesce(sum(square_footage * coalesce(paving_add_per_sf, 0)), 0)
+              coalesce(sum(square_footage * qty * coalesce(paving_add_per_sf, 0)), 0)
                 AS total_paving_add,
               coalesce(sum(calc_slab_bar_lf), 0) AS total_slab_bar_lf,
               coalesce(sum(calc_slab_bar_lb), 0) AS total_slab_bar_lb,

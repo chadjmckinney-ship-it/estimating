@@ -60,6 +60,7 @@ from app.services.costing import (
     _setting,
     _tape_cost,
     barrier_rolls,
+    pour_sf,
     resolve_rebar,
     resolve_vapor_barrier,
     resolve_vapor_tape,
@@ -218,7 +219,9 @@ def _slab_lines(db: Session, section: EstimateSection) -> list[MaterialLine]:
     mesh = _Acc()
 
     for r in rows:
-        sf = _d(r.square_footage)
+        # Garden style (sql/079): the row's area is SF × qty; the calc_*
+        # figures are the row's totals already.
+        sf = pour_sf(r)
 
         cy = _d(r.calc_concrete_cy)
         if cy > 0:

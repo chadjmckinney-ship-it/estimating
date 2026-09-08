@@ -132,10 +132,12 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             """
             SELECT
               count(*)::int AS pour_count,
-              coalesce(sum(square_footage), 0) AS total_sf,
+              -- Garden style (sql/079): the raw takeoff columns carry the
+              -- row's qty; the stored calc_* columns are the row's totals.
+              coalesce(sum(square_footage * qty), 0) AS total_sf,
               -- Drops are grade beams (kind='drop') since sql/022.
               coalesce((
-                  SELECT sum(gb.length_lf)
+                  SELECT sum(gb.length_lf * dm.qty)
                   FROM grade_beam_details gb
                   JOIN mono_slabs dm ON dm.id = gb.mono_slab_id
                   WHERE dm.section_id = :sid AND gb.kind = 'drop'
@@ -152,16 +154,16 @@ def labor_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
               -- Paving (sql/036). The $/SF adder lands on LABOR ADJUSTMENT —
               -- column BA on the sheet — so it is a labor driver, not a
               -- material one.
-              coalesce(sum(curb_lf), 0) AS curb_lf,
-              coalesce(sum(square_footage * coalesce(paving_add_per_sf, 0)), 0)
+              coalesce(sum(curb_lf * qty), 0) AS curb_lf,
+              coalesce(sum(square_footage * qty * coalesce(paving_add_per_sf, 0)), 0)
                 AS paving_add,
               -- Sidewalks (sql/076): the edge and the treads carry labor per LF.
-              coalesce(sum(thick_edge_lf), 0) AS thick_edge_lf,
-              coalesce(sum(stair_tread_lf), 0) AS stair_tread_lf,
+              coalesce(sum(thick_edge_lf * qty), 0) AS thick_edge_lf,
+              coalesce(sum(stair_tread_lf * qty), 0) AS stair_tread_lf,
               -- Brick ledge (sql/029) is formed and stripped like a drop, so it
               -- carries its own labor line rather than riding the SF rates.
               coalesce((
-                  SELECT sum(gb.length_lf)
+                  SELECT sum(gb.length_lf * lm.qty)
                   FROM grade_beam_details gb
                   JOIN mono_slabs lm ON lm.id = gb.mono_slab_id
                   WHERE lm.section_id = :sid AND gb.kind = 'brick_ledge'
@@ -1556,8 +1558,8 @@ def load_stored_labor(db: Session, section_id: UUID) -> dict[str, Any] | None:
     kind = section_kind(db, section_id)
     extra = db.execute(
         text(
-            "SELECT coalesce(sum(curb_lf), 0) AS curb_lf, "
-            "       coalesce(sum(square_footage * coalesce(paving_add_per_sf, 0)), 0)"
+            "SELECT coalesce(sum(curb_lf * qty), 0) AS curb_lf, "
+            "       coalesce(sum(square_footage * qty * coalesce(paving_add_per_sf, 0)), 0)"
             "         AS paving_add, "
             "       (SELECT coalesce(sum(qty), 0) FROM pier_groups WHERE section_id = :sid)"
             "         AS pier_count, "

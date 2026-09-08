@@ -36,7 +36,7 @@ from tests import misc_fixture as mcf
 
 # What every mono-slab or paving page reads off /api/mono-slabs/totals.
 SLAB_TOTALS = {
-    "slab_count", "total_concrete_cy", "total_cost", "total_cost_per_sf", "total_curb_lf",
+    "slab_count", "total_qty", "total_concrete_cy", "total_cost", "total_cost_per_sf", "total_curb_lf",
     "total_demo_lf", "total_edge_concrete_cy", "total_gb_concrete_cy", "total_poly_gb_sf",
     "total_poly_sf", "total_poly_slab_sf", "total_pt_cable_lb", "total_pt_cable_lf",
     "total_rebar_lb", "total_sale", "total_sale_per_sf", "total_sand_cy", "total_sf",
@@ -51,7 +51,7 @@ PAGES = {
         totals_keys=SLAB_TOTALS,
         # the pour form's fields, then the pour table's calc cells
         row_keys={
-            "id", "description", "location", "square_footage", "thickness_in", "sand_thickness_in",
+            "id", "description", "location", "qty", "square_footage", "thickness_in", "sand_thickness_in",
             "perimeter_edge_lf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
             "slab_bar_spacing_in", "support_rebar_lb_per_sf", "pt_lb_per_sf", "pt_spacing_in", "notes",
             "calc_allocated_cost", "calc_concrete_cy", "calc_cost", "calc_cost_per_sf",

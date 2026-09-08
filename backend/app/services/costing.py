@@ -471,6 +471,16 @@ def _poly_cost(db: Session, poly_sf: Decimal, mat: dict[str, Any] | None) -> Dec
     return (poly_sf / coverage * rate).quantize(_Q2)
 
 
+def pour_sf(row: Any) -> Decimal:
+    """
+    The area a pour row stands for: SF × qty (sql/079). A garden-style row
+    is one building type drawn once and built qty times, so every $/SF
+    price — PT cable, mesh — and every weight is priced on all of them.
+    """
+    q = getattr(row, "qty", None)
+    return _d(getattr(row, "square_footage", 0)) * Decimal(int(q if q is not None else 1))
+
+
 def _direct_cost(
     db: Session,
     slab: MonoSlab,
@@ -489,7 +499,9 @@ def _direct_cost(
     share, because apportioning a lump needs every pour's weight at once and a
     per-pour function cannot know its own share.
     """
-    sf = _d(slab.square_footage)
+    # Garden style (sql/079): the row's area is SF × qty. The stored calc_*
+    # figures read below are the row's totals already.
+    sf = pour_sf(slab)
     total = Decimal("0")
 
     mix_cy = _d(slab.calc_concrete_cy)
@@ -902,9 +914,9 @@ def _slab_units(db: Session, section: EstimateSection) -> list[_Unit]:
     units = [
         _Unit(
             row=s,
-            weight=_d(s.square_footage),
+            weight=pour_sf(s),
             cy=_d(s.calc_concrete_cy),
-            quantity=_d(s.square_footage),
+            quantity=pour_sf(s),
             direct_taxable=_direct_cost(
                 db, s, vapor_barrier, vapor_tape, tape_ratio, section.kind, quotes
             ),
@@ -1509,9 +1521,9 @@ def section_unpriced(db: Session, section: EstimateSection) -> list[str]:
                     r.calc_total_rebar_lb,
                 )
             if r.post_tension and not pt_quoted:
-                need("POST TENSION — cables", _pt_sf_unit_cost(db), r.square_footage)
+                need("POST TENSION — cables", _pt_sf_unit_cost(db), pour_sf(r))
             if getattr(r, "wire_mesh", False):
-                need("WIRE MESH", _mesh_unit_cost(db), r.square_footage)
+                need("WIRE MESH", _mesh_unit_cost(db), pour_sf(r))
             if _d(getattr(r, "calc_poly_sf", 0)) > 0:
                 barrier = _resolve_vapor_barrier(db, section)
                 need(
@@ -1690,7 +1702,7 @@ def _catalog_cost_for_quote(
         for u in units:
             if not getattr(u.row, "post_tension", False):
                 continue
-            sf = _d(getattr(u.row, "square_footage", 0))
+            sf = pour_sf(u.row)
             if sf <= 0:
                 continue
             total += sf * rate

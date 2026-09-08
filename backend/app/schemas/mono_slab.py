@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.bar_sizes import BarSize
 
@@ -72,6 +72,24 @@ class MonoSlabBase(BaseModel):
     stair_tread_run_in: Decimal | None = Field(None, ge=0, description="Sidewalk: tread run, inches")
     notes: str | None = None
     sort_order: int = 0
+    # Garden style (sql/079): one row per building type, multiplied.
+    qty: int = Field(
+        1,
+        ge=0,
+        examples=[7],
+        description=(
+            "How many of this pour the row stands for — the garden-style tab's QTY. "
+            "Every quantity and cost on the row is multiplied by it; 0 keeps the "
+            "row and prices nothing. Blank reads as 1."
+        ),
+    )
+
+    @field_validator("qty", mode="before")
+    @classmethod
+    def _blank_qty_is_one(cls, v):
+        # A cleared box on the form must not zero a pour that was priced
+        # a moment ago; blank means "the one I drew".
+        return 1 if v is None or v == "" else v
 
 
 class MonoSlabCreate(MonoSlabBase):
@@ -115,6 +133,13 @@ class MonoSlabUpdate(BaseModel):
     stair_tread_run_in: Decimal | None = Field(None, ge=0)
     notes: str | None = None
     sort_order: int | None = None
+    qty: int | None = Field(None, ge=0)
+
+    @field_validator("qty", mode="before")
+    @classmethod
+    def _blank_qty_is_one(cls, v):
+        # Sent and blank → back to 1. Not sent → left alone (exclude_unset).
+        return 1 if v is None or v == "" else v
 
 
 class MonoSlabBulkRow(MonoSlabUpdate):
@@ -219,6 +244,8 @@ class MonoSlabTotals(BaseModel):
 
     section_id: UUID
     slab_count: int
+    # Garden style (sql/079): buildings, not rows — the tab's hidden QTY SLABS.
+    total_qty: int = 0
     total_sf: Decimal
     total_concrete_cy: Decimal
     total_slab_concrete_cy: Decimal

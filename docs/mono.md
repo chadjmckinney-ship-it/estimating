@@ -39,6 +39,7 @@ The long-term goal is to reduce key-person risk while preserving the 20-year dep
 | Field                    | Type     | Notes / Example                          | Required |
 |--------------------------|----------|------------------------------------------|----------|
 | Description / Location   | text     | "Garden Style", "Bld 1 Pour 3"           | Yes      |
+| Quantity                 | integer  | 7 — garden style, buildings of this type (`sql/079`); default 1 | No |
 | Square Footage           | decimal  | 9525                                     | Yes      |
 | Thickness (inches)       | decimal  | 4                                        | Yes      |
 | Post Tension             | boolean  | true / false                             | Yes      |

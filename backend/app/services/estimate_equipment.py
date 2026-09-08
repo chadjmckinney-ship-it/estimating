@@ -153,7 +153,7 @@ def _super_days(db: Session, section_id: UUID) -> Decimal:
     # Fallback: SF / 16000 * 7
     sf = db.execute(
         text(
-            "SELECT coalesce(sum(square_footage),0) FROM mono_slabs WHERE section_id = :sid"
+            "SELECT coalesce(sum(square_footage * qty),0) FROM mono_slabs WHERE section_id = :sid"
         ),
         {"sid": str(section_id)},
     ).scalar()
@@ -385,17 +385,19 @@ def equipment_drivers(db: Session, section_id: UUID) -> dict[str, Any]:
             """
             SELECT
               count(*)::int AS pour_count,
-              coalesce(sum(square_footage), 0) AS total_sf,
+              -- Garden style (sql/079): the raw takeoff columns carry the
+              -- row's qty; the stored calc_* columns are the row's totals.
+              coalesce(sum(square_footage * qty), 0) AS total_sf,
               coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
               -- Paving contract-service drivers (sql/036)
-              coalesce(sum(curb_lf), 0) AS curb_lf,
-              coalesce(sum(demo_lf), 0) AS demo_lf,
+              coalesce(sum(curb_lf * qty), 0) AS curb_lf,
+              coalesce(sum(demo_lf * qty), 0) AS demo_lf,
               -- Sidewalk finishes (sql/076): contract lines off the areas' flags.
-              coalesce(sum(square_footage) FILTER (WHERE stamped), 0) AS stamped_sf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE stamped), 0) AS stamped_sf,
               coalesce(sum(calc_concrete_cy) FILTER (WHERE integral_color), 0) AS integral_color_cy,
-              coalesce(sum(square_footage) FILTER (WHERE acid_etch), 0) AS acid_etch_sf,
-              coalesce(sum(square_footage) FILTER (WHERE slip_form), 0) AS slip_form_sf,
-              coalesce(sum(square_footage) FILTER (WHERE traffic_control), 0)
+              coalesce(sum(square_footage * qty) FILTER (WHERE acid_etch), 0) AS acid_etch_sf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE slip_form), 0) AS slip_form_sf,
+              coalesce(sum(square_footage * qty) FILTER (WHERE traffic_control), 0)
                 AS traffic_control_sf
             FROM mono_slabs
             WHERE section_id = :sid

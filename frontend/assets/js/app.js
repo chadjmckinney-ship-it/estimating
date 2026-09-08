@@ -3171,7 +3171,11 @@ async function renderSectionDetail(root) {
       <div class="card stat"><div class="label">Sale / SF</div><div class="value">${usd(section.calc_sale_per_unit ?? totals.total_sale_per_sf, 2)}</div><div class="hint">cost ${usd(section.calc_cost_per_unit ?? totals.total_cost_per_sf, 2)}/SF</div></div>
     </div>`
         : `<div class="grid stats">
-      <div class="card stat"><div class="label">Pours</div><div class="value">${totals.slab_count}</div></div>
+      <div class="card stat"><div class="label">Pours</div><div class="value">${totals.slab_count}</div>${
+        Number(totals.total_qty) !== Number(totals.slab_count)
+          ? `<div class="hint">${totals.total_qty} buildings — garden style</div>`
+          : ""
+      }</div>
       <div class="card stat"><div class="label">Total SF</div><div class="value">${num(totals.total_sf, 0)}</div></div>
       <div class="card stat"><div class="label">Concrete CY</div><div class="value">${num(totals.total_concrete_cy, 2)}</div><div class="hint">slab ${num(totals.total_slab_concrete_cy, 1)} + beams ${num(totals.total_gb_concrete_cy, 1)} (GB+Exp+Drop)</div>${moneyRow(matCost(mat, "concrete"))}</div>
       <div class="card stat"><div class="label">SF / CY</div><div class="value">${num(sfPerCy(totals.total_sf, totals.total_concrete_cy), 1)}</div><div class="hint">total SF ÷ CY (slab + beams)</div></div>
@@ -3399,6 +3403,7 @@ async function renderSectionDetail(root) {
         <thead>
           <tr>
             <th>Description</th>
+            <th title="Garden style: buildings of this type — the whole row is multiplied">Qty</th>
             <th>SF</th>
             <th>Thk"</th>
             <th>PT</th>
@@ -3424,10 +3429,14 @@ async function renderSectionDetail(root) {
               const g = bb.grade_beam || {};
               const e = bb.exposed || {};
               const d = bb.drop || {};
+              // Garden style (sql/079): the row's figures are qty buildings'
+              // worth, so the ratios read against the row's SF, not one building's.
+              const rowQty = s.qty == null ? 1 : Number(s.qty);
+              const rowSf = Number(s.square_footage) * rowQty;
               const pourSfPerCy = s.calc_sf_per_cy != null
                 ? Number(s.calc_sf_per_cy)
-                : sfPerCy(s.square_footage, s.calc_concrete_cy);
-              const slabOnlySfPerCy = sfPerCy(s.square_footage, s.calc_slab_concrete_cy);
+                : sfPerCy(rowSf, s.calc_concrete_cy);
+              const slabOnlySfPerCy = sfPerCy(rowSf, s.calc_slab_concrete_cy);
               const costTitle =
                 `direct ${usd(s.calc_direct_cost, 0)}` +
                 ` + allocated ${usd(s.calc_allocated_cost, 0)}` +
@@ -3439,7 +3448,7 @@ async function renderSectionDetail(root) {
                 ` + Drop ${num(d.concrete_cy, 2)}` +
                 ` = beams ${num(s.calc_gb_concrete_cy, 2)}`;
               const sfCyTitle =
-                `SF ${num(s.square_footage, 0)} ÷ total CY ${num(s.calc_concrete_cy, 2)}` +
+                `SF ${num(rowSf, 0)} ÷ total CY ${num(s.calc_concrete_cy, 2)}` +
                 ` = ${num(pourSfPerCy, 1)} SF/CY` +
                 (slabOnlySfPerCy != null
                   ? ` · slab only ${num(slabOnlySfPerCy, 1)} SF/CY`
@@ -3447,6 +3456,7 @@ async function renderSectionDetail(root) {
               const matTitle = s.slab_bar_size
                 ? `#${s.slab_bar_size} @ ${num(s.slab_bar_spacing_in, 1)}" each way` +
                   ` · 2 × ${num(s.square_footage, 0)} SF × 12 / ${num(s.slab_bar_spacing_in, 1)}` +
+                  (rowQty !== 1 ? ` × ${rowQty}` : "") +
                   ` = ${num(s.calc_slab_bar_lf, 0)} LF → ${num(s.calc_slab_bar_lb, 0)} lb (incl. lap)`
                 : "No slab mat — enter bar size + spacing on this pour";
               const rebarTitle =
@@ -3482,7 +3492,12 @@ async function renderSectionDetail(root) {
                 }
                 ${kindHint ? `<div class="muted">${esc(kindHint)}</div>` : ""}
               </td>
-              <td class="num">${num(s.square_footage, 1)}</td>
+              <td class="num" title="Garden style: buildings of this type">${
+                rowQty === 1 ? `<span class="muted">1</span>` : `<strong>× ${rowQty}</strong>`
+              }</td>
+              <td class="num">${num(s.square_footage, 1)}${
+                rowQty !== 1 ? `<div class="muted">= ${num(rowSf, 0)}</div>` : ""
+              }</td>
               <td class="num">${num(s.thickness_in, 2)}</td>
               <td>${s.post_tension ? '<span class="badge accent">PT</span>' : "—"}</td>
               <td class="muted">${esc(s.mix_design_code || s.mix_design_name || "—")}</td>
@@ -3516,7 +3531,8 @@ async function renderSectionDetail(root) {
           : `<div class="empty">No mono slabs yet. Add a pour to calculate CY and rebar.</div>`
       }
       <p style="color:var(--text-muted);font-size:0.82rem;margin:0.85rem 0 0">
-        Calcs: concrete/sand CY with waste. <strong>Slab mat</strong> =
+        Calcs: concrete/sand CY with waste. <strong>Qty</strong> multiplies the whole row —
+        garden style, one row per building type. <strong>Slab mat</strong> =
         <code>2 × SF × 12 / spacing</code> LF each way × lb/ft × (1+waste_rebar for laps);
         support rebar is chairs/dowels only at lb/SF.
         <strong>Poly/Stego SF</strong> = pour SF + beam wrap
@@ -5495,6 +5511,12 @@ function openMonoSlabModal(section, existing = null) {
           <input name="location" value="${esc(existing?.location || "")}" />
         </div>
         <div class="field">
+          <label>Quantity</label>
+          <input type="number" name="qty" min="0" step="1"
+            value="${existing?.qty ?? 1}"
+            title="Garden style: how many buildings of this type. Every quantity and cost on the row is multiplied by it; blank reads as 1, 0 keeps the row and prices nothing." />
+        </div>
+        <div class="field">
           <label>Square footage *</label>
           <input type="number" name="square_footage" required min="0" step="0.001"
             value="${existing?.square_footage ?? ""}" />
@@ -5620,6 +5642,8 @@ function openMonoSlabModal(section, existing = null) {
     const body = {
       description: fd.get("description") || null,
       location: fd.get("location") || null,
+      // Garden style (sql/079): buildings of this type. Blank is one.
+      qty: fd.get("qty") === "" || fd.get("qty") == null ? 1 : Number(fd.get("qty")),
       square_footage: Number(fd.get("square_footage")),
       thickness_in: Number(fd.get("thickness_in")),
       sand_thickness_in: optNum("sand_thickness_in"),

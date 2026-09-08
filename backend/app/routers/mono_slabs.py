@@ -94,6 +94,7 @@ def _to_read(db: Session, row: MonoSlab, rates: tuple | None = None) -> MonoSlab
         stair_tread_run_in=row.stair_tread_run_in,
         notes=row.notes,
         sort_order=row.sort_order,
+        qty=row.qty,
         calc_concrete_cy=row.calc_concrete_cy,
         calc_slab_concrete_cy=row.calc_slab_concrete_cy,
         calc_gb_concrete_cy=row.calc_gb_concrete_cy,
@@ -239,6 +240,7 @@ def create_mono_slab(body: MonoSlabCreate, db: Session = Depends(get_db)) -> Mon
         stair_tread_run_in=body.stair_tread_run_in,
         notes=body.notes,
         sort_order=body.sort_order,
+        qty=body.qty,
     )
     db.add(row)
     db.flush()  # get id for grade beam query
