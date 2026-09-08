@@ -226,7 +226,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 ## Nice to have
 
 - [ ] Export estimate to PDF / Excel summary
-- [ ] Proposal sheet generation
+- [x] Proposal sheet generation — `sql/080` (2026-09-08): one proposal per estimate seeded from the takeoff,
+      edited on its own page, downloaded as the NEW FORM .xlsx; the standing text a library under Settings
+- [ ] `is_excluded` on the takeoff row itself (an excluded proposal line is a status; the row still prices)
 - [ ] Concrete yardage rollup by mix design
 - [ ] Timeline / checklist (from workbook tabs)
 - [ ] Sync materials from Whitecap / supplier files

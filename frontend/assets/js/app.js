@@ -167,7 +167,8 @@ function setRoute(route, params = {}) {
       (route === "project" && b.dataset.route === "projects") ||
       (route === "estimate" && b.dataset.route === "projects") ||
       (route === "section" && b.dataset.route === "projects") ||
-      (route === "prices" && b.dataset.route === "projects");
+      (route === "prices" && b.dataset.route === "projects") ||
+      (route === "proposal" && b.dataset.route === "projects");
     b.classList.toggle("active", active);
   });
   render();
@@ -176,6 +177,7 @@ function setRoute(route, params = {}) {
   if (route === "estimate" && state.estimateId) hash = `#estimate/${state.estimateId}`;
   if (route === "section" && state.sectionId) hash = `#section/${state.sectionId}`;
   if (route === "prices" && state.estimateId) hash = `#prices/${state.estimateId}`;
+  if (route === "proposal" && state.estimateId) hash = `#proposal/${state.estimateId}`;
   if (location.hash !== hash) history.replaceState(null, "", hash);
 }
 
@@ -1065,6 +1067,8 @@ async function renderEstimateSummary(root) {
         <button class="btn primary" id="btn-add-section">+ Section</button>
         <button class="btn" id="btn-price-sheet" type="button"
           title="What this job pays for each mix and material">Price sheet</button>
+        <button class="btn" id="btn-proposal" type="button"
+          title="The bid form: seeded from this estimate, edited on its own page, downloaded as .xlsx">Proposal</button>
         <button class="btn" id="btn-recalc-job" type="button"
           title="Reprice every section from current inputs">Recalculate job</button>
       </div>
@@ -1218,6 +1222,8 @@ async function renderEstimateSummary(root) {
   if (priceBtn) priceBtn.onclick = goPrices;
   const priceCard = $("#card-prices");
   if (priceCard) priceCard.onclick = goPrices;
+  const proposalBtn = $("#btn-proposal");
+  if (proposalBtn) proposalBtn.onclick = () => setRoute("proposal", { estimateId: estimate.id });
 
   const recalcBtn = $("#btn-recalc-job");
   if (recalcBtn) {
@@ -6668,6 +6674,362 @@ async function openPullModal(estimate, onDone) {
  * and `scope` all come off the row. A second copy of that split in JavaScript
  * is a copy that would disagree with the one deciding the money.
  */
+// ---------- Proposal (sql/080) ----------
+//
+// The estimate pushed onto the bid form. One per estimate, seeded from the
+// takeoff, edited here, downloaded as the .xlsx. The unit price and the
+// extended never PRINT — the form's print area stops at STATUS, by the
+// standing rule of 2026-08-28 — but they show here beside the estimate's own
+// sale, so a rewrite never drifts unnoticed.
+
+const PROPOSAL_BLOCKS = [
+  ["alternates", "Alternates", "The five that repeat: bollards, pumping per setup, +1\" in lieu of lime, retaining walls, transformer pads."],
+  ["equipment_rates", "Additional equipment rates", "Day and hour rates, one per line."],
+  ["labor_rates", "Additional labor rates", ""],
+  ["qualifications", "Qualifications", ""],
+  ["exclusions", "Exclusions", "Anything not listed is excluded; name the subgrade and the asphalt."],
+  ["terms", "Terms and conditions", "Numbered on the form, one paragraph per line."],
+];
+
+/** Six textareas, one per block, each holding the block's items one per line. */
+function proposalBlocksHtml(blocks) {
+  return PROPOSAL_BLOCKS.map(([key, label, hint]) => {
+    const items = (blocks && blocks[key]) || [];
+    const text = items.map((i) => (typeof i === "string" ? i : i.text)).join("\n");
+    return `<div class="field" style="margin-bottom:0.75rem">
+      <label>${esc(label)}</label>
+      <textarea data-block="${key}" rows="${Math.min(14, Math.max(3, items.length + 1))}"
+        style="width:100%;font-family:inherit;font-size:0.85rem">${esc(text)}</textarea>
+      ${hint ? `<div class="muted" style="font-size:0.8rem">${esc(hint)}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+/** A textarea's lines as a block: trimmed, blanks dropped. */
+function blockLines(textarea) {
+  return String(textarea ? textarea.value : "")
+    .split("\n")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function proposalSectionColumns() {
+  return [
+    { f: "title", label: "Section title", placeholder: "BUILDING FOUNDATIONS - POST-TENSIONED SLAB ON GRADE" },
+    { f: "sort_order", label: "Order", type: "number", step: "1" },
+    { label: "Lines", derived: (r) => String(r.line_count ?? 0) },
+    { label: "Proposal", derived: (r) => usd(r.total, 0), title: () => "the sum of the section's included lines — what prints as SECTION TOTAL" },
+    {
+      label: "Estimate",
+      derived: (r) => (r.estimate_sale == null ? "—" : usd(r.estimate_sale, 0)),
+      title: (r) =>
+        r.estimate_section_name
+          ? `Seeded from the ${r.estimate_section_name} section, at its markup`
+          : "Typed by hand — no estimate section behind it",
+    },
+    { label: "Difference", derived: (r) => (r.difference == null ? "—" : usd(r.difference, 0)) },
+  ];
+}
+
+function proposalLineColumns() {
+  return [
+    {
+      f: "description",
+      label: "Description",
+      placeholder: "PLAN MARK ITEM @ LOCATION (thickness, psi, reinforcing, finish, per detail)",
+    },
+    { f: "qty", label: "Qty", type: "number" },
+    { f: "unit", label: "Unit", placeholder: "SF" },
+    {
+      f: "status",
+      label: "Status",
+      type: "select",
+      options: [
+        { id: "INCLUDED", label: "Included" },
+        { id: "EXCLUDED", label: "Excluded" },
+      ],
+    },
+    { f: "unit_price", label: "Unit price", type: "number", step: "0.01" },
+    {
+      label: "Extended",
+      derived: (r) => usd(r.extended, 0),
+      title: (r) =>
+        r.status === "EXCLUDED"
+          ? "Excluded: the quantity prints, the price does not, and it adds nothing"
+          : `${num(r.qty, 3)} × ${usd(r.unit_price, 4)}`,
+    },
+    {
+      label: "From",
+      derived: (r) =>
+        r.source_id
+          ? r.source_missing
+            ? `<span class="badge warn" title="The takeoff row behind this line is gone or at no quantity — delete the line, or keep it typed">gone</span>`
+            : `<span class="muted" title="Seeded from the takeoff; Refresh re-reads its quantity and price and keeps these words">${esc(r.source_label || r.source_table)}</span>`
+          : `<span class="muted" title="Typed by hand; a refresh never touches it">typed</span>`,
+    },
+  ];
+}
+
+async function renderProposal(root) {
+  root.innerHTML = `<div class="loading">Loading proposal…</div>`;
+  const estimate = await Api.getEstimate(state.estimateId);
+  let p = null;
+  try {
+    p = await Api.proposalForEstimate(estimate.id);
+  } catch (err) {
+    if (!/no proposal/i.test(err.message)) throw err;
+  }
+  const back = () => setRoute("estimate", { estimateId: estimate.id });
+
+  if (!p) {
+    root.innerHTML = `
+      <div class="page-header">
+        <div>
+          <button class="btn ghost" id="back-estimate">← ${esc(estimate.name)}</button>
+          <h1 style="margin-top:0.5rem">Proposal</h1>
+          <p>${esc(estimate.project_name || "")} · this estimate has no proposal yet</p>
+        </div>
+      </div>
+      <div class="card">
+        <p style="margin:0 0 0.75rem">
+          A proposal is the estimate pushed onto the bid form: one section per estimate section, one
+          line per costed takeoff row with its quantity and its sale per unit, the company's standing
+          text copied in. Every line is yours to rewrite; a refresh brings the numbers back up to date
+          and keeps your words.
+        </p>
+        <button type="button" class="btn primary" id="btn-make-proposal">Create the proposal from this estimate</button>
+      </div>`;
+    $("#back-estimate").onclick = back;
+    $("#btn-make-proposal").onclick = async (e) => {
+      e.target.disabled = true;
+      try {
+        await Api.createProposal(estimate.id);
+        toast("Proposal seeded from the estimate");
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        e.target.disabled = false;
+      }
+    };
+    return;
+  }
+
+  const lineCount = p.sections.reduce((a, sct) => a + sct.lines.length, 0);
+  const missing = p.sections.reduce((a, sct) => a + sct.lines.filter((l) => l.source_missing).length, 0);
+  const diffHint =
+    p.difference == null
+      ? "the estimate has no sale yet"
+      : Math.abs(Number(p.difference)) < 5
+        ? "the rounding of unit prices to four places"
+        : "rewritten prices, typed lines, or an estimate that moved — Refresh to re-read it";
+  const drawings = p.drawings && p.drawings.length
+    ? p.drawings
+    : ["ARCHITECTURAL", "STRUCTURAL", "CIVIL", "LANDSCAPE"].map((d) => ({ discipline: d, firm: "", plan_date: "" }));
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <button class="btn ghost" id="back-estimate">← ${esc(estimate.name)}</button>
+        <h1 style="margin-top:0.5rem">Proposal</h1>
+        <p>${esc(p.project_name || "")} · rev ${p.rev} · ${esc(p.proposal_date)} · <code>${esc(p.file_name)}</code></p>
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn" id="btn-refresh-proposal" type="button"
+          title="Pull the estimate onto the proposal again: fresh quantities and prices on every seeded line, new rows and sections added, your descriptions kept">Refresh from estimate</button>
+        <a class="btn primary" id="btn-download-proposal" href="${Api.proposalXlsxUrl(p.id)}" download="${esc(p.file_name)}"
+          title="The bid form as .xlsx — unit prices held outside the print area">Download .xlsx</a>
+        <button class="btn danger ghost" id="btn-del-proposal" type="button">Delete proposal</button>
+      </div>
+    </div>
+
+    <div class="grid stats">
+      <div class="card stat"><div class="label">Proposal total</div><div class="value">${usd(p.total, 0)}</div><div class="hint">the section totals — what prints as the lump sum</div></div>
+      <div class="card stat"><div class="label">Estimate sale</div><div class="value">${p.estimate_sale == null ? "—" : usd(p.estimate_sale, 0)}</div><div class="hint">every section at its markup</div></div>
+      <div class="card stat"><div class="label">Difference</div><div class="value">${p.difference == null ? "—" : usd(p.difference, 0)}</div><div class="hint">${esc(diffHint)}</div></div>
+      <div class="card stat"><div class="label">Lines</div><div class="value">${lineCount}</div><div class="hint">${missing ? `${missing} with no takeoff row behind` : `across ${p.sections.length} section${p.sections.length === 1 ? "" : "s"}`}</div></div>
+    </div>
+
+    <div class="card" id="proposal-header">
+      <h3 style="margin:0 0 0.25rem">Header</h3>
+      <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+        What the form prints above the lines. Seeded from the project; type over anything. The file is
+        named to the standard, <code>&lt;Job&gt; - Proposal - &lt;#&gt; - &lt;date&gt;_&lt;rev&gt;</code>.
+      </p>
+      <form class="form-grid" id="proposal-header-form">
+        <div class="field"><label>Submitted to</label><input name="submitted_to" value="${esc(p.submitted_to || "")}" /></div>
+        <div class="field"><label>Attention</label><input name="attn" value="${esc(p.attn || "")}" placeholder="Name, title" /></div>
+        <div class="field"><label>Email</label><input name="email" value="${esc(p.email || "")}" /></div>
+        <div class="field"><label>Phone</label><input name="phone" value="${esc(p.phone || "")}" /></div>
+        <div class="field"><label>Date</label><input type="date" name="proposal_date" value="${esc(p.proposal_date || "")}" /></div>
+        <div class="field"><label>Revision</label><input type="number" name="rev" min="1" step="1" value="${esc(p.rev)}" title="The playbook's counter, _01 upward per job; the file name carries it" /></div>
+        <div class="field"><label>Job</label><input name="job_label" value="${esc(p.job_label || "")}" /></div>
+        <div class="field"><label>Location</label><input name="location" value="${esc(p.location || "")}" /></div>
+        <div class="field" style="grid-column:1/-1"><label>Intro</label><textarea name="intro" rows="2" style="width:100%;font-family:inherit">${esc(p.intro || "")}</textarea></div>
+        <div class="field" style="grid-column:1/-1"><label>Payment</label><input name="payment_terms" value="${esc(p.payment_terms || "")}" /></div>
+        <div class="field full" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:0.75rem;margin-top:0.25rem">
+          <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;margin-bottom:0.5rem">Drawings supplied · date of plans</div>
+        </div>
+        ${drawings
+          .map(
+            (d, i) => `
+        <div class="field"><label>${esc(d.discipline)}</label><input name="firm_${i}" value="${esc(d.firm || "")}" placeholder="Firm" /><input type="hidden" name="disc_${i}" value="${esc(d.discipline)}" /></div>
+        <div class="field"><label>Date of plans</label><input type="date" name="date_${i}" value="${esc(d.plan_date || "")}" /></div>`
+          )
+          .join("")}
+        <div class="modal-actions" style="grid-column:1/-1">
+          <button type="submit" class="btn primary">Save header</button>
+        </div>
+      </form>
+    </div>
+
+    ${gridCardHtml({
+      id: "proposal-sections",
+      title: "Sections",
+      blurb:
+        "One per estimate section, in order, seeded with the section's name — retitle them the way the " +
+        "GC will level them (courtyards by their plan name, ROW split from onsite, garage on its own). " +
+        "<strong>Order</strong> sorts them; a section added here has no estimate section behind it. " +
+        "Estimate against proposal is the tie-out: a difference beyond pennies is a rewritten price, a " +
+        "typed line, or an estimate that moved.",
+      columns: proposalSectionColumns(),
+      rows: p.sections,
+      addLabel: "Section",
+      saveLabel: "Save sections",
+    })}
+
+    ${p.sections
+      .map(
+        (sct, i) =>
+          gridCardHtml({
+            id: `proposal-lines-${sct.id}`,
+            title: `${i + 1}. ${sct.title || "(untitled)"}`,
+            blurb:
+              (sct.estimate_section_name
+                ? `Seeded from the <strong>${esc(sct.estimate_section_name)}</strong> section · estimate ${usd(sct.estimate_sale, 0)} · proposal ${usd(sct.total, 0)} · difference ${usd(sct.difference, 0)}. `
+                : "Typed by hand — no estimate section behind it. ") +
+              "Write each description to the standard: plan mark, item, location, thickness, psi, reinforcing, " +
+              "finish, the governing detail. An <strong>excluded</strong> line keeps its quantity on the form and " +
+              "prices nothing — measured and excluded, not missed.",
+            columns: proposalLineColumns(),
+            rows: sct.lines,
+            addLabel: "Line",
+            saveLabel: "Save lines",
+          })
+      )
+      .join("")}
+
+    <div class="card" id="proposal-text">
+      <h3 style="margin:0 0 0.25rem">Standing text</h3>
+      <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+        Copied from the company's library the day this proposal was made; edit it here for this job,
+        or under Settings for every job after it. One bullet per line.
+      </p>
+      ${proposalBlocksHtml(p.items)}
+      <button type="button" class="btn primary" id="btn-save-text">Save text</button>
+    </div>
+  `;
+
+  $("#back-estimate").onclick = back;
+
+  $("#btn-refresh-proposal").onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      const res = await Api.refreshProposal(p.id);
+      toast(
+        `Refreshed: ${res.updated} line${res.updated === 1 ? "" : "s"} moved, ${res.added_lines} added, ` +
+          `${res.added_sections} section${res.added_sections === 1 ? "" : "s"} added, ${res.missing} with no row behind`
+      );
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+      e.target.disabled = false;
+    }
+  };
+
+  $("#btn-del-proposal").onclick = async () => {
+    if (!confirm("Delete this proposal? The estimate is untouched; a new one can be seeded from it.")) return;
+    try {
+      await Api.deleteProposal(p.id);
+      toast("Proposal deleted");
+      back();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
+
+  $("#proposal-header-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const str = (k) => String(fd.get(k) ?? "");
+    const body = {
+      submitted_to: str("submitted_to"),
+      attn: str("attn"),
+      email: str("email"),
+      phone: str("phone"),
+      proposal_date: str("proposal_date"),
+      rev: str("rev") === "" ? "" : Number(str("rev")),
+      job_label: str("job_label"),
+      location: str("location"),
+      intro: str("intro"),
+      payment_terms: str("payment_terms"),
+      drawings: drawings.map((d, i) => ({
+        discipline: str(`disc_${i}`) || d.discipline,
+        firm: str(`firm_${i}`),
+        plan_date: str(`date_${i}`),
+      })),
+    };
+    try {
+      await Api.updateProposal(p.id, body);
+      toast("Header saved");
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
+
+  wireGrid(root, {
+    id: "proposal-sections",
+    columns: proposalSectionColumns(),
+    required: ["title"],
+    save: async (rows) => {
+      const before = p.sections.length;
+      const res = await Api.bulkSaveProposalSections(p.id, rows);
+      return { created: Math.max(0, res.sections.length - before), updated: Math.min(before, rows.length) };
+    },
+    remove: (id) => Api.deleteProposalSection(id),
+  });
+  for (const sct of p.sections) {
+    wireGrid(root, {
+      id: `proposal-lines-${sct.id}`,
+      columns: proposalLineColumns(),
+      required: ["description"],
+      blank: { status: "INCLUDED" },
+      save: async (rows) => {
+        const before = sct.lines.length;
+        const res = await Api.bulkSaveProposalLines(sct.id, rows);
+        const after = res.sections.find((x) => x.id === sct.id);
+        const n = after ? after.lines.length : before;
+        return { created: Math.max(0, n - before), updated: Math.min(before, rows.length) };
+      },
+      remove: (id) => Api.deleteProposalLine(id),
+    });
+  }
+
+  $("#btn-save-text").onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      for (const [key] of PROPOSAL_BLOCKS) {
+        await Api.replaceProposalItems(p.id, key, blockLines($(`#proposal-text textarea[data-block="${key}"]`, root)));
+      }
+      toast("Standing text saved");
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+      e.target.disabled = false;
+    }
+  };
+}
+
 async function renderSettings(root) {
   root.innerHTML = `<div class="loading">Loading company settings…</div>`;
   const rows = await Api.listSettings();
@@ -6804,9 +7166,51 @@ async function renderSettings(root) {
       </div>`
       )
       .join("")}
+
+    <div class="card" style="margin-bottom:1rem" id="grp-proposaltext">
+      <h3 style="margin:0 0 0.25rem">Proposal text</h3>
+      <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+        The standing blocks every new proposal copies — alternates, equipment and labor rates,
+        qualifications, exclusions, terms. One bullet per line; the terms one paragraph per line.
+        A proposal already made keeps its own copy, so a change here reaches the next job.
+      </p>
+      <div id="proposal-library" class="muted">Loading…</div>
+    </div>
   `;
 
   wireSettings(root);
+  wireProposalLibrary(root);
+}
+
+/** The company's standing proposal text (sql/080): six blocks, each a textarea, one save. */
+async function wireProposalLibrary(root) {
+  const host = $("#proposal-library", root);
+  if (!host) return;
+  let lib;
+  try {
+    lib = await Api.proposalLibrary();
+  } catch (err) {
+    host.textContent = err.message;
+    return;
+  }
+  host.classList.remove("muted");
+  host.innerHTML =
+    proposalBlocksHtml(lib.blocks) +
+    `<button type="button" class="btn primary" id="btn-save-library">Save proposal text</button>`;
+  $("#btn-save-library", host).onclick = async () => {
+    const btn = $("#btn-save-library", host);
+    btn.disabled = true;
+    try {
+      for (const [key] of PROPOSAL_BLOCKS) {
+        await Api.replaceProposalLibraryBlock(key, blockLines($(`textarea[data-block="${key}"]`, host)));
+      }
+      toast("Proposal text saved — the next proposal copies it");
+    } catch (err) {
+      toast(err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 
 /** What a change to this key rewrites, in words rather than four booleans. */
@@ -7414,6 +7818,7 @@ async function render() {
     else if (state.route === "estimate") await renderEstimateSummary(root);
     else if (state.route === "section") await renderSectionDetail(root);
     else if (state.route === "prices") await renderPriceSheet(root);
+    else if (state.route === "proposal") await renderProposal(root);
     else if (state.route === "estimators") await renderEstimators(root);
     else if (state.route === "mixes") await renderMixes(root);
     else if (state.route === "materials") await renderMaterials(root);
@@ -7436,7 +7841,8 @@ function syncNavActive() {
       (state.route === "project" && b.dataset.route === "projects") ||
       (state.route === "estimate" && b.dataset.route === "projects") ||
       (state.route === "section" && b.dataset.route === "projects") ||
-      (state.route === "prices" && b.dataset.route === "projects");
+      (state.route === "prices" && b.dataset.route === "projects") ||
+      (state.route === "proposal" && b.dataset.route === "projects");
     b.classList.toggle("active", active);
   });
 }

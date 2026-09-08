@@ -428,4 +428,36 @@ export const Api = {
   createEquipment: (body) => api("/equipment", { method: "POST", body }),
   updateEquipment: (id, body) => api(`/equipment/${id}`, { method: "PATCH", body }),
   deactivateEquipment: (id) => api(`/equipment/${id}`, { method: "DELETE" }),
+
+  // The proposal (sql/080): one per estimate, seeded from the takeoff,
+  // edited on its own page, downloaded as the bid form.
+  proposalForEstimate: (estimateId) =>
+    api(`/proposals?estimate_id=${encodeURIComponent(estimateId)}`),
+  createProposal: (estimateId) =>
+    api("/proposals", { method: "POST", body: { estimate_id: estimateId } }),
+  getProposal: (id) => api(`/proposals/${id}`),
+  updateProposal: (id, body) => api(`/proposals/${id}`, { method: "PATCH", body }),
+  deleteProposal: (id) => api(`/proposals/${id}`, { method: "DELETE" }),
+  refreshProposal: (id) => api(`/proposals/${id}/refresh`, { method: "POST" }),
+  bulkSaveProposalSections: (id, rows, deleteMissing = false) =>
+    api(`/proposals/${id}/sections/bulk`, {
+      method: "PUT",
+      body: { rows, delete_missing: deleteMissing },
+    }),
+  replaceProposalItems: (id, block, items) =>
+    api(`/proposals/${id}/items/${block}`, { method: "PUT", body: { items } }),
+  bulkSaveProposalLines: (sectionId, rows, deleteMissing = false) =>
+    api(`/proposal-sections/${sectionId}/lines/bulk`, {
+      method: "PUT",
+      body: { rows, delete_missing: deleteMissing },
+    }),
+  deleteProposalSection: (id) => api(`/proposal-sections/${id}`, { method: "DELETE" }),
+  deleteProposalLine: (id) => api(`/proposal-lines/${id}`, { method: "DELETE" }),
+  // The .xlsx is a file, not JSON: a plain same-origin URL the browser can
+  // open, the session cookie riding along.
+  proposalXlsxUrl: (id) => `${API_BASE}/proposals/${id}/xlsx`,
+  // The company's standing text every new proposal copies.
+  proposalLibrary: () => api("/proposal-library"),
+  replaceProposalLibraryBlock: (block, items) =>
+    api(`/proposal-library/${block}`, { method: "PUT", body: { items } }),
 };

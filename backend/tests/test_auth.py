@@ -232,6 +232,11 @@ def test_hashes_are_salted_and_verify_across_work_factors():
     ("DELETE", "/api/projects/x", set(), "admin"),
     ("POST", "/api/estimators", set(), "admin"),
     ("POST", "/api/estimators/x/password", set(), "admin"),
+    # The proposal (sql/080): the form is the takeoff's to make; the company's standing text is a senior's.
+    ("POST", "/api/proposals", set(), "estimator"),
+    ("PUT", "/api/proposal-sections/x/lines/bulk", set(), "estimator"),
+    ("GET", "/api/proposals/x/xlsx", set(), "user"),
+    ("PUT", "/api/proposal-library/labor_rates", set(), "senior_estimator"),
 ])
 def test_the_policy_table(method, path, keys, role):
     assert policy.needed(method, path, keys) == role

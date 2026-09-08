@@ -11,6 +11,7 @@ from app.models.beam_type import EstimateBeamType
 from app.models.column_type import ColumnType
 from app.models.panel_type import PanelType
 from app.models.misc_item import MiscItem, MiscItemLibrary
+from app.models.proposal import Proposal, ProposalItem, ProposalLibraryItem, ProposalLine, ProposalSection
 from app.models.estimate_section import EstimateSection
 from app.models.session import LoginSession
 from app.models.audit_log import AuditLog
@@ -32,6 +33,11 @@ __all__ = [
     "PanelType",
     "MiscItem",
     "MiscItemLibrary",
+    "Proposal",
+    "ProposalSection",
+    "ProposalLine",
+    "ProposalItem",
+    "ProposalLibraryItem",
     "Project",
     "ProjectEstimator",
     "Estimate",

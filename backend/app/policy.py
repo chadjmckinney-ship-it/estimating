@@ -45,6 +45,8 @@ LABEL = {
 _PRICING_PREFIXES = (
     "/api/mix-designs", "/api/concrete-suppliers", "/api/materials",
     "/api/equipment", "/api/system-settings",
+    # The proposal's standing text carries the published day and hour rates (sql/080).
+    "/api/proposal-library",
 )
 _JOB_PRICING = re.compile(r"/api/estimates/[^/]+/(prices|rules)(/.*)?")
 _SECTION_PRICING = re.compile(r"/api/sections/[^/]+/(quotes|rates)(/.*)?")
