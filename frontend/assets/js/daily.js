@@ -58,6 +58,7 @@ const WORDS = {
     pick: "Choose…",
     need_job: "Choose the job",
     need_foreman: "Choose the foreman",
+    another_foreman: "+ Another foreman",
     trades: {
       foreman: "Foreman",
       assistants: "Assistants",
@@ -106,6 +107,7 @@ const WORDS = {
     pick: "Elegir…",
     need_job: "Elija el proyecto",
     need_foreman: "Elija el mayordomo",
+    another_foreman: "+ Otro mayordomo",
     trades: {
       foreman: "Mayordomo",
       assistants: "Asistentes",
@@ -542,7 +544,8 @@ export async function renderReportForm(root) {
         return f.is_active && (f.name.toLowerCase() === me || (short && me.startsWith(short)));
       })
     : null;
-  const chosenForemen = new Set((existing ? existing.foremen : mine ? [mine.name] : []).map((n) => n.toLowerCase()));
+  const chosenNames = existing ? existing.foremen : mine ? [mine.name] : [];
+  const chosenForemen = new Set(chosenNames.map((n) => n.toLowerCase()));
   const crewBy = {};
   (existing ? existing.crew : []).forEach((c) => {
     crewBy[c.trade] = c;
@@ -559,6 +562,16 @@ export async function renderReportForm(root) {
     suppliers.push(existing.supplier);
   }
   const poured = existing ? existing.concrete_poured : false;
+
+  // Chad, 2026-09-09: "make foreman a dropdown". One select; "+ Another foreman"
+  // adds a second, since the Jotform field allowed several and some reports carry four.
+  const foremanSelect = (value) =>
+    `<select name="foremen" class="foreman-pick">
+      <option value="" data-w="pick">${esc(word("pick"))}</option>
+      ${foremen
+        .map((f) => `<option value="${esc(f.name)}"${value && f.name.toLowerCase() === value.toLowerCase() ? " selected" : ""}>${esc(f.name)}</option>`)
+        .join("")}
+    </select>`;
 
   root.innerHTML = `
     <form id="report-form" class="report-form card">
@@ -580,13 +593,11 @@ export async function renderReportForm(root) {
         </select></div>
 
       <div class="field"><label data-w="foremen">${esc(word("foremen"))}</label>
-        <div class="choices">
-          ${foremen
-            .map(
-              (f) => `<label><input type="checkbox" name="foremen" value="${esc(f.name)}"${chosenForemen.has(f.name.toLowerCase()) ? " checked" : ""} /> ${esc(f.name)}</label>`
-            )
-            .join("")}
-        </div></div>
+        <div id="foremen-picks" style="display:grid;gap:0.4rem">
+          ${(chosenNames.length ? chosenNames : [""]).map((name) => foremanSelect(name)).join("")}
+        </div>
+        <a href="#" id="foreman-more" data-w="another_foreman" style="font-size:0.9rem;margin-top:0.3rem">${esc(word("another_foreman"))}</a>
+      </div>
 
       <div class="field"><label data-w="crew">${esc(word("crew"))}</label>
         <div class="grid-3 head"><span></span><span data-w="workers">${esc(word("workers"))}</span><span data-w="hours">${esc(word("hours"))}</span></div>
@@ -692,6 +703,14 @@ export async function renderReportForm(root) {
     r.onchange = () => $("#pour-block", form).classList.toggle("hidden", form.concrete_poured.value !== "yes");
   });
 
+  $("#foreman-more", form).onclick = (e) => {
+    e.preventDefault();
+    const picks = $("#foremen-picks", form);
+    if (picks.querySelectorAll("select").length >= 4) return;
+    picks.insertAdjacentHTML("beforeend", foremanSelect(""));
+    picks.lastElementChild.focus();
+  };
+
   const cancel = $("#report-cancel", form);
   if (cancel) cancel.onclick = () => setRoute(field ? "report" : "daily");
 
@@ -703,7 +722,7 @@ export async function renderReportForm(root) {
     return {
       report_date: str("report_date"),
       job_id: Number(fd.get("job_id")),
-      foremen: fd.getAll("foremen").map(String),
+      foremen: fd.getAll("foremen").map(String).filter(Boolean),
       work_accomplished: str("work_accomplished"),
       delays: str("delays"),
       plan_tomorrow: str("plan_tomorrow"),
@@ -769,4 +788,127 @@ export async function renderReportForm(root) {
       btn.disabled = false;
     }
   };
+}
+
+// ---------------------------------------------------------- the calendar --
+
+/** A month of reports, a cell a day, the pours marked with their yards. Chad, 2026-09-09: "can we add a calender view?" */
+export async function renderCalendar(root) {
+  const { $, $$, esc, toast } = d;
+  root.innerHTML = `<div class="loading">Loading the calendar…</div>`;
+  const meta = await Api.dailyReportMeta();
+  const today = todayLocal();
+  let year = Number(today.slice(0, 4));
+  let month = Number(today.slice(5, 7)); // 1–12
+  const filters = { job_id: "", poured: false };
+  let reports = [];
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const grid = () => {
+    const first = `${year}-${pad(month)}-01`;
+    const days = new Date(year, month, 0).getDate();
+    const lead = new Date(year, month - 1, 1).getDay(); // 0 = Sunday
+    const rows = Math.ceil((lead + days) / 7);
+    const start = shiftDays(first, -lead);
+    return { first, days, start, end: shiftDays(start, rows * 7 - 1), rows };
+  };
+
+  const load = async () => {
+    const g = grid();
+    const p = { date_from: g.start, date_to: g.end, limit: 2000 };
+    if (filters.job_id) p.job_id = filters.job_id;
+    if (filters.poured) p.poured = "true";
+    reports = await Api.listDailyReports(p);
+    paint();
+  };
+
+  const item = (r) => {
+    const title = `${r.job_name} — ${(r.foremen || []).join(", ")}${r.concrete_poured ? ` — ${n1(r.yards_poured)} yd ${r.supplier || ""}` : ""}${r.work_accomplished ? `\n${r.work_accomplished}` : ""}`;
+    const text = r.concrete_poured ? `${n1(r.yards_poured)} yd · ${r.job_name}` : `${r.job_name}${r.foremen && r.foremen.length ? ` · ${r.foremen[0]}` : ""}`;
+    return `<div class="cal-item${r.concrete_poured ? " pour" : ""}" data-cal-report="${esc(r.id)}" title="${esc(title)}">${esc(text)}</div>`;
+  };
+
+  const paint = () => {
+    const g = grid();
+    const byDay = {};
+    reports.forEach((r) => {
+      (byDay[r.report_date] = byDay[r.report_date] || []).push(r);
+    });
+    const inMonth = reports.filter((r) => r.report_date.startsWith(g.first.slice(0, 7)));
+    const pours = inMonth.filter((r) => r.concrete_poured);
+    const yards = pours.reduce((s, r) => s + Number(r.yards_poured || 0), 0);
+    $("#cal-title").textContent = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    $("#cal-totals").innerHTML =
+      `<strong>${inMonth.length}</strong> reports · <strong>${pours.length}</strong> pours · <strong>${n1(yards)}</strong> yards this month`;
+    const cells = [];
+    for (let i = 0; i < g.rows * 7; i += 1) {
+      const iso = shiftDays(g.start, i);
+      const other = !iso.startsWith(g.first.slice(0, 7));
+      const items = byDay[iso] || [];
+      cells.push(`<div class="cal-day${other ? " other" : ""}${iso === today ? " today" : ""}">
+        <div class="d">${Number(iso.slice(8, 10))}</div>
+        ${items.map(item).join("")}
+      </div>`);
+    }
+    $("#cal-grid").innerHTML =
+      ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => `<div class="cal-head">${w}</div>`).join("") + cells.join("");
+    $$("[data-cal-report]", root).forEach((el) => {
+      el.onclick = () => {
+        const r = reports.find((x) => x.id === el.dataset.calReport);
+        if (r) openReportModal(r, { onChanged: load });
+      };
+    });
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1>Calendar</h1>
+        <p id="cal-totals"></p>
+      </div>
+      <div class="toolbar" style="margin:0">
+        <button type="button" class="btn ghost" id="cal-prev" title="Previous month">‹</button>
+        <strong id="cal-title" style="min-width:11rem;text-align:center"></strong>
+        <button type="button" class="btn ghost" id="cal-next" title="Next month">›</button>
+        <button type="button" class="btn ghost" id="cal-today">Today</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <select id="cal-job"><option value="">All jobs</option>${meta.jobs
+        .map((j) => `<option value="${j.id}">${esc(j.name)}${j.is_active ? "" : " (off the form)"}</option>`)
+        .join("")}</select>
+      <label style="display:flex;align-items:center;gap:0.35rem"><input type="checkbox" id="cal-poured" /> Pours only</label>
+    </div>
+    <div id="cal-grid" class="cal-grid"></div>
+  `;
+  $("#cal-prev").onclick = () => {
+    month -= 1;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#cal-next").onclick = () => {
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#cal-today").onclick = () => {
+    year = Number(today.slice(0, 4));
+    month = Number(today.slice(5, 7));
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#cal-job").onchange = (e) => {
+    filters.job_id = e.target.value;
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#cal-poured").onchange = (e) => {
+    filters.poured = e.target.checked;
+    load().catch((err) => toast(err.message, "err"));
+  };
+  await load();
 }

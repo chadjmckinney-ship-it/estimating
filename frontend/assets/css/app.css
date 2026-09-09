@@ -763,3 +763,56 @@ table.data.price-sheet tr.edited td:first-child {
   background: var(--accent);
   color: #fff;
 }
+
+/* The daily reports calendar (sql/084): a cell a day, the pours marked. */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.cal-head {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 0.3rem 0;
+}
+.cal-day {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 96px;
+  padding: 0.3rem 0.4rem;
+  min-width: 0;
+}
+.cal-day.other {
+  opacity: 0.45;
+}
+.cal-day.today {
+  border-color: var(--accent);
+}
+.cal-day .d {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+}
+.cal-item {
+  font-size: 0.75rem;
+  line-height: 1.25;
+  padding: 0.15rem 0.3rem;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  margin-bottom: 0.2rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-item:hover {
+  outline: 1px solid var(--border);
+}
+.cal-item.pour {
+  background: rgba(61, 154, 106, 0.18);
+  border-left: 3px solid var(--ok);
+}

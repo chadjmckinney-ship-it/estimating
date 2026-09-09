@@ -1,6 +1,6 @@
 import { Api } from "./api.js";
 import { toShown, toStored } from "./units.js";
-import { initDaily, renderDaily, renderReportForm } from "./daily.js";
+import { initDaily, renderCalendar, renderDaily, renderReportForm } from "./daily.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -203,6 +203,7 @@ function parseHash() {
   if (h.startsWith("prices/")) {
     return { route: "prices", projectId: null, estimateId: h.slice("prices/".length), sectionId: null };
   }
+  if (h === "estimators") return { route: "users", projectId: null, estimateId: null, sectionId: null }; // the old bookmark
   if (h.startsWith("report/")) {
     return { route: "report", projectId: null, estimateId: null, sectionId: null, reportId: h.slice("report/".length) };
   }
@@ -249,7 +250,7 @@ async function renderHome(root) {
       <div class="card stat"><div class="label">Mix designs</div><div class="value">${mixes.length}</div></div>
       <div class="card stat"><div class="label">Materials</div><div class="value">${materials.length}</div></div>
       <div class="card stat"><div class="label">Equipment</div><div class="value">${equipment.length}</div></div>
-      <div class="card stat"><div class="label">Estimators</div><div class="value">${estimators.length}</div></div>
+      <div class="card stat"><div class="label">Users</div><div class="value">${estimators.length}</div></div>
     </div>
     <div class="card">
       <h3 style="margin:0 0 0.75rem">Recent projects</h3>
@@ -1056,14 +1057,17 @@ function openEstimateModal(project, existing = null) {
   };
 }
 
+// The people who can sign in: estimators, the office, the foremen. Chad,
+// 2026-09-09: "change the 'estimators' section 'Users', more fitting". The
+// API and the table keep their name; nobody sees those.
 async function renderEstimators(root) {
   root.innerHTML = `<div class="loading">Loading…</div>`;
   const people = await Api.listEstimators();
   root.innerHTML = `
     <div class="page-header">
       <div>
-        <h1>Estimators</h1>
-        <p>People who own projects and estimates.</p>
+        <h1>Users</h1>
+        <p>Who can sign in, and what each may do.</p>
       </div>
       <button class="btn primary" id="btn-new">+ Add</button>
     </div>
@@ -1080,7 +1084,7 @@ async function renderEstimators(root) {
               <td class="muted">${esc(e.username)}</td>
               <td>${
                 canAct("admin")
-                  ? `<select data-role="${esc(e.id)}" title="Each role includes the ones below it">${roleOptions(e.role)}</select>`
+                  ? `<select data-role="${esc(e.id)}" title="Each role includes the ones below it; a foreman only files daily reports">${roleOptions(e.role)}</select>`
                   : esc(ROLE_LABELS[e.role] || e.role)
               }</td>
               <td class="muted">${esc(e.title || "—")}</td>
@@ -1309,7 +1313,7 @@ function openEstimatorModal() {
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <div class="modal">
-      <h2>New estimator</h2>
+      <h2>New user</h2>
       <form id="est-form" class="form-grid">
         <div class="field"><label>Username</label><input name="username" required /></div>
         <div class="field"><label>Full name</label><input name="full_name" required /></div>
@@ -1339,7 +1343,7 @@ function openEstimatorModal() {
         title: fd.get("title") || null,
         role: fd.get("role"),
       });
-      toast("Estimator added");
+      toast("User added");
       backdrop.remove();
       state.estimators = [];
       render();
@@ -8309,13 +8313,14 @@ async function render() {
     else if (state.route === "projects") await renderProjects(root);
     else if (state.route === "bids") await renderBids(root);
     else if (state.route === "daily") await renderDaily(root);
+    else if (state.route === "calendar") await renderCalendar(root);
     else if (state.route === "report") await renderReportForm(root);
     else if (state.route === "project") await renderProjectDetail(root);
     else if (state.route === "estimate") await renderEstimateSummary(root);
     else if (state.route === "section") await renderSectionDetail(root);
     else if (state.route === "prices") await renderPriceSheet(root);
     else if (state.route === "proposal") await renderProposal(root);
-    else if (state.route === "estimators") await renderEstimators(root);
+    else if (state.route === "users") await renderEstimators(root);
     else if (state.route === "mixes") await renderMixes(root);
     else if (state.route === "materials") await renderMaterials(root);
     else if (state.route === "equipment") await renderEquipment(root);
@@ -8448,7 +8453,7 @@ function applyRole() {
       return;
     }
     const need =
-      b.dataset.route === "estimators"
+      b.dataset.route === "users"
         ? "admin"
         : b.dataset.route === "settings" || b.dataset.route === "activity"
         ? "senior_estimator"
