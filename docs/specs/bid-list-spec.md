@@ -1,5 +1,9 @@
 # The bid list — bids apart from projects (2026-09-09)
 
+> **Later the same day:** Notion is pulled onto this list every hour by
+> `backend/pull_notion_bids.py` (the bridge; see the runbook), and the 8:05
+> bid email reads this list (`backend/email_current_bids.py`).
+
 **Source:** the Notion "Concrete Estimating Bid list" (192 rows on 2026-09-09:
 169 not started, 17 submitted, 2 in progress, 2 awarded, 2 canceled) and the
 app's `projects` table, which was shaped from it in sql/004. **Chad,

@@ -98,7 +98,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 
 - [ ] Seed a **sample project** (e.g. Pearl Landing garden-style pour) for end-to-end calcs
 - [x] **The bid list** (`sql/082`, 2026-09-09): bids apart from projects, imported from Notion, "Estimate this"
-      copies one into a project. Left: the 8:05 email and the invite intake on the Fedora box read and write it
+      copies one into a project. The 8:05 email reads it and Notion is pulled onto it hourly (2026-09-09, the
+      bridge); left: the invite intake straight from the Outlook mailbox
 - [x] **Concrete orders** (`sql/086`, 2026-09-09): the pour planned — job, supplier, date and time, yards, the
       supplier's mix number, order number, ordered by, a status — the list, the form (foremen too), and the
       calendar beside the daily reports (`docs/specs/concrete-orders-spec.md`); the 06:30 email of the next

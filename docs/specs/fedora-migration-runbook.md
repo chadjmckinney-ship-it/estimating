@@ -186,16 +186,45 @@ journalctl --user -u concrete-orders-email -n 20
 token ever lapses, the message says so and the fix is the bid email's:
 `python ~/daily-status-report/auth_outlook_send.py`.
 
+## The Notion bridge and the bid email (2026-09-09)
+
+Chad: "to either set bid invites straight into the app or... automate
+imports from notion" — "bridge first". The grok.com task keeps writing
+bid invites to the Notion "Concrete Estimating Bid list" as it does today;
+`backend/pull_notion_bids.py` pulls that database onto the app's bid list
+every hour at half past (`notion-bids-pull.timer` → `notion-bids-pull.service`,
+user units) with the same import the first load used, so a bid edited in the
+app is left alone, an unchanged one is counted and nothing else, and a
+message id already on the list is listed as a duplicate rather than entered
+twice. The token and the database id come from the bid-sync folder's `.env`
+(`NOTION_TOKEN`, `NOTION_DATABASE_ID`); the raw pages of each pull are kept
+under `~/estimating/notion/`.
+
+The 08:05 `current-bids-email.service` now runs
+`backend/email_current_bids.py` from the app's venv: the same four-section
+message as before (overdue, due today, next seven days, later or undated),
+read from `bid_requests` instead of Notion, sent through the same Outlook
+sender to `REPORT_TO_EMAIL` unless `BIDS_EMAIL_TO` names others. The old
+Notion reader in `~/gmail-bid-notion-sync/` is left in place, unused.
+
+```bash
+cd ~/estimating/app && .venv/bin/python backend/pull_notion_bids.py --dry-run
+systemctl --user list-timers | grep -E 'notion-bids|current-bids'
+journalctl --user -u notion-bids-pull -n 20
+.venv/bin/python backend/email_current_bids.py --dry-run
+```
+
+When invites come straight into the app, the timer goes and Notion with it.
+
 ## Still to do on the box
 
 * Funnel is up (above). `tailscale funnel status` shows it; it survives a
   reboot (the serve config is tailscaled's own).
-* The 8:05 bid-list email (`~/gmail-bid-notion-sync/email_current_bids.py`)
-  reads Notion. It should read the app's `projects` table on the same box
-  once the bid list moves in.
-* The bid-invite intake: a reader of the estimating mailbox writing straight
-  into `projects`, with the message id as the dedupe key, replacing both the
-  disabled Gmail sync and the grok.com task.
+* The bid-invite intake: a reader of the Outlook mailbox writing straight
+  onto the bid list by message id, replacing the grok.com task and the
+  Notion bridge above. It needs a one-time device login granting mail-read
+  on the sending account, and the Grok parser the disabled Gmail sync
+  already has.
 * A second copy of the dumps off the box (the CIFS share or Google Drive);
   today they live on `/shared` only.
 * The Windows laptop keeps its own database and backup task until the
