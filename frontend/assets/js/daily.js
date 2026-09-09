@@ -142,18 +142,18 @@ function word(path, which = lang) {
   return node === undefined ? path : node;
 }
 
-function todayLocal() {
+export function todayLocal() {
   const n = new Date();
   return [n.getFullYear(), String(n.getMonth() + 1).padStart(2, "0"), String(n.getDate()).padStart(2, "0")].join("-");
 }
 
-function shiftDays(iso, days) {
+export function shiftDays(iso, days) {
   const t = new Date(iso + "T00:00:00");
   t.setDate(t.getDate() + days);
   return [t.getFullYear(), String(t.getMonth() + 1).padStart(2, "0"), String(t.getDate()).padStart(2, "0")].join("-");
 }
 
-function day(iso) {
+export function day(iso) {
   if (!iso) return "—";
   return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
@@ -444,8 +444,8 @@ export async function renderDaily(root) {
   await load();
 }
 
-/** The whole report, read-only, with Edit and Delete for the office. */
-function openReportModal(r, { onChanged } = {}) {
+/** The whole report, read-only, with Edit and Delete for the office. The dashboard opens it too. */
+export function openReportModal(r, { onChanged } = {}) {
   const { $, esc, toast, setRoute, canAct } = d;
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";

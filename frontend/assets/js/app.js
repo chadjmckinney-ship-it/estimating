@@ -1,6 +1,15 @@
 import { Api } from "./api.js";
 import { toShown, toStored } from "./units.js";
-import { initDaily, renderCalendar, renderDaily, renderReportForm } from "./daily.js";
+import {
+  day as dayLabel,
+  initDaily,
+  openReportModal,
+  renderCalendar,
+  renderDaily,
+  renderReportForm,
+  shiftDays,
+  todayLocal,
+} from "./daily.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -225,39 +234,145 @@ async function checkHealth() {
 
 // ---------- Pages ----------
 
+// The dashboard (2026-09-09, Chad: "now the dashboard..."): four cards that
+// change what you do next — bids, projects, today in the field, this month —
+// the bids due soon, the latest daily reports, the recent projects, and the
+// catalog counts as one muted line at the bottom. Everything here is read
+// through the same calls the pages make; nothing is computed on the server for it.
 async function renderHome(root) {
   root.innerHTML = `<div class="loading">Loading dashboard…</div>`;
-  const [projects, estimates, mixes, materials, equipment, estimators] = await Promise.all([
+  const today = todayLocal();
+  const [bids, projects, estimates, reports, month, mixes, materials, equipment, people] = await Promise.all([
+    Api.listBids(),
     Api.listProjects(),
     Api.listEstimates(),
+    Api.listDailyReports({ date_from: shiftDays(today, -14), limit: 200 }),
+    Api.dailyReportSummary({ date_from: today.slice(0, 7) + "-01" }),
     Api.listMixes({ active_only: true }),
     Api.listMaterials({ active_only: true }),
     Api.listEquipment({ active_only: true }),
     Api.listEstimators({ active_only: true }),
   ]);
+
+  const openBids = bids.filter((b) => BID_OPEN.has(b.status));
+  const days = (b) => bidDaysLeft(b);
+  const dueWeek = openBids.filter((b) => days(b) !== null && days(b) >= 0 && days(b) <= 7).length;
+  const overdue = openBids.filter((b) => days(b) !== null && days(b) < 0).length;
+  const soon = openBids
+    .filter((b) => b.bid_due)
+    .sort((a, b) => `${a.bid_due} ${a.bid_due_time || ""}`.localeCompare(`${b.bid_due} ${b.bid_due_time || ""}`))
+    .slice(0, 8);
+
   const open = projects.filter((p) => !["archived", "awarded", "lost", "no_bid"].includes(p.status));
+  const openIds = new Set(open.map((p) => p.id));
+  const estimatesOn = estimates.filter((e) => openIds.has(e.project_id)).length;
+
+  // Today in the field — or yesterday's, when nothing has come in yet today.
+  let fieldDay = today;
+  let filed = reports.filter((r) => r.report_date === today);
+  if (!filed.length) {
+    const y = shiftDays(today, -1);
+    const ys = reports.filter((r) => r.report_date === y);
+    if (ys.length) {
+      fieldDay = y;
+      filed = ys;
+    }
+  }
+  const poursToday = filed.filter((r) => r.concrete_poured);
+  const yardsToday = poursToday.reduce((s, r) => s + Number(r.yards_poured || 0), 0);
+  const m = month.reduce(
+    (t, s) => ({
+      reports: t.reports + s.reports,
+      pours: t.pours + s.pours,
+      yards: t.yards + Number(s.yards || 0),
+      man_hours: t.man_hours + Number(s.man_hours || 0),
+    }),
+    { reports: 0, pours: 0, yards: 0, man_hours: 0 }
+  );
+  const latest = reports.slice(0, 8); // the list comes newest first
+  const clamp =
+    "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:0.8rem;max-width:26rem";
+
   root.innerHTML = `
     <div class="page-header">
       <div>
-        <h1>Estimating</h1>
-        <p>S&amp;S Concrete — Mono Slab first. Catalogs and bids live here.</p>
+        <h1>Dashboard</h1>
+        <p>${esc(new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }))}</p>
       </div>
-      <button class="btn primary" id="go-projects">View projects</button>
     </div>
     <div class="grid stats">
-      <div class="card stat"><div class="label">Projects</div><div class="value">${projects.length}</div><div class="hint">${open.length} open</div></div>
-      <div class="card stat"><div class="label">Estimates</div><div class="value">${estimates.length}</div><div class="hint">draft packages</div></div>
-      <div class="card stat"><div class="label">Mix designs</div><div class="value">${mixes.length}</div></div>
-      <div class="card stat"><div class="label">Materials</div><div class="value">${materials.length}</div></div>
-      <div class="card stat"><div class="label">Equipment</div><div class="value">${equipment.length}</div></div>
-      <div class="card stat"><div class="label">Users</div><div class="value">${estimators.length}</div></div>
+      <div class="card stat clickable" data-go="bids" title="Open the bid list">
+        <div class="label">Bids</div><div class="value">${openBids.length}</div>
+        <div class="hint">open · <strong>${dueWeek}</strong> due this week${overdue ? ` · <strong style="color:var(--danger)">${overdue}</strong> overdue` : ""}</div>
+      </div>
+      <div class="card stat clickable" data-go="projects" title="Open the projects">
+        <div class="label">Projects</div><div class="value">${open.length}</div>
+        <div class="hint">in progress · ${estimatesOn} estimate${estimatesOn === 1 ? "" : "s"} on them</div>
+      </div>
+      <div class="card stat clickable" data-go="daily" title="Open the daily reports">
+        <div class="label">${fieldDay === today ? "Today in the field" : "Yesterday in the field"}</div>
+        <div class="value">${filed.length}</div>
+        <div class="hint">report${filed.length === 1 ? "" : "s"} · ${poursToday.length} pour${poursToday.length === 1 ? "" : "s"}${poursToday.length ? ` · ${num(yardsToday, 1)} yards` : ""}</div>
+      </div>
+      <div class="card stat clickable" data-go="calendar" title="Open the calendar">
+        <div class="label">This month</div><div class="value">${num(m.yards, 1)}</div>
+        <div class="hint">yards · ${m.pours} pour${m.pours === 1 ? "" : "s"} · ${num(m.man_hours, 0)} crew man-hours</div>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));margin-bottom:1rem">
+      <div class="card">
+        <h3 style="margin:0 0 0.75rem">Bids due soon</h3>
+        ${
+          soon.length
+            ? `<div class="table-wrap"><table class="data"><thead><tr><th>Due</th><th>Bid</th><th>GC</th><th>Estimators</th></tr></thead><tbody>${soon
+                .map(
+                  (b) => `<tr class="clickable" data-go="bids">
+                  <td style="white-space:nowrap">${bidDueHtml(b)}</td>
+                  <td><strong>${esc(b.name)}</strong></td>
+                  <td class="muted">${esc(b.gc || "—")}</td>
+                  <td class="muted">${esc((b.estimator_names || []).join(", ") || "—")}</td>
+                </tr>`
+                )
+                .join("")}</tbody></table></div>`
+            : `<div class="empty">No open bids with a due date.</div>`
+        }
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 0.75rem">Latest daily reports</h3>
+        ${
+          latest.length
+            ? `<div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Job</th><th>Foreman</th><th>Pour</th><th>Work</th></tr></thead><tbody>${latest
+                .map(
+                  (r) => `<tr class="clickable" data-report="${esc(r.id)}">
+                  <td style="white-space:nowrap">${esc(dayLabel(r.report_date))}</td>
+                  <td><strong>${esc(r.job_name)}</strong></td>
+                  <td class="muted">${esc((r.foremen || []).join(", ") || "—")}</td>
+                  <td style="white-space:nowrap">${r.concrete_poured ? `<span class="badge ok">${num(r.yards_poured, 1)} yd</span>` : `<span class="muted">—</span>`}</td>
+                  <td><div class="muted" style="${clamp}" title="${esc(r.work_accomplished || "")}">${esc(r.work_accomplished || "")}</div></td>
+                </tr>`
+                )
+                .join("")}</tbody></table></div>`
+            : `<div class="empty">No daily reports in the last two weeks.</div>`
+        }
+      </div>
     </div>
     <div class="card">
       <h3 style="margin:0 0 0.75rem">Recent projects</h3>
       ${projectsTable(projects.slice(0, 8), { compact: true })}
     </div>
+    <p class="muted" style="color:var(--text-muted);font-size:0.85rem;margin:1rem 0 0">
+      Catalogs: ${mixes.length} mix designs · ${materials.length} materials · ${equipment.length} equipment · ${people.length} users
+    </p>
   `;
-  $("#go-projects")?.addEventListener("click", () => setRoute("projects"));
+  $$("[data-go]", root).forEach((el) => {
+    el.onclick = () => setRoute(el.dataset.go);
+  });
+  $$("[data-report]", root).forEach((tr) => {
+    tr.onclick = () => {
+      const r = reports.find((x) => x.id === tr.dataset.report);
+      if (r) openReportModal(r, { onChanged: render });
+    };
+  });
   bindProjectRows(root);
 }
 
@@ -8382,7 +8497,7 @@ function renderSignIn() {
     <div class="card" style="max-width:24rem;margin:4rem auto">
       <h2 style="margin-top:0">Sign in</h2>
       <p style="color:var(--text-muted);font-size:0.9rem;margin-top:0">
-        Your S&amp;S Estimating username and password.
+        Your S&amp;S Concrete username and password.
       </p>
       <form id="signin-form" class="form-grid" style="grid-template-columns:1fr">
         <div class="field"><label>Username</label>
