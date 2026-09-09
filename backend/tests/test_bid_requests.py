@@ -136,7 +136,7 @@ NOTION_ROWS = [
         "url": "https://app.notion.com/p/3c1a02768bd781ec8c9bfba763b6f590", "createdTime": "2026-08-19T16:53:00.000Z",
         "name": "Andrews County Recreation Center", "status": "Cancelation", "estimators": "[\"Chad\"]",
         "gc": "Lee Lewis Construction, Inc.", "location": "Andrews, TX", "types": "[\"Commercial\"]",
-        "bid_due": "2026-09-22", "due_dt": 0, "bid_date": "2026-08-19", "plans": "", "notes": "Invited for CONCRETE scope.",
+        "bid_due": "2026-09-22", "due_dt": 0, "bid_date": "2026-08-19 16:53:00Z", "plans": "", "notes": "Invited for CONCRETE scope.",
         "message_id": "AAMkADczZDZi-andrews", "bid_price": 43000, "rev_date": "2026-08-30", "rev_price": 41000,
     },
     {   # the same job under the same GC a second time — the Tractor Supply pattern
@@ -167,6 +167,7 @@ def test_a_notion_export_loads_and_reruns_without_doubling(client, db, people):
     assert eos["plans_url"].startswith("https://app.buildingconnected.com")
     andrews = rows["Andrews County Recreation Center|AAMkADczZDZi-andrews"]
     assert andrews["status"] == "canceled" and andrews["plans_url"] is None
+    assert andrews["bid_date"] == "2026-08-19"   # the SQL mode's "2026-08-19 16:53:00Z", a day here
     assert D(str(andrews["bid_price"])) == D("43000.00") and andrews["rev_date"] == "2026-08-30"
 
     # Run it again: nothing doubles; an untouched row takes Notion's values afresh,
@@ -183,6 +184,14 @@ def test_a_notion_export_loads_and_reruns_without_doubling(client, db, people):
     res = client.post("/api/bid-requests/import", json=changed).json()
     assert (res["created"], res["updated"], res["unchanged"], res["skipped"]) == (0, 0, 1, 2)
     assert client.get(f"/api/bid-requests/{andrews['id']}").json()["notes"] == "Chad's own words"
+
+    # The SQL mode writes an instant with a space; the hour survives it.
+    spaced = dict(NOTION_ROWS[0], url="https://app.notion.com/p/aaaaaaaabbbbccccddddeeeeeeeeeeee",
+                  message_id="AAMkADczZDZi-spaced", bid_due="2026-08-31 22:00:00Z", due_dt=1)
+    res = client.post("/api/bid-requests/import", json=[spaced]).json()
+    assert res["created"] == 1
+    got = next(b for b in client.get("/api/bid-requests").json() if b["message_id"] == "AAMkADczZDZi-spaced")
+    assert (got["bid_due"], got["bid_due_time"]) == ("2026-08-31", "17:00:00")
 
     # A new page carrying a message id already on the list is the same invite: listed, not entered.
     again = dict(NOTION_ROWS[0], url="https://app.notion.com/p/11111111222233334444555555555555")

@@ -153,9 +153,12 @@ def _when(value: Any, is_datetime: Any) -> tuple[date | None, time | None]:
     """A Notion date: a day, or an instant in UTC that becomes the office's day and hour."""
     if not value:
         return None, None
-    s = str(value)
-    if "T" in s:
-        stamp = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    s = str(value).strip()
+    # The MCP writes an instant as "2026-09-16T22:00:00.000Z" in rows mode and
+    # "2026-09-16 22:00:00Z" in SQL mode; the second dropped its hour until the
+    # first import on the box (2026-09-09) came back with none.
+    if re.search(r"\d[ T]\d{2}:\d{2}", s):
+        stamp = datetime.fromisoformat(s.replace(" ", "T", 1).replace("Z", "+00:00"))
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
         local = stamp.astimezone(OFFICE_TZ)
