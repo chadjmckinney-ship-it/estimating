@@ -4,3 +4,5 @@ sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 pydantic-settings>=2.0.0
 email-validator>=2.0.0
+# The proposal workbook (sql/080). Missing until the Fedora deploy of 2026-09-09 found it.
+openpyxl>=3.1
