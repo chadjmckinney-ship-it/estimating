@@ -1,4 +1,4 @@
-"""Sign in, sign out, who am I, change my password (sql/068)."""
+"""Sign in, sign out, who am I, change my password (sql/068); the lockout (sql/083)."""
 
 from __future__ import annotations
 
@@ -46,14 +46,31 @@ def _me(user: Estimator) -> Me:
 
 @router.post("/login", response_model=Me)
 def login(body: LoginBody, request: Request, response: Response, db: Session = Depends(get_db)) -> Me:
-    user = db.scalars(
-        select(Estimator).where(func.lower(Estimator.username) == body.username.strip().lower())
-    ).first()
+    name = body.username.strip().lower()
+    ip = request.client.host if request.client else None
+    # Locked names and addresses are refused first (sql/083): no scrypt spent,
+    # no extra failure counted, and the right password does not get in either.
+    locked = auth.lock_remaining(db, name, ip)
+    if locked:
+        what, seconds = locked
+        minutes = -(-seconds // 60)
+        log.warning("locked sign-in for %r from %s (%s, %ss left)", body.username, ip or "?", what, seconds)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Too many sign-in attempts {'for that username' if what == 'username' else 'from this address'}. "
+                f"Try again in {minutes} minute{'' if minutes == 1 else 's'}."
+            ),
+            headers={"Retry-After": str(seconds)},
+        )
+    user = db.scalars(select(Estimator).where(func.lower(Estimator.username) == name)).first()
     # One message for an unknown name, a wrong password, no password yet and a
     # deactivated person: the login box is not the place to learn which.
     if user is None or not user.is_active or not auth.verify_password(body.password, user.password_hash):
-        log.warning("failed sign-in for %r from %s", body.username, request.client.host if request.client else "?")
+        log.warning("failed sign-in for %r from %s", body.username, ip or "?")
+        auth.note_failure(db, name, ip)
         raise HTTPException(status_code=401, detail="Wrong username or password")
+    auth.clear_failures(db, name)
     token = auth.start_session(db, user, request)
     db.commit()
     auth.set_cookie(response, request, token)

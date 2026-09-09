@@ -3,7 +3,7 @@
 Working list for the estimating system.  
 Design: [mono.md](./mono.md) · DB notes: [notes.md](./notes.md)
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-09
 
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 
@@ -193,6 +193,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Login / session — sql/068, `app/auth.py`, sessions table, 12 h idle / 30 d
 - [x] Roles: admin · senior estimator · estimator · user — `app/policy.py` (2026-09-07)
 - [x] Audit who changed what — sql/069: `audit_log` of every write request (the Activity page) and `updated_by` on every input table (2026-09-07)
+- [x] Sign-in lockout — sql/083 (2026-09-09): five wrong tries lock a name, twenty lock an address, fifteen
+      minutes each; `/docs`, `/redoc` and `/openapi.json` need a session. Built the day the app went public
 - [ ] Seed remaining estimator people (names TBD)
 
 ---
@@ -202,9 +204,11 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Backend scaffolded — FastAPI, 13 routers, 42 endpoints
 - [x] Frontend scaffolded — static SPA, no build step (Flutter only if outgrown)
 - [x] API for CRUD + calc endpoints
-- [ ] Deploy path to **office Fedora** + Postgres — migrations `001`–`023` must be
-      applied in order; `022` is destructive (drops `mono_slabs.drops_ff`)
-- [ ] HTTPS / LAN access for estimators
+- [x] Deploy path to **office Fedora** + Postgres — the app moved there 2026-09-09
+      (`docs/specs/fedora-migration-runbook.md`); `apply_sql.py` keeps the ledger
+- [x] HTTPS / LAN access for estimators — `https://192.168.0.145:8001/`, the box's own CA
+- [x] Public access for the field — Tailscale Funnel, `https://estimating.tail5fb2cd.ts.net/`
+      (`docs/specs/public-access-spec.md`, 2026-09-09); the lockout (sql/083) shipped with it
 - [x] ~~CORS is `allow_origins=["*"]` with no auth~~ — the middleware is gone and every
       route needs a session (sql/068, 2026-09-07)
 

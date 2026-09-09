@@ -12,6 +12,10 @@ What this file pins: the session cookie and its flags; what ends a session
 which role each kind of request needs, both as a table (app/policy.py) and
 through the API; that the hash never leaves the server; and that a
 cross-origin page gets no CORS answer at all.
+
+Since sql/083 (2026-09-09, the day the app went public through Tailscale
+Funnel): five wrong tries lock a name and twenty lock an address, fifteen
+minutes each, and the API's own documentation needs a session.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from sqlalchemy import func, select, text
 
 from app import auth, policy
 from app.models.estimator import Estimator
+from app.models.login_failure import LoginFailure
 from app.models.session import LoginSession
 from tests import walls_fixture as wf
 
@@ -50,6 +55,15 @@ def test_no_session_is_a_401_and_health_stays_open(db):
         assert r.status_code == 401 and "Sign in" in r.json()["detail"], r.text
         assert anon.get("/health").status_code == 200
         assert anon.get("/").status_code == 200  # the page itself is served; the API is the gate
+        for path in ("/docs", "/redoc", "/openapi.json"):  # the API's own documentation too (sql/083)
+            assert anon.get(path).status_code == 401, path
+
+
+def test_the_api_documentation_is_for_the_signed_in(db, as_role):
+    c = as_role("user")
+    assert "/api/estimates" in c.get("/openapi.json").json()["paths"]
+    assert "swagger" in c.get("/docs").text.lower()
+    assert c.get("/redoc").status_code == 200
 
 
 def test_sign_in_sets_a_locked_down_cookie(db, as_role):
@@ -141,6 +155,90 @@ def test_a_request_touches_the_session_so_idle_counts_from_the_last_use(db, as_r
     assert c.get("/api/auth/me").status_code == 200
     db.refresh(row)
     assert datetime.now(timezone.utc) - row.last_seen_at < timedelta(minutes=1)
+
+
+# ------------------------------------------------------------- lockout --
+
+
+def _failures(db, **where) -> int:
+    stmt = select(func.count()).select_from(LoginFailure)
+    for col, val in where.items():
+        stmt = stmt.where(getattr(LoginFailure, col) == val)
+    return db.scalar(stmt)
+
+
+def test_five_wrong_tries_lock_the_name_for_fifteen_minutes(db, as_role):
+    """sql/083: the right password does not get in while the name is locked, and a locked try is not counted."""
+    as_role("estimator")
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        wrong = {"username": " Test_Estimator ", "password": "wrong"}  # as typed; counted lowercased and trimmed
+        right = {"username": "test_estimator", "password": "test-password"}
+        for _ in range(4):
+            assert c.post("/api/auth/login", json=wrong).status_code == 401
+        assert c.post("/api/auth/login", json=right).status_code == 200, "four is still a person mistyping"
+        assert _failures(db, username="test_estimator") == 0, "a right sign-in clears the name's count"
+        c.post("/api/auth/logout")
+
+        for _ in range(5):
+            assert c.post("/api/auth/login", json=wrong).status_code == 401
+        assert _failures(db, username="test_estimator") == 5
+        open_sessions = _sessions(db, "test_estimator")  # the fixture's own
+        r = c.post("/api/auth/login", json=right)
+        assert r.status_code == 429, r.text
+        assert r.json()["detail"] == "Too many sign-in attempts for that username. Try again in 15 minutes."
+        assert 0 < int(r.headers["retry-after"]) <= 15 * 60
+        assert _failures(db, username="test_estimator") == 5, "a refused try is not another failure"
+        assert _sessions(db, "test_estimator") == open_sessions, "and opened nothing"
+
+        # Fifteen minutes on, the lock is gone: the right password signs in and the count starts over.
+        for row in db.scalars(select(LoginFailure)).all():
+            row.failed_at -= timedelta(minutes=15, seconds=1)
+        db.flush()
+        assert c.post("/api/auth/login", json=right).status_code == 200
+        assert _failures(db, username="test_estimator") == 0
+
+        # A name nobody has locks the same way, so the box says nothing about which names exist.
+        for _ in range(5):
+            assert c.post("/api/auth/login", json={"username": "nobody_here", "password": "x"}).status_code == 401
+        assert c.post("/api/auth/login", json={"username": "NOBODY_HERE", "password": "x"}).status_code == 429
+
+
+def test_twenty_failures_from_one_address_lock_the_address(db, as_role):
+    """One name each, so no name is locked; the address is."""
+    as_role("estimator")
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    open_sessions = _sessions(db, "test_estimator")  # the fixture's own
+    with TestClient(app) as c:
+        for i in range(20):
+            assert c.post("/api/auth/login", json={"username": f"guess_{i}", "password": "x"}).status_code == 401
+        assert _failures(db, ip="testclient") == 20
+        r = c.post("/api/auth/login", json={"username": "test_estimator", "password": "test-password"})
+        assert r.status_code == 429 and "from this address" in r.json()["detail"], r.text
+        assert _sessions(db, "test_estimator") == open_sessions
+
+
+def test_failures_older_than_a_day_go_with_the_next_one(db, as_role):
+    as_role("estimator")
+    db.add(LoginFailure(username="stale", ip="testclient",
+                        failed_at=datetime.now(timezone.utc) - timedelta(days=1, minutes=1)))
+    db.flush()
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        assert c.post("/api/auth/login", json={"username": "fresh", "password": "x"}).status_code == 401
+    assert _failures(db, username="stale") == 0 and _failures(db, username="fresh") == 1
 
 
 # ----------------------------------------------------------- passwords --

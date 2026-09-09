@@ -2,12 +2,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
-from fastapi.responses import FileResponse
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import schema_check
 from app.config import settings
 from app.audit import AuditMiddleware
+from app.auth import current_user
 from app.policy import authorize
 from app.routers import (
     audit,
@@ -56,7 +58,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title=settings.api_title, version=settings.api_version, lifespan=lifespan
+    title=settings.api_title, version=settings.api_version, lifespan=lifespan,
+    # The API's own documentation is served below, behind a session (sql/083).
+    docs_url=None, redoc_url=None, openapi_url=None,
 )
 # Every write request that reaches the API is recorded (sql/069, app/audit.py).
 app.add_middleware(AuditMiddleware)
@@ -82,6 +86,24 @@ FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "db": "estimating"}
+
+
+# /docs, /redoc and /openapi.json for the signed-in only (sql/083). Until
+# 2026-09-09 they listed every route and schema to anyone who could reach the
+# port, which on the LAN was the office and through Funnel is everyone.
+@app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(current_user)])
+def openapi_json() -> JSONResponse:
+    return JSONResponse(app.openapi())
+
+
+@app.get("/docs", include_in_schema=False, dependencies=[Depends(current_user)])
+def swagger_docs() -> HTMLResponse:
+    return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{app.title} - Swagger UI")
+
+
+@app.get("/redoc", include_in_schema=False, dependencies=[Depends(current_user)])
+def redoc_docs() -> HTMLResponse:
+    return get_redoc_html(openapi_url="/openapi.json", title=f"{app.title} - ReDoc")
 
 
 if FRONTEND_DIR.is_dir():

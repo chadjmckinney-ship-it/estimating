@@ -15,6 +15,7 @@ from app.models.proposal import Proposal, ProposalItem, ProposalLibraryItem, Pro
 from app.models.bid_request import BidRequest, BidRequestEstimator
 from app.models.estimate_section import EstimateSection
 from app.models.session import LoginSession
+from app.models.login_failure import LoginFailure
 from app.models.audit_log import AuditLog
 from app.models.grade_beam import GradeBeam
 from app.models.deck_level import DeckLevel, DeckLevelBeam
@@ -29,6 +30,7 @@ __all__ = [
     "Estimator",
     "EstimateSection",
     "LoginSession",
+    "LoginFailure",
     "AuditLog",
     "ColumnType",
     "PanelType",

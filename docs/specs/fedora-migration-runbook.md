@@ -97,8 +97,60 @@ quarter so the backup stays a backup.
 --renew` on the box makes a fresh one from the same CA, so the PCs need
 nothing new.
 
+## Public access: Tailscale Funnel (2026-09-09)
+
+The field foremen will fill in the daily report from their phones, so the
+app needs a public address. Port-forwarding was the first idea; the office
+router is a Netgear Nighthawk whose admin password and security questions
+nobody has, so the box joins Chad's tailnet instead and Tailscale Funnel
+publishes port 8001 under a public https name with a real certificate. No
+router change, no open inbound port: tailscaled holds an outbound
+connection to Tailscale's relays and terminates TLS on the box itself.
+
+`docs/specs/public-access-spec.md` has the reasoning and what the app
+changed for it (sql/083). The steps on the box, the first three as root:
+
+```bash
+sudo dnf install -y tailscale                 # 1.98.8 is in Fedora's own updates repo
+sudo systemctl enable --now tailscaled
+sudo tailscale up --operator=chad             # prints a login link: open it, sign in with the company account
+tailscale funnel --bg https+insecure://127.0.0.1:8001
+tailscale funnel status                       # the public https://estimating.<tailnet>.ts.net/ address
+```
+
+`--operator=chad` lets the `chad` account run `tailscale serve` and
+`funnel` without sudo from then on. The first `funnel` command prints a
+link if Funnel is not yet allowed on the tailnet; the link adds the
+`funnel` node attribute to the tailnet policy. HTTPS certificates must be
+on for the tailnet too (DNS page of the admin console); the first request
+fetches the Let's Encrypt certificate and takes a few seconds.
+`https+insecure` is the app's own https on 8001 behind the box's private
+CA, which tailscaled is told not to verify. The connection reaches uvicorn
+from 127.0.0.1 carrying `X-Forwarded-For`, which uvicorn trusts from
+loopback by default, so the lockout and the audit log see the real
+address.
+
+To take it down: `tailscale funnel --https=443 off`. The LAN address keeps
+working either way.
+
+**Live since 2026-09-09 ~12:05 PM: `https://estimating.tail5fb2cd.ts.net/`.**
+Chad ran the install and the sign-in (the box is `100.95.128.97` on the
+tailnet, beside `chadmsi` and `chadrog`), turned HTTPS certificates on, and
+approved Funnel from the link the first `funnel` command printed. Checked
+from the laptop through the public ingress (`--resolve` to `199.38.181.54`,
+so not over the tailnet): `/health` 200 in under half a second, the page
+served, the API a 401 without a session, a wrong-password sign-in logged
+from the laptop's public address rather than 127.0.0.1, and the
+certificate from Let's Encrypt, good to 2026-12-08 and renewed by Tailscale
+itself. The very first request took about half a minute while the
+certificate was issued; every one after was immediate. A phone on the
+public name needs no CA of ours; the box's own CA is only for the LAN
+address.
+
 ## Still to do on the box
 
+* Funnel is up (above). `tailscale funnel status` shows it; it survives a
+  reboot (the serve config is tailscaled's own).
 * The 8:05 bid-list email (`~/gmail-bid-notion-sync/email_current_bids.py`)
   reads Notion. It should read the app's `projects` table on the same box
   once the bid list moves in.

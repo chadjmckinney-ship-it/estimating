@@ -11,6 +11,12 @@ whichever comes first, on sign-out, or when the person's password is reset.
 `current_user` is the dependency every protected route goes through (see
 app/policy.py for what each role may do); the login route is the one API
 route that does not.
+
+The login box is not a free guess (sql/083, the day the app went public
+through Tailscale Funnel): every wrong sign-in is a login_failures row, and
+five for one name or twenty from one address inside fifteen minutes lock
+that name or address for fifteen minutes from the last of them. A locked
+try is a 429 with a Retry-After, refused before the password is looked at.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from sqlalchemy.orm import Session
 from app import audit
 from app.db import get_db
 from app.models.estimator import Estimator
+from app.models.login_failure import LoginFailure
 from app.models.session import LoginSession
 
 log = logging.getLogger(__name__)
@@ -38,6 +45,14 @@ COOKIE = "estimating_session"
 IDLE = timedelta(hours=12)
 ABSOLUTE = timedelta(days=30)
 TOUCH_EVERY = timedelta(minutes=5)
+
+# The lockout (sql/083). A name is locked by its fifth failure in the window,
+# an address by its twentieth, each until the window has passed since that
+# failure. Five is a person mistyping; twenty from one address is a script.
+LOCK_WINDOW = timedelta(minutes=15)
+LOCK_AFTER_PER_NAME = 5
+LOCK_AFTER_PER_IP = 20
+FAILURES_KEPT = timedelta(days=1)
 
 # scrypt work factors. 2**15 is ~150 ms on this box, which is the point: a
 # stolen table costs an attacker that per guess. The test suite lowers N
@@ -141,6 +156,46 @@ def session_user(db: Session, token: str) -> Estimator | None:
         row.last_seen_at = now
         db.commit()
     return user
+
+
+def lock_remaining(db: Session, username: str, ip: str | None) -> tuple[str, int] | None:
+    """
+    ('username' | 'address', seconds left) while `username` or `ip` is locked,
+    else None. `username` is the name as typed, lowercased and trimmed; it need
+    not exist, so a guessed name locks the same as a real one.
+    """
+    now = _now()
+    for what, column, value, limit in (
+        ("username", LoginFailure.username, username, LOCK_AFTER_PER_NAME),
+        ("address", LoginFailure.ip, ip, LOCK_AFTER_PER_IP),
+    ):
+        if not value:
+            continue
+        # The newest `limit` failures inside the window. When there are that
+        # many, the lock ends when the oldest of them leaves the window.
+        stamps = db.scalars(
+            select(LoginFailure.failed_at)
+            .where(column == value, LoginFailure.failed_at > now - LOCK_WINDOW)
+            .order_by(LoginFailure.failed_at.desc())
+            .limit(limit)
+        ).all()
+        if len(stamps) >= limit:
+            until = stamps[-1] + LOCK_WINDOW
+            return what, max(1, int((until - now).total_seconds()))
+    return None
+
+
+def note_failure(db: Session, username: str, ip: str | None) -> None:
+    """A wrong sign-in: one row, and the rows older than a day go. Commits."""
+    now = _now()
+    db.add(LoginFailure(username=username, ip=ip, failed_at=now))
+    db.execute(delete(LoginFailure).where(LoginFailure.failed_at < now - FAILURES_KEPT))
+    db.commit()
+
+
+def clear_failures(db: Session, username: str) -> None:
+    """A right sign-in: the name's count starts over. Runs at once; the caller commits."""
+    db.execute(delete(LoginFailure).where(LoginFailure.username == username))
 
 
 def set_cookie(response, request: Request, token: str) -> None:
