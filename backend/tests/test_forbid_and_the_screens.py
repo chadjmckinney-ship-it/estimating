@@ -382,6 +382,19 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
     assert client.post("/api/daily-reports/jobs", json={"name": "Screens job", "is_active": True}).status_code == 201
     assert client.post("/api/daily-reports/foremen", json={"name": "Screens foreman", "is_active": True}).status_code == 201
 
+    # The concrete order form (sql/086): every box as the phone sends it, blanks as empty strings
+    r = client.post("/api/concrete-orders", json={
+        "ordered_on": "2026-09-09", "job_id": meta["jobs"][0]["id"], "supplier": "Cowtown", "pour_date": "2026-09-11",
+        "pour_time": "07:00", "yards": "42.5", "mix": "4000-3A", "order_number": "", "ordered_by": "", "notes": "",
+        "status": "ordered",
+    })
+    assert r.status_code == 201, r.text
+    assert client.patch(f"/api/concrete-orders/{r.json()['id']}", json={
+        "ordered_on": "2026-09-09", "job_id": meta["jobs"][0]["id"], "supplier": "SRM", "pour_date": "2026-09-12",
+        "pour_time": "", "yards": "50", "mix": "", "order_number": "SRM-1", "ordered_by": "Jorge", "notes": "",
+        "status": "confirmed",
+    }).status_code == 200
+
     # openEditUserModal (2026-09-09): every box, blanks as nulls, the role from the list
     me = client.get("/api/auth/me").json()
     person = next(p for p in client.get("/api/estimators").json() if p["id"] != me["id"])

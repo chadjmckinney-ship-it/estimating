@@ -14,6 +14,7 @@ from app.models.misc_item import MiscItem, MiscItemLibrary
 from app.models.proposal import Proposal, ProposalItem, ProposalLibraryItem, ProposalLine, ProposalSection
 from app.models.bid_request import BidRequest, BidRequestEstimator
 from app.models.daily_report import DailyReport, DailyReportCrew, DailyReportSub, FieldForeman, FieldJob
+from app.models.concrete_order import ConcreteOrder
 from app.models.estimate_section import EstimateSection
 from app.models.session import LoginSession
 from app.models.login_failure import LoginFailure
@@ -45,6 +46,7 @@ __all__ = [
     "BidRequest",
     "BidRequestEstimator",
     "DailyReport",
+    "ConcreteOrder",
     "DailyReportCrew",
     "DailyReportSub",
     "FieldJob",

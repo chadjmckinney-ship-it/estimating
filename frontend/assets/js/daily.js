@@ -61,6 +61,28 @@ const WORDS = {
     another_foreman: "+ Another foreman",
     mgmt: "Management notes",
     mgmt_hint: "seniors, management and admins only",
+    o_title: "Concrete order",
+    o_edit: "Edit concrete order",
+    o_ordered_on: "Date ordered",
+    o_supplier: "Concrete supplier",
+    o_pour_date: "Date of pour",
+    o_pour_time: "Time of pour",
+    o_yards: "Yards ordered",
+    o_mix: "Mix design (the supplier's mix number)",
+    o_number: "Order number",
+    o_by: "Ordered by",
+    o_notes: "Notes",
+    o_status: "Status",
+    o_submit: "Send order",
+    o_sent: "Order sent",
+    o_another: "Another order",
+    o_list: "Back to the orders",
+    o_need_supplier: "Choose the supplier",
+    o_need_yards: "Enter the yards",
+    st_ordered: "Ordered",
+    st_confirmed: "Confirmed",
+    st_poured: "Poured",
+    st_canceled: "Canceled",
     trades: {
       foreman: "Foreman",
       assistants: "Assistants",
@@ -112,6 +134,28 @@ const WORDS = {
     another_foreman: "+ Otro mayordomo",
     mgmt: "Notas de gerencia",
     mgmt_hint: "solo estimadores senior, gerencia y administradores",
+    o_title: "Pedido de concreto",
+    o_edit: "Editar pedido",
+    o_ordered_on: "Fecha del pedido",
+    o_supplier: "Proveedor de concreto",
+    o_pour_date: "Fecha del colado",
+    o_pour_time: "Hora del colado",
+    o_yards: "Yardas pedidas",
+    o_mix: "Diseño de mezcla (el número del proveedor)",
+    o_number: "Número de pedido",
+    o_by: "Pedido por",
+    o_notes: "Notas",
+    o_status: "Estado",
+    o_submit: "Enviar pedido",
+    o_sent: "Pedido enviado",
+    o_another: "Otro pedido",
+    o_list: "Volver a los pedidos",
+    o_need_supplier: "Elija el proveedor",
+    o_need_yards: "Escriba las yardas",
+    st_ordered: "Pedido",
+    st_confirmed: "Confirmado",
+    st_poured: "Colado",
+    st_canceled: "Cancelado",
     trades: {
       foreman: "Mayordomo",
       assistants: "Asistentes",
@@ -842,8 +886,9 @@ export async function renderCalendar(root) {
   const today = todayLocal();
   let year = Number(today.slice(0, 4));
   let month = Number(today.slice(5, 7)); // 1–12
-  const filters = { job_id: "", poured: false };
+  const filters = { job_id: "", poured: false, show: "both" };
   let reports = [];
+  let orders = [];
 
   const pad = (n) => String(n).padStart(2, "0");
   const grid = () => {
@@ -860,8 +905,20 @@ export async function renderCalendar(root) {
     const p = { date_from: g.start, date_to: g.end, limit: 2000 };
     if (filters.job_id) p.job_id = filters.job_id;
     if (filters.poured) p.poured = "true";
-    reports = await Api.listDailyReports(p);
+    const op = { date_from: g.start, date_to: g.end, limit: 2000 };
+    if (filters.job_id) op.job_id = filters.job_id;
+    [reports, orders] = await Promise.all([
+      filters.show === "orders" ? Promise.resolve([]) : Api.listDailyReports(p),
+      filters.show === "reports" ? Promise.resolve([]) : Api.listConcreteOrders(op),
+    ]);
+    orders = orders.filter((o) => o.status !== "canceled");
     paint();
+  };
+
+  const orderItem = (o) => {
+    const when = o.pour_time ? clock(o.pour_time) + " · " : "";
+    const title = `Ordered: ${n1(o.yards)} yd ${o.supplier}${o.mix ? " " + o.mix : ""} — ${o.job_name}${o.pour_time ? " at " + clock(o.pour_time) : ""}${o.order_number ? " — #" + o.order_number : ""}${o.ordered_by ? " — by " + o.ordered_by : ""} (${o.status})`;
+    return `<div class="cal-item order${o.status === "poured" ? " done" : ""}" data-cal-order="${esc(o.id)}" title="${esc(title)}">${esc(when)}${esc(n1(o.yards))} yd · ${esc(o.job_name)}</div>`;
   };
 
   const item = (r) => {
@@ -876,19 +933,28 @@ export async function renderCalendar(root) {
     reports.forEach((r) => {
       (byDay[r.report_date] = byDay[r.report_date] || []).push(r);
     });
+    const ordersByDay = {};
+    orders.forEach((o) => {
+      (ordersByDay[o.pour_date] = ordersByDay[o.pour_date] || []).push(o);
+    });
+    const ordered = orders.filter((o) => o.pour_date.startsWith(g.first.slice(0, 7)));
+    const orderedYards = ordered.reduce((s, o) => s + Number(o.yards || 0), 0);
     const inMonth = reports.filter((r) => r.report_date.startsWith(g.first.slice(0, 7)));
     const pours = inMonth.filter((r) => r.concrete_poured);
     const yards = pours.reduce((s, r) => s + Number(r.yards_poured || 0), 0);
     $("#cal-title").textContent = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
     $("#cal-totals").innerHTML =
-      `<strong>${inMonth.length}</strong> reports · <strong>${pours.length}</strong> pours · <strong>${n1(yards)}</strong> yards this month`;
+      `<strong>${inMonth.length}</strong> reports · <strong>${pours.length}</strong> pours · <strong>${n1(yards)}</strong> yards this month` +
+      (filters.show === "reports" ? "" : ` · <strong>${ordered.length}</strong> orders · <strong>${n1(orderedYards)}</strong> yards ordered`);
     const cells = [];
     for (let i = 0; i < g.rows * 7; i += 1) {
       const iso = shiftDays(g.start, i);
       const other = !iso.startsWith(g.first.slice(0, 7));
       const items = byDay[iso] || [];
+      const dayOrders = ordersByDay[iso] || [];
       cells.push(`<div class="cal-day${other ? " other" : ""}${iso === today ? " today" : ""}">
         <div class="d">${Number(iso.slice(8, 10))}</div>
+        ${dayOrders.map(orderItem).join("")}
         ${items.map(item).join("")}
       </div>`);
     }
@@ -898,6 +964,12 @@ export async function renderCalendar(root) {
       el.onclick = () => {
         const r = reports.find((x) => x.id === el.dataset.calReport);
         if (r) openReportModal(r, { onChanged: load });
+      };
+    });
+    $$("[data-cal-order]", root).forEach((el) => {
+      el.onclick = () => {
+        const o = orders.find((x) => x.id === el.dataset.calOrder);
+        if (o) openOrderModal(o, { onChanged: load });
       };
     });
   };
@@ -920,6 +992,12 @@ export async function renderCalendar(root) {
         .map((j) => `<option value="${j.id}">${esc(j.name)}${j.is_active ? "" : " (off the form)"}</option>`)
         .join("")}</select>
       <label style="display:flex;align-items:center;gap:0.35rem"><input type="checkbox" id="cal-poured" /> Pours only</label>
+      <select id="cal-show" title="Reports on the day they were filed, orders on the day of the pour">
+        <option value="both">Reports and orders</option>
+        <option value="reports">Reports only</option>
+        <option value="orders">Orders only</option>
+      </select>
+      <span class="muted" style="font-size:0.8rem"><span class="cal-key order"></span> ordered pour &nbsp; <span class="cal-key pour"></span> reported pour</span>
     </div>
     <div id="cal-grid" class="cal-grid"></div>
   `;
@@ -950,6 +1028,10 @@ export async function renderCalendar(root) {
   };
   $("#cal-poured").onchange = (e) => {
     filters.poured = e.target.checked;
+    load().catch((err) => toast(err.message, "err"));
+  };
+  $("#cal-show").onchange = (e) => {
+    filters.show = e.target.value;
     load().catch((err) => toast(err.message, "err"));
   };
   await load();
@@ -1003,6 +1085,389 @@ function openMoveDeleteModal({ kind, item, others, onDone }) {
       if (onDone) onDone();
     } catch (err) {
       toast(err.message, "err");
+    }
+  };
+}
+
+// ----------------------------------------------------- concrete orders --
+//
+// Chad, 2026-09-09: "another section under daily reports... 'concrete orders'
+// basically like a daily report.. Date ordered, dropdown for job, concrete
+// supplier, date of pour, Time of pour, Yards ordered, mix design, order
+// number, ordered by. then the list and calender." The mix is the supplier's
+// own number, typed. The job and supplier lists are the daily report's.
+
+const ORDER_STATUSES = ["ordered", "confirmed", "poured", "canceled"];
+
+/** "07:00:00" → "7:00 AM". */
+function clock(t) {
+  if (!t) return "";
+  const [h, m] = String(t).split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+function statusBadgeFor(status) {
+  const cls = status === "poured" ? "ok" : status === "confirmed" ? "info" : status === "canceled" ? "" : "warn";
+  return `<span class="badge ${cls}">${esc(word("st_" + status, "en"))}</span>`;
+}
+
+function esc(s) {
+  return d.esc(s);
+}
+
+export async function renderOrders(root) {
+  const { $, $$, toast, setRoute, canAct } = d;
+  root.innerHTML = `<div class="loading">Loading concrete orders…</div>`;
+  const meta = await Api.dailyReportMeta();
+  const filters = { job_id: "", supplier: "", status: "open", range: "week", date_from: "", date_to: "", q: "" };
+  let orders = [];
+
+  const params = () => {
+    const p = { limit: 2000 };
+    if (filters.job_id) p.job_id = filters.job_id;
+    if (filters.supplier) p.supplier = filters.supplier;
+    if (filters.q) p.q = filters.q;
+    if (filters.status !== "open" && filters.status !== "all") p.status = filters.status;
+    if (filters.range === "custom") {
+      if (filters.date_from) p.date_from = filters.date_from;
+      if (filters.date_to) p.date_to = filters.date_to;
+    } else if (filters.range === "week") {
+      p.date_from = shiftDays(todayLocal(), -7);
+    } else if (filters.range === "month") {
+      p.date_from = shiftDays(todayLocal(), -30);
+    }
+    return p;
+  };
+
+  const load = async () => {
+    orders = await Api.listConcreteOrders(params());
+    if (filters.status === "open") orders = orders.filter((o) => o.status === "ordered" || o.status === "confirmed");
+    paint();
+  };
+
+  const table = () => {
+    if (!orders.length) return `<div class="empty">No concrete orders match.</div>`;
+    const today = todayLocal();
+    return `<div class="table-wrap"><table class="data">
+      <thead><tr>
+        <th>Pour</th><th>Job</th><th>Supplier</th><th class="num">Yards</th><th>Mix</th><th>Order #</th><th>Ordered</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>${orders
+        .map(
+          (o) => `<tr data-order="${esc(o.id)}" class="clickable">
+          <td style="white-space:nowrap">${o.pour_date === today ? `<span class="badge accent">today</span> ` : ""}${esc(day(o.pour_date))}${o.pour_time ? ` <span class="muted">${esc(clock(o.pour_time))}</span>` : ""}</td>
+          <td><strong>${esc(o.job_name)}</strong></td>
+          <td>${esc(o.supplier)}</td>
+          <td class="num">${esc(n1(o.yards))}</td>
+          <td class="muted">${esc(o.mix || "—")}</td>
+          <td class="muted">${esc(o.order_number || "—")}</td>
+          <td class="muted" style="white-space:nowrap" title="${esc(o.ordered_by || "")}">${esc(day(o.ordered_on))}${o.ordered_by ? ` · ${esc(o.ordered_by)}` : ""}</td>
+          <td>${
+            canAct("estimator")
+              ? `<select data-order-status="${esc(o.id)}">${ORDER_STATUSES.map((s) => `<option value="${s}"${o.status === s ? " selected" : ""}>${esc(word("st_" + s, "en"))}</option>`).join("")}</select>`
+              : statusBadgeFor(o.status)
+          }</td>
+          <td style="white-space:nowrap">
+            <button type="button" class="btn ghost" data-view-order="${esc(o.id)}">View</button>
+            ${canAct("estimator") ? `<button type="button" class="btn ghost" data-edit-order="${esc(o.id)}">Edit</button>` : ""}
+          </td>
+        </tr>`
+        )
+        .join("")}</tbody></table></div>`;
+  };
+
+  const paint = () => {
+    const yards = orders.reduce((s, o) => s + Number(o.yards || 0), 0);
+    $("#orders-counts").innerHTML = `<strong>${orders.length}</strong> orders · <strong>${n1(yards)}</strong> yards`;
+    $("#orders-body").innerHTML = table();
+    $$("[data-view-order]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const o = orders.find((x) => x.id === btn.dataset.viewOrder);
+        if (o) openOrderModal(o, { onChanged: load });
+      };
+    });
+    $$("[data-edit-order]", root).forEach((btn) => {
+      btn.onclick = () => setRoute("order", { orderId: btn.dataset.editOrder });
+    });
+    $$("[data-order-status]", root).forEach((sel) => {
+      sel.onchange = async () => {
+        try {
+          const updated = await Api.updateConcreteOrder(sel.dataset.orderStatus, { status: sel.value });
+          toast(`${updated.job_name} ${day(updated.pour_date)}: ${word("st_" + updated.status, "en")}`);
+          load();
+        } catch (err) {
+          toast(err.message, "err");
+          load();
+        }
+      };
+    });
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1>Concrete orders</h1>
+        <p id="orders-counts"></p>
+      </div>
+      ${canAct("estimator") ? `<button class="btn primary" id="btn-new-order">+ New order</button>` : ""}
+    </div>
+    <div class="toolbar">
+      <select id="orders-job"><option value="">All jobs</option>${meta.jobs
+        .map((j) => `<option value="${j.id}">${esc(j.name)}${j.is_active ? "" : " (off the form)"}</option>`)
+        .join("")}</select>
+      <select id="orders-supplier"><option value="">Any supplier</option>${meta.suppliers.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
+      <select id="orders-status">
+        <option value="open">Ordered + confirmed</option>
+        <option value="all">All statuses</option>
+        ${ORDER_STATUSES.map((s) => `<option value="${s}">${esc(word("st_" + s, "en"))}</option>`).join("")}
+      </select>
+      <select id="orders-range">
+        <option value="week" selected>Last 7 days and ahead</option>
+        <option value="month">Last 30 days and ahead</option>
+        <option value="all">All time</option>
+        <option value="custom">Between dates…</option>
+      </select>
+      <span id="orders-custom" class="hidden"><input type="date" id="orders-from" /> – <input type="date" id="orders-to" /></span>
+      <input id="orders-q" placeholder="Search job / supplier / mix / order # / notes…" style="min-width:220px" />
+    </div>
+    <div id="orders-body"><div class="loading">Loading…</div></div>
+  `;
+  $("#orders-job").onchange = (e) => {
+    filters.job_id = e.target.value;
+    load();
+  };
+  $("#orders-supplier").onchange = (e) => {
+    filters.supplier = e.target.value;
+    load();
+  };
+  $("#orders-status").onchange = (e) => {
+    filters.status = e.target.value;
+    load();
+  };
+  $("#orders-range").onchange = (e) => {
+    filters.range = e.target.value;
+    $("#orders-custom").classList.toggle("hidden", filters.range !== "custom");
+    if (filters.range !== "custom") load();
+  };
+  $("#orders-from").onchange = (e) => {
+    filters.date_from = e.target.value;
+    load();
+  };
+  $("#orders-to").onchange = (e) => {
+    filters.date_to = e.target.value;
+    load();
+  };
+  let timer;
+  $("#orders-q").oninput = (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      filters.q = e.target.value.trim();
+      load();
+    }, 250);
+  };
+  const fresh = $("#btn-new-order");
+  if (fresh) fresh.onclick = () => setRoute("order");
+  await load();
+}
+
+/** The whole order, read-only, with Edit and Delete for the roles that may. */
+export function openOrderModal(o, { onChanged } = {}) {
+  const { $, toast, setRoute, canAct } = d;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const row = (label, v) => (v ? `<div class="field"><label>${label}</label><div>${esc(v)}</div></div>` : "");
+  backdrop.innerHTML = `
+    <div class="modal" style="width:min(640px,100%)">
+      <h2 style="margin-bottom:0.2rem">${esc(o.job_name)} — ${esc(day(o.pour_date))}${o.pour_time ? ` at ${esc(clock(o.pour_time))}` : ""}</h2>
+      <p class="muted" style="margin-top:0">${statusBadgeFor(o.status)} &nbsp; ordered ${esc(day(o.ordered_on))}${o.ordered_by ? ` by ${esc(o.ordered_by)}` : ""}${o.created_by_name && o.created_by_name !== o.ordered_by ? ` <span class="muted">(filed by ${esc(o.created_by_name)})</span>` : ""}</p>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        ${row("Yards", n1(o.yards))}
+        ${row("Supplier", o.supplier)}
+        ${row("Mix", o.mix)}
+        ${row("Order number", o.order_number)}
+        ${o.notes ? `<div class="field full"><label>Notes</label><div style="white-space:pre-wrap">${esc(o.notes)}</div></div>` : ""}
+      </div>
+      <div class="modal-actions">
+        ${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="ord-delete">Delete</button>` : ""}
+        <button type="button" class="btn ghost" id="ord-close">Close</button>
+        ${canAct("estimator") ? `<button type="button" class="btn primary" id="ord-edit">Edit</button>` : ""}
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#ord-close", backdrop).onclick = () => backdrop.remove();
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  const edit = $("#ord-edit", backdrop);
+  if (edit) {
+    edit.onclick = () => {
+      backdrop.remove();
+      setRoute("order", { orderId: o.id });
+    };
+  }
+  const del = $("#ord-delete", backdrop);
+  if (del) {
+    del.onclick = async () => {
+      if (!confirm(`Delete the ${day(o.pour_date)} order for ${o.job_name} (${n1(o.yards)} yd)?`)) return;
+      try {
+        await Api.deleteConcreteOrder(o.id);
+        toast("Order deleted");
+        backdrop.remove();
+        if (onChanged) onChanged();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  }
+}
+
+/** The order form: a phone-sized page, English and Spanish, for the field and the office alike. */
+export async function renderOrderForm(root) {
+  const { $, $$, toast, setRoute, state, canAct } = d;
+  root.innerHTML = `<div class="loading">Loading…</div>`;
+  const meta = await Api.dailyReportMeta();
+  const existing = state.orderId ? await Api.getConcreteOrder(state.orderId) : null;
+  const field = !!state.user && state.user.role === "foreman";
+  const jobs = meta.jobs.filter((j) => j.is_active || (existing && j.id === existing.job_id));
+  const suppliers = meta.suppliers.slice();
+  if (existing && existing.supplier && !suppliers.some((s) => s.toLowerCase() === existing.supplier.toLowerCase())) {
+    suppliers.push(existing.supplier);
+  }
+  const me = (state.user && state.user.full_name) || "";
+
+  root.innerHTML = `
+    <form id="order-form" class="report-form card">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.6rem">
+        <h2 style="margin:0" data-w="${existing ? "o_edit" : "o_title"}">${esc(word(existing ? "o_edit" : "o_title"))}</h2>
+        <div class="lang-toggle">
+          <button type="button" data-lang="en"${lang === "en" ? ' class="active"' : ""}>English</button>
+          <button type="button" data-lang="es"${lang === "es" ? ' class="active"' : ""}>Español</button>
+        </div>
+      </div>
+      <div class="field"><label data-w="o_ordered_on">${esc(word("o_ordered_on"))}</label>
+        <input type="date" name="ordered_on" required value="${esc(existing ? existing.ordered_on : todayLocal())}" /></div>
+      <div class="field"><label data-w="job">${esc(word("job"))}</label>
+        <select name="job_id" required>
+          <option value="" data-w="pick">${esc(word("pick"))}</option>
+          ${jobs.map((j) => `<option value="${j.id}"${existing && existing.job_id === j.id ? " selected" : ""}>${esc(j.name)}</option>`).join("")}
+        </select></div>
+      <div class="field"><label data-w="o_supplier">${esc(word("o_supplier"))}</label>
+        <select name="supplier" required>
+          <option value="" data-w="pick">${esc(word("pick"))}</option>
+          ${suppliers.map((s) => `<option value="${esc(s)}"${existing && existing.supplier && existing.supplier.toLowerCase() === s.toLowerCase() ? " selected" : ""}>${esc(s)}</option>`).join("")}
+        </select></div>
+      <div class="grid-3" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label data-w="o_pour_date">${esc(word("o_pour_date"))}</label>
+          <input type="date" name="pour_date" required value="${esc(existing ? existing.pour_date : "")}" /></div>
+        <div class="field"><label data-w="o_pour_time">${esc(word("o_pour_time"))}</label>
+          <input type="time" name="pour_time" value="${esc(existing && existing.pour_time ? String(existing.pour_time).slice(0, 5) : "")}" /></div>
+      </div>
+      <div class="field"><label data-w="o_yards">${esc(word("o_yards"))}</label>
+        <input type="number" inputmode="decimal" min="0.5" step="0.5" name="yards" required value="${existing ? esc(String(existing.yards)) : ""}" /></div>
+      <div class="field"><label data-w="o_mix">${esc(word("o_mix"))}</label>
+        <input type="text" name="mix" maxlength="200" value="${esc(existing ? existing.mix || "" : "")}" /></div>
+      <div class="field"><label data-w="o_number">${esc(word("o_number"))}</label>
+        <input type="text" name="order_number" maxlength="100" value="${esc(existing ? existing.order_number || "" : "")}" /></div>
+      <div class="field"><label data-w="o_by">${esc(word("o_by"))}</label>
+        <input type="text" name="ordered_by" maxlength="200" value="${esc(existing ? existing.ordered_by || "" : me)}" /></div>
+      <div class="field"><label data-w="o_notes">${esc(word("o_notes"))}</label>
+        <textarea name="notes" rows="2">${esc(existing ? existing.notes || "" : "")}</textarea></div>
+      ${
+        existing && canAct("estimator")
+          ? `<div class="field"><label data-w="o_status">${esc(word("o_status"))}</label>
+        <select name="status">${ORDER_STATUSES.map((s) => `<option value="${s}"${existing.status === s ? " selected" : ""} data-w="st_${s}">${esc(word("st_" + s))}</option>`).join("")}</select></div>`
+          : ""
+      }
+      <div id="order-error" class="error-banner hidden"></div>
+      <div class="modal-actions" style="flex-direction:column;gap:0.5rem">
+        <button type="submit" class="btn primary big" data-w="${existing ? "save" : "o_submit"}">${esc(word(existing ? "save" : "o_submit"))}</button>
+        ${existing || !field ? `<button type="button" class="btn ghost big" id="order-cancel" data-w="cancel">${esc(word("cancel"))}</button>` : ""}
+      </div>
+    </form>`;
+
+  const form = $("#order-form", root);
+  const relabel = () => {
+    $$("[data-w]", form).forEach((el) => {
+      el.textContent = word(el.dataset.w);
+    });
+    $$("[data-lang]", form).forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
+  };
+  $$("[data-lang]", form).forEach((b) => {
+    b.onclick = () => {
+      lang = b.dataset.lang;
+      try {
+        localStorage.setItem("daily_lang", lang);
+      } catch {
+        // a private window; the choice lasts the page
+      }
+      relabel();
+    };
+  });
+  const cancel = $("#order-cancel", form);
+  if (cancel) cancel.onclick = () => setRoute(field ? "order" : "orders");
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const err = $("#order-error", form);
+    err.classList.add("hidden");
+    const fd = new FormData(form);
+    const str = (name) => String(fd.get(name) || "").trim();
+    const body = {
+      ordered_on: str("ordered_on"),
+      job_id: Number(fd.get("job_id")),
+      supplier: str("supplier"),
+      pour_date: str("pour_date"),
+      pour_time: str("pour_time"),
+      yards: str("yards"),
+      mix: str("mix"),
+      order_number: str("order_number"),
+      ordered_by: str("ordered_by"),
+      notes: str("notes"),
+      ...(existing && canAct("estimator") ? { status: str("status") } : {}),
+    };
+    if (!body.job_id) {
+      err.textContent = word("need_job");
+      err.classList.remove("hidden");
+      return;
+    }
+    if (!body.supplier) {
+      err.textContent = word("o_need_supplier");
+      err.classList.remove("hidden");
+      return;
+    }
+    if (!Number(body.yards)) {
+      err.textContent = word("o_need_yards");
+      err.classList.remove("hidden");
+      return;
+    }
+    const btn = form.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      if (existing) {
+        await Api.updateConcreteOrder(existing.id, body);
+        toast("Order saved");
+        setRoute("orders");
+        return;
+      }
+      await Api.createConcreteOrder(body);
+      root.innerHTML = `
+        <div class="report-form card" style="text-align:center">
+          <h2 style="margin-top:0">✓ ${esc(word("o_sent"))}</h2>
+          <p class="muted">${esc(day(body.pour_date))}${body.pour_time ? ` · ${esc(clock(body.pour_time))}` : ""} · ${esc(n1(body.yards))} yd</p>
+          <div class="modal-actions" style="flex-direction:column;gap:0.5rem">
+            <button type="button" class="btn primary big" id="order-again">${esc(word("o_another"))}</button>
+            ${!field ? `<button type="button" class="btn ghost big" id="order-list">${esc(word("o_list"))}</button>` : ""}
+          </div>
+        </div>`;
+      $("#order-again", root).onclick = () => renderOrderForm(root);
+      const back = $("#order-list", root);
+      if (back) back.onclick = () => setRoute("orders");
+    } catch (error) {
+      err.textContent = error.message;
+      err.classList.remove("hidden");
+      btn.disabled = false;
     }
   };
 }

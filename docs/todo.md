@@ -99,6 +99,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Seed a **sample project** (e.g. Pearl Landing garden-style pour) for end-to-end calcs
 - [x] **The bid list** (`sql/082`, 2026-09-09): bids apart from projects, imported from Notion, "Estimate this"
       copies one into a project. Left: the 8:05 email and the invite intake on the Fedora box read and write it
+- [x] **Concrete orders** (`sql/086`, 2026-09-09): the pour planned — job, supplier, date and time, yards, the
+      supplier's mix number, order number, ordered by, a status — the list, the form (foremen too), and the
+      calendar beside the daily reports (`docs/specs/concrete-orders-spec.md`)
 - [x] **Daily reports from the field** (`sql/084`, 2026-09-09): every Jotform submission of both forms imported,
       a phone-sized bilingual form in the app for the new `foreman` role, the office's list with totals by job
       and month (`docs/specs/daily-reports-spec.md`). Left: foreman accounts (Chad), retiring the Jotform form

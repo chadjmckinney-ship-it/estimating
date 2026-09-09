@@ -152,6 +152,15 @@ export const Api = {
   deleteFieldJob: (id, moveTo) => api(`/daily-reports/jobs/${id}${moveTo ? `?move_to=${moveTo}` : ""}`, { method: "DELETE" }),
   deleteFieldForeman: (id, moveTo) =>
     api(`/daily-reports/foremen/${id}${moveTo ? `?move_to=${moveTo}` : ""}`, { method: "DELETE" }),
+  // Concrete orders (sql/086): the pour planned.
+  listConcreteOrders: (params = {}) => {
+    const q = qs(params);
+    return api(`/concrete-orders${q ? "?" + q : ""}`);
+  },
+  getConcreteOrder: (id) => api(`/concrete-orders/${id}`),
+  createConcreteOrder: (body) => api("/concrete-orders", { method: "POST", body }),
+  updateConcreteOrder: (id, body) => api(`/concrete-orders/${id}`, { method: "PATCH", body }),
+  deleteConcreteOrder: (id) => api(`/concrete-orders/${id}`, { method: "DELETE" }),
   projectStatuses: () => api("/projects/meta/statuses"),
   // Estimates
   listEstimates: (params = {}) => {

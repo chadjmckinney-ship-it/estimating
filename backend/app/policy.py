@@ -30,7 +30,8 @@ add, delete, users and full control." Each role includes the ones below it:
                        and deleting a whole estimate or project
 
     foreman            apart from the ladder (sql/084): files the daily report
-                       and reads under /api/daily-reports; nothing else
+                       and a concrete order (sql/086), reads under
+                       /api/daily-reports and /api/concrete-orders; nothing else
 
 The activity feed (/api/audit) is senior_estimator and above, prices being
 what it shows.
@@ -64,7 +65,7 @@ LABEL = {
     "foreman": "a foreman",
 }
 FIELD_ROLES = ("foreman",)
-_FIELD_PREFIX = "/api/daily-reports"
+_FIELD_PREFIXES = ("/api/daily-reports", "/api/concrete-orders")
 
 _PRICING_PREFIXES = (
     "/api/mix-designs", "/api/concrete-suppliers", "/api/materials",
@@ -109,10 +110,10 @@ def needed(method: str, path: str, body_keys: set[str] | frozenset[str] = frozen
 
 
 def field_allowed(method: str, path: str) -> bool:
-    """A foreman (sql/084): reads under /api/daily-reports and files a report. Nothing else."""
+    """A foreman (sql/084, 086): reads under the two field prefixes and files a report or an order. Nothing else."""
     if method.upper() in ("GET", "HEAD", "OPTIONS"):
-        return path.startswith(_FIELD_PREFIX)
-    return method.upper() == "POST" and path.rstrip("/") == _FIELD_PREFIX
+        return path.startswith(_FIELD_PREFIXES)
+    return method.upper() == "POST" and path.rstrip("/") in _FIELD_PREFIXES
 
 
 def allowed(role: str, method: str, path: str, body_keys: set[str] | frozenset[str] = frozenset()) -> bool:

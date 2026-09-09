@@ -6,6 +6,8 @@ import {
   openReportModal,
   renderCalendar,
   renderDaily,
+  renderOrderForm,
+  renderOrders,
   renderReportForm,
   shiftDays,
   todayLocal,
@@ -25,6 +27,8 @@ const state = {
   sectionId: null,
   // The daily report being edited on the form page (sql/084); null files a new one.
   reportId: null,
+  // The concrete order being edited on its form page (sql/086); null files a new one.
+  orderId: null,
   estimators: [],
   projectTypes: [],
   projectStatuses: [],
@@ -174,6 +178,7 @@ function setRoute(route, params = {}) {
   state.estimateId = params.estimateId || null;
   state.sectionId = params.sectionId || null;
   state.reportId = params.reportId || null;
+  state.orderId = params.orderId || null;
   $$(".nav button").forEach((b) => {
     const active =
       b.dataset.route === route ||
@@ -182,7 +187,8 @@ function setRoute(route, params = {}) {
       (route === "section" && b.dataset.route === "projects") ||
       (route === "prices" && b.dataset.route === "projects") ||
       (route === "proposal" && b.dataset.route === "projects") ||
-      (route === "report" && b.dataset.route === "daily");
+      (route === "report" && b.dataset.route === "daily") ||
+      (route === "order" && b.dataset.route === "orders");
     b.classList.toggle("active", active);
   });
   render();
@@ -193,6 +199,7 @@ function setRoute(route, params = {}) {
   if (route === "prices" && state.estimateId) hash = `#prices/${state.estimateId}`;
   if (route === "proposal" && state.estimateId) hash = `#proposal/${state.estimateId}`;
   if (route === "report" && state.reportId) hash = `#report/${state.reportId}`;
+  if (route === "order" && state.orderId) hash = `#order/${state.orderId}`;
   if (location.hash !== hash) history.replaceState(null, "", hash);
 }
 
@@ -215,6 +222,9 @@ function parseHash() {
   if (h === "estimators") return { route: "users", projectId: null, estimateId: null, sectionId: null }; // the old bookmark
   if (h.startsWith("report/")) {
     return { route: "report", projectId: null, estimateId: null, sectionId: null, reportId: h.slice("report/".length) };
+  }
+  if (h.startsWith("order/")) {
+    return { route: "order", projectId: null, estimateId: null, sectionId: null, orderId: h.slice("order/".length) };
   }
   return { route: h, projectId: null, estimateId: null, sectionId: null };
 }
@@ -242,12 +252,13 @@ async function checkHealth() {
 async function renderHome(root) {
   root.innerHTML = `<div class="loading">Loading dashboard…</div>`;
   const today = todayLocal();
-  const [bids, projects, estimates, reports, month, mixes, materials, equipment, people] = await Promise.all([
+  const [bids, projects, estimates, reports, month, orders, mixes, materials, equipment, people] = await Promise.all([
     Api.listBids(),
     Api.listProjects(),
     Api.listEstimates(),
     Api.listDailyReports({ date_from: shiftDays(today, -14), limit: 200 }),
     Api.dailyReportSummary({ date_from: today.slice(0, 7) + "-01" }),
+    Api.listConcreteOrders({ date_from: today, date_to: shiftDays(today, 1), limit: 200 }),
     Api.listMixes({ active_only: true }),
     Api.listMaterials({ active_only: true }),
     Api.listEquipment({ active_only: true }),
@@ -290,6 +301,8 @@ async function renderHome(root) {
     { reports: 0, pours: 0, yards: 0, man_hours: 0 }
   );
   const latest = reports.slice(0, 8); // the list comes newest first
+  const planned = orders.filter((o) => o.status !== "canceled");
+  const plannedYards = planned.reduce((s, o) => s + Number(o.yards || 0), 0);
   const clamp =
     "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:0.8rem;max-width:26rem";
 
@@ -312,7 +325,9 @@ async function renderHome(root) {
       <div class="card stat clickable" data-go="daily" title="Open the daily reports">
         <div class="label">${fieldDay === today ? "Today in the field" : "Yesterday in the field"}</div>
         <div class="value">${filed.length}</div>
-        <div class="hint">report${filed.length === 1 ? "" : "s"} · ${poursToday.length} pour${poursToday.length === 1 ? "" : "s"}${poursToday.length ? ` · ${num(yardsToday, 1)} yards` : ""}</div>
+        <div class="hint">report${filed.length === 1 ? "" : "s"} · ${poursToday.length} pour${poursToday.length === 1 ? "" : "s"}${poursToday.length ? ` · ${num(yardsToday, 1)} yards` : ""}${
+          planned.length ? `<br />${planned.length} pour${planned.length === 1 ? "" : "s"} ordered today and tomorrow · ${num(plannedYards, 1)} yd` : ""
+        }</div>
       </div>
       <div class="card stat clickable" data-go="calendar" title="Open the calendar">
         <div class="label">This month</div><div class="value">${num(m.yards, 1)}</div>
@@ -8500,8 +8515,8 @@ function wireSectionRates(root, section) {
 
 async function render() {
   const root = $("#app");
-  if (state.user && state.user.role === "foreman" && state.route !== "report") {
-    // The field's role (sql/084): the daily report is the whole app.
+  if (state.user && state.user.role === "foreman" && !["report", "order"].includes(state.route)) {
+    // The field's role (sql/084, 086): the daily report and the concrete order are the whole app.
     setRoute("report");
     return;
   }
@@ -8511,6 +8526,8 @@ async function render() {
     else if (state.route === "bids") await renderBids(root);
     else if (state.route === "daily") await renderDaily(root);
     else if (state.route === "calendar") await renderCalendar(root);
+    else if (state.route === "orders") await renderOrders(root);
+    else if (state.route === "order") await renderOrderForm(root);
     else if (state.route === "report") await renderReportForm(root);
     else if (state.route === "project") await renderProjectDetail(root);
     else if (state.route === "estimate") await renderEstimateSummary(root);
@@ -8541,7 +8558,8 @@ function syncNavActive() {
       (state.route === "section" && b.dataset.route === "projects") ||
       (state.route === "prices" && b.dataset.route === "projects") ||
       (state.route === "proposal" && b.dataset.route === "projects") ||
-      (state.route === "report" && b.dataset.route === "daily");
+      (state.route === "report" && b.dataset.route === "daily") ||
+      (state.route === "order" && b.dataset.route === "orders");
     b.classList.toggle("active", active);
   });
 }
@@ -8643,12 +8661,12 @@ function applyRole() {
   $$(".nav button").forEach((b) => {
     b.disabled = false;
     if (field) {
-      // The field's role (sql/084): the daily report and nothing else.
-      b.classList.toggle("hidden", b.dataset.route !== "report");
+      // The field's role (sql/084, 086): the daily report and the concrete order, nothing else.
+      b.classList.toggle("hidden", !(b.dataset.route === "report" || b.dataset.route === "order"));
       return;
     }
-    if (b.dataset.route === "report") {
-      b.classList.add("hidden"); // the office reaches the form from Daily reports
+    if (b.dataset.route === "report" || b.dataset.route === "order") {
+      b.classList.add("hidden"); // the office reaches the forms from their lists
       return;
     }
     const need =
@@ -8708,6 +8726,7 @@ function enter() {
   state.estimateId = p.estimateId;
   state.sectionId = p.sectionId || null;
   state.reportId = p.reportId || null;
+  state.orderId = p.orderId || null;
   syncNavActive();
   render();
 }
@@ -8725,6 +8744,7 @@ async function init() {
     state.estimateId = p.estimateId;
     state.sectionId = p.sectionId || null;
   state.reportId = p.reportId || null;
+  state.orderId = p.orderId || null;
     syncNavActive();
     render();
   });

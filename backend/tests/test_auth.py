@@ -353,6 +353,10 @@ def test_hashes_are_salted_and_verify_across_work_factors():
     ("POST", "/api/daily-reports/jobs", set(), "estimator"),
     # Management notes on a report (sql/085): the field a senior writes and the rest never see.
     ("PATCH", "/api/daily-reports/x", {"management_notes"}, "senior_estimator"),
+    # Concrete orders (sql/086): filed by the field or the office, edited by the office, deleted by a senior.
+    ("GET", "/api/concrete-orders", set(), "user"),
+    ("POST", "/api/concrete-orders", set(), "estimator"),
+    ("DELETE", "/api/concrete-orders/x", set(), "senior_estimator"),
     ("POST", "/api/daily-reports", {"management_notes", "job_id"}, "senior_estimator"),
 ])
 def test_the_policy_table(method, path, keys, role):

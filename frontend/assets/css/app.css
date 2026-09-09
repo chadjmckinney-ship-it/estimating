@@ -816,3 +816,26 @@ table.data.price-sheet tr.edited td:first-child {
   background: rgba(61, 154, 106, 0.18);
   border-left: 3px solid var(--ok);
 }
+
+/* Concrete orders on the calendar (sql/086): an ordered pour beside a reported one. */
+.cal-item.order {
+  background: rgba(74, 158, 212, 0.18);
+  border-left: 3px solid var(--info);
+}
+.cal-item.order.done {
+  opacity: 0.6;
+}
+.cal-key {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 0.2rem;
+}
+.cal-key.order {
+  background: rgba(74, 158, 212, 0.5);
+}
+.cal-key.pour {
+  background: rgba(61, 154, 106, 0.6);
+}
