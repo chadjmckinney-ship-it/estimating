@@ -1220,7 +1220,7 @@ async function renderEstimators(root) {
               <td class="muted">${esc(e.username)}</td>
               <td>${
                 canAct("admin")
-                  ? `<select data-role="${esc(e.id)}" title="Each role includes the ones below it; a foreman only files daily reports">${roleOptions(e.role)}</select>`
+                  ? `<select data-role="${esc(e.id)}" title="Each role includes the ones below it; management is a senior estimator by another name; a foreman only files daily reports">${roleOptions(e.role)}</select>`
                   : esc(ROLE_LABELS[e.role] || e.role)
               }</td>
               <td class="muted">${esc(e.title || "—")}</td>
@@ -1229,6 +1229,7 @@ async function renderEstimators(root) {
               ${
                 canAct("admin")
                   ? `<td style="white-space:nowrap">
+                      <button type="button" class="btn ghost" data-edit-user="${esc(e.id)}">Edit</button>
                       <button type="button" class="btn ghost" data-pw="${esc(e.id)}">Set password</button>
                       ${e.is_active ? `<button type="button" class="btn ghost" data-off="${esc(e.id)}">Deactivate</button>` : ""}
                     </td>`
@@ -1255,6 +1256,9 @@ async function renderEstimators(root) {
   });
   $$("[data-pw]", root).forEach((btn) => {
     btn.onclick = () => openSetPasswordModal(byId.get(btn.dataset.pw));
+  });
+  $$("[data-edit-user]", root).forEach((btn) => {
+    btn.onclick = () => openEditUserModal(byId.get(btn.dataset.editUser));
   });
   $$("[data-off]", root).forEach((btn) => {
     btn.onclick = async () => {
@@ -1399,12 +1403,67 @@ async function renderActivity(root) {
 }
 
 function roleOptions(current) {
-  return ["user", "estimator", "senior_estimator", "admin", "foreman"]
+  return ["user", "estimator", "senior_estimator", "management", "admin", "foreman"]
     .map(
       (r) =>
         `<option value="${r}"${r === current ? " selected" : ""}>${r === "foreman" ? "foreman (daily report only)" : ROLE_LABELS[r]}</option>`
     )
     .join("");
+}
+
+/** An admin edits a person (2026-09-09, Chad: "an edit button for users"). The PATCH already existed. */
+function openEditUserModal(person) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Edit user — ${esc(person.full_name)}</h2>
+      <form id="user-form" class="form-grid">
+        <div class="field"><label>Username</label><input name="username" required maxlength="64" value="${esc(person.username)}" /></div>
+        <div class="field"><label>Full name</label><input name="full_name" required maxlength="200" value="${esc(person.full_name)}" /></div>
+        <div class="field"><label>Email</label><input name="email" type="email" value="${esc(person.email || "")}" /></div>
+        <div class="field"><label>Phone</label><input name="phone" maxlength="40" value="${esc(person.phone || "")}" /></div>
+        <div class="field"><label>Title</label><input name="title" maxlength="120" value="${esc(person.title || "")}" /></div>
+        <div class="field"><label>Role</label><select name="role">${roleOptions(person.role)}</select></div>
+        <div class="field"><label>Active</label>
+          <select name="is_active">
+            <option value="true"${person.is_active ? " selected" : ""}>Yes</option>
+            <option value="false"${person.is_active ? "" : " selected"}>No — signed out, cannot sign in</option>
+          </select></div>
+        <div class="field full"><label>Notes</label><textarea name="notes" rows="2">${esc(person.notes || "")}</textarea></div>
+        <div class="modal-actions" style="grid-column:1/-1">
+          <button type="button" class="btn ghost" id="cancel">Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#cancel", backdrop).onclick = () => backdrop.remove();
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  $("#user-form", backdrop).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await Api.updateEstimator(person.id, {
+        username: String(fd.get("username")).trim(),
+        full_name: String(fd.get("full_name")).trim(),
+        email: fd.get("email") || null,
+        phone: fd.get("phone") || null,
+        title: fd.get("title") || null,
+        role: fd.get("role"),
+        is_active: fd.get("is_active") === "true",
+        notes: fd.get("notes") || null,
+      });
+      toast(`${fd.get("full_name")} updated`);
+      backdrop.remove();
+      state.estimators = [];
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
 }
 
 /** An admin sets someone's password (sql/068). Their open sessions end. */
@@ -8494,11 +8553,13 @@ function syncNavActive() {
 // nav just stops offering what the role cannot do, and a 403 shows as the
 // server's own sentence in a toast.
 
-const ROLE_RANK = { user: 0, estimator: 1, senior_estimator: 2, admin: 3 };
+const ROLE_RANK = { user: 0, estimator: 1, senior_estimator: 2, management: 2, admin: 3 };
 const ROLE_LABELS = {
   user: "user",
   estimator: "estimator",
   senior_estimator: "senior estimator",
+  // A senior estimator by another name (sql/085).
+  management: "management",
   admin: "admin",
   // Apart from the ladder (sql/084): the daily report and nothing else.
   foreman: "foreman",

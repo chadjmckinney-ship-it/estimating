@@ -90,6 +90,8 @@ class DailyReport(StampedBy, Base):
     supplier: Mapped[str | None] = mapped_column(Text)
     what_poured: Mapped[str | None] = mapped_column(Text)
     tax_exempt: Mapped[bool | None] = mapped_column(Boolean)
+    # Seniors, management and admins only (sql/085); the API blanks it for the rest.
+    management_notes: Mapped[str | None] = mapped_column(Text)
     maintenance: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, default=list, server_default=text("'{}'")
     )

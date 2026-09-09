@@ -375,3 +375,34 @@ def test_deleting_a_foreman_keeps_or_moves_the_name(client):
     assert client.delete(f"/api/daily-reports/foremen/{fidel}").json() == {"moved": 0}
     assert client.get(f"/api/daily-reports/{d['id']}").json()["foremen"] == ["Fidel"]
     assert client.delete(f"/api/daily-reports/foremen/{fidel}").status_code == 404
+
+
+# ---------------------------------------------------- management notes --
+
+
+def test_management_notes_are_for_seniors_and_above(client, as_role):
+    """sql/085 — Chad: "another field only visible by senior estimators and above.. called management notes"."""
+    r = _report(client, management_notes="Watch the overtime on this one.")
+    assert r["management_notes"] == "Watch the overtime on this one.", "the admin who filed it reads it back"
+    rid = r["id"]
+
+    senior, mgmt = as_role("senior_estimator"), as_role("management")
+    assert senior.get(f"/api/daily-reports/{rid}").json()["management_notes"].startswith("Watch")
+    assert mgmt.get(f"/api/daily-reports/{rid}").json()["management_notes"].startswith("Watch")
+    assert mgmt.patch(f"/api/daily-reports/{rid}", json={"management_notes": "Handled."}).json()["management_notes"] == "Handled."
+
+    for role in ("estimator", "user", "foreman"):
+        c = as_role(role)
+        one = c.get(f"/api/daily-reports/{rid}")
+        assert one.status_code == 200 and one.json()["management_notes"] is None, (role, one.text)
+        listed = next(x for x in c.get("/api/daily-reports").json() if x["id"] == rid)
+        assert listed["management_notes"] is None and listed["work_accomplished"], role
+
+    est = as_role("estimator")
+    r = est.patch(f"/api/daily-reports/{rid}", json={"management_notes": "sneaky"})
+    assert r.status_code == 403 and "a senior estimator or above" in r.json()["detail"], r.text
+    assert est.patch(f"/api/daily-reports/{rid}", json={"delays": "Rain"}).status_code == 200, "the rest of the report is theirs to edit"
+    job = _job_id(client, "Office")
+    r = est.post("/api/daily-reports", json={"report_date": "2026-09-09", "job_id": job, "management_notes": "sneaky"})
+    assert r.status_code == 403, r.text
+    assert senior.get(f"/api/daily-reports/{rid}").json()["management_notes"] == "Handled."

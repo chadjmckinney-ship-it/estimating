@@ -23,6 +23,9 @@ add, delete, users and full control." Each role includes the ones below it:
                        anything", records that is, "and only estimates they
                        are assigned to can they delete rows out of estimate
                        sections")
+    management         senior_estimator by another name (sql/085): the same
+                       rights, the same refusals; and management_notes on a
+                       daily report is theirs and a senior's alone to see
     admin              also people (the estimators list and their passwords)
                        and deleting a whole estimate or project
 
@@ -51,11 +54,13 @@ from app.models.estimator import Estimator
 
 ROLES = ("user", "estimator", "senior_estimator", "admin")
 RANK = {r: i for i, r in enumerate(ROLES)}
+RANK["management"] = RANK["senior_estimator"]  # a peer, not a rung (sql/085)
 LABEL = {
     "user": "a user",
     "estimator": "an estimator",
     "senior_estimator": "a senior estimator",
     "admin": "an admin",
+    "management": "management",
     "foreman": "a foreman",
 }
 FIELD_ROLES = ("foreman",)
@@ -90,6 +95,8 @@ def needed(method: str, path: str, body_keys: set[str] | frozenset[str] = frozen
         if ownership.ROW_DELETE.fullmatch(path):
             return "estimator"  # and only on an estimate they are on; authorize asks ownership
         return "senior_estimator"
+    if method in ("PATCH", "POST") and path.startswith("/api/daily-reports") and "management_notes" in body_keys:
+        return "senior_estimator"  # the note the field never sees (sql/085)
     if path.startswith(_PRICING_PREFIXES):
         return "senior_estimator"
     if _JOB_PRICING.fullmatch(path) or _SECTION_PRICING.fullmatch(path):

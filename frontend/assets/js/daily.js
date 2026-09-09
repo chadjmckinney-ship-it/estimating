@@ -59,6 +59,8 @@ const WORDS = {
     need_job: "Choose the job",
     need_foreman: "Choose the foreman",
     another_foreman: "+ Another foreman",
+    mgmt: "Management notes",
+    mgmt_hint: "seniors, management and admins only",
     trades: {
       foreman: "Foreman",
       assistants: "Assistants",
@@ -108,6 +110,8 @@ const WORDS = {
     need_job: "Elija el proyecto",
     need_foreman: "Elija el mayordomo",
     another_foreman: "+ Otro mayordomo",
+    mgmt: "Notas de gerencia",
+    mgmt_hint: "solo estimadores senior, gerencia y administradores",
     trades: {
       foreman: "Mayordomo",
       assistants: "Asistentes",
@@ -521,6 +525,7 @@ export function openReportModal(r, { onChanged } = {}) {
           <div class="chips">${(r.maintenance || []).map((k) => `<span class="chip">${esc(word("maints." + k, "en"))}</span>`).join("") || `<span class="muted">—</span>`}</div>
         </div>
         ${r.signature_url ? `<div class="field full"><a href="${esc(r.signature_url)}" target="_blank" rel="noopener">signature ↗</a></div>` : ""}
+        ${canAct("senior_estimator") && r.management_notes ? text("Management notes", r.management_notes) : ""}
       </div>
       <div class="modal-actions">
         ${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="rep-delete">Delete</button>` : ""}
@@ -688,6 +693,12 @@ export async function renderReportForm(root) {
           ).join("")}
         </div></div>
 
+      ${
+        canAct("senior_estimator")
+          ? `<div class="field"><label><span data-w="mgmt">${esc(word("mgmt"))}</span> <span class="muted" data-w="mgmt_hint">(${esc(word("mgmt_hint"))})</span></label>
+        <textarea name="management_notes" rows="3">${esc(existing ? existing.management_notes || "" : "")}</textarea></div>`
+          : ""
+      }
       <div id="report-error" class="error-banner hidden"></div>
       <div class="modal-actions" style="flex-direction:column;gap:0.5rem">
         <button type="submit" class="btn primary big" data-w="${existing ? "save" : "submit"}">${esc(word(existing ? "save" : "submit"))}</button>
@@ -762,6 +773,8 @@ export async function renderReportForm(root) {
       what_poured: pouredNow ? str("what_poured") : "",
       tax_exempt: pouredNow && tax ? tax === "yes" : null,
       maintenance: fd.getAll("maintenance").map(String),
+      // Seniors and above only (sql/085); anyone else never has the box, and the API would refuse the key.
+      ...(canAct("senior_estimator") ? { management_notes: str("management_notes") } : {}),
       crew: TRADES.map((t) => ({ trade: t, workers: str(`crew_workers_${t}`), hours: str(`crew_hours_${t}`) })).filter(
         (r) => r.workers || r.hours
       ),

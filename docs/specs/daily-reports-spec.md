@@ -58,6 +58,16 @@ to first; a foreman's name may stay on the reports as typed or move to
 another foreman, which is how a Jotform typo folds into the right name);
 `/import` for raw Jotform submissions.
 
+**Management notes** (sql/085; Chad: "another field only visible by
+senior estimators and above.. called management notes"): a text column
+the API returns only to senior estimators, management and admins and only
+they may write — an estimator sending the key gets the 403 that names the
+role, and everyone below a senior, foremen included, reads the report with
+the field blank. The import never touches it. On screen: a box on the edit
+form and a line in the report modal for those roles, nothing for the rest.
+The **management** role (same commit) is a senior estimator by another
+name: the same rank in `app/policy.py`, the same rights and refusals.
+
 Deleting is a senior estimator's, here and everywhere whole (Chad,
 2026-09-09: "estimators and lower.. no delete of anything"); an estimator
 deletes only rows inside a takeoff, on estimates whose project lists

@@ -351,6 +351,9 @@ def test_hashes_are_salted_and_verify_across_work_factors():
     ("POST", "/api/daily-reports", set(), "estimator"),
     ("PATCH", "/api/daily-reports/x", {"delays"}, "estimator"),
     ("POST", "/api/daily-reports/jobs", set(), "estimator"),
+    # Management notes on a report (sql/085): the field a senior writes and the rest never see.
+    ("PATCH", "/api/daily-reports/x", {"management_notes"}, "senior_estimator"),
+    ("POST", "/api/daily-reports", {"management_notes", "job_id"}, "senior_estimator"),
 ])
 def test_the_policy_table(method, path, keys, role):
     assert policy.needed(method, path, keys) == role
@@ -450,3 +453,23 @@ def test_an_estimator_deletes_rows_only_on_estimates_they_are_on(db, as_role, pr
     assert est.delete(f"/api/estimates/{estimate.id}").status_code == 403
     assert senior.delete(f"/api/sections/{section.id}?force=true").status_code == 204
     assert est.get(f"/api/sections/{section.id}").status_code == 404, "the section went, pour C with it"
+
+
+# ---------------------------------------------------------- management --
+
+
+def test_management_is_a_senior_estimators_peer(db, as_role):
+    """sql/085 — Chad: "add a management roll basically a copy of senior estimator"."""
+    assert policy.RANK["management"] == policy.RANK["senior_estimator"]
+    assert policy.allowed("management", "DELETE", "/api/daily-reports/jobs/1")
+    assert policy.allowed("management", "PATCH", "/api/sections/x", {"margin_pct"})
+    assert not policy.allowed("management", "POST", "/api/estimators")
+    assert not policy.allowed("management", "DELETE", "/api/projects/x")
+
+    mgmt = as_role("management")
+    assert mgmt.get("/api/auth/me").json()["role"] == "management"
+    job = mgmt.post("/api/daily-reports/jobs", json={"name": "Management's lot"})
+    assert job.status_code == 201, job.text
+    assert mgmt.delete(f"/api/daily-reports/jobs/{job.json()['id']}").status_code == 200, "a senior's delete"
+    r = mgmt.post("/api/estimators", json={"username": "x", "full_name": "X"})
+    assert r.status_code == 403 and "an admin or above" in r.json()["detail"] and "management" in r.json()["detail"], r.text

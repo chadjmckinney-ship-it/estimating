@@ -382,6 +382,15 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
     assert client.post("/api/daily-reports/jobs", json={"name": "Screens job", "is_active": True}).status_code == 201
     assert client.post("/api/daily-reports/foremen", json={"name": "Screens foreman", "is_active": True}).status_code == 201
 
+    # openEditUserModal (2026-09-09): every box, blanks as nulls, the role from the list
+    me = client.get("/api/auth/me").json()
+    person = next(p for p in client.get("/api/estimators").json() if p["id"] != me["id"])
+    assert client.patch(f"/api/estimators/{person['id']}", json={
+        "username": person["username"], "full_name": person["full_name"], "email": None, "phone": None,
+        "title": None, "role": "management", "is_active": True, "notes": None,
+    }).status_code == 200
+    assert client.patch(f"/api/estimators/{person['id']}", json={"role": person["role"]}).status_code == 200
+
     # openSectionModal — edit (2026-09-09): every box, blanks as the job's defaults
     assert client.patch(f"/api/sections/{slab.id}", json={
         "name": "Mono slab on grade", "margin_pct": 0.15, "contingency_pct": 0,

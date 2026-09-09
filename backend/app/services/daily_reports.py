@@ -131,6 +131,7 @@ def to_read(db: Session, row: DailyReport, people: dict[Any, str] | None = None)
         "what_poured": row.what_poured,
         "tax_exempt": row.tax_exempt,
         "maintenance": list(row.maintenance or []),
+        "management_notes": row.management_notes,
         "source": row.source,
         "jotform_submission_id": row.jotform_submission_id,
         "signature_url": row.signature_url,

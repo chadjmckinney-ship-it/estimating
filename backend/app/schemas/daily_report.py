@@ -6,7 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.daily_report import MAINTENANCE, SUB_TRADES, TRADES
 
-TEXT_FIELDS = ("work_accomplished", "delays", "plan_tomorrow", "safety_concerns", "comments", "supplier", "what_poured")
+TEXT_FIELDS = (
+    "work_accomplished", "delays", "plan_tomorrow", "safety_concerns", "comments", "supplier", "what_poured",
+    "management_notes",
+)
 
 
 def _blank_none(v):
@@ -98,6 +101,7 @@ class DailyReportBase(BaseModel):
     what_poured: str | None = None
     tax_exempt: bool | None = None
     maintenance: list[str] = Field(default_factory=list)
+    management_notes: str | None = None  # seniors and above write it (app/policy.py)
     crew: list[CrewRow] = Field(default_factory=list)
     subs: list[SubRow] = Field(default_factory=list)
 
@@ -151,6 +155,7 @@ class DailyReportUpdate(BaseModel):
     what_poured: str | None = None
     tax_exempt: bool | None = None
     maintenance: list[str] | None = None
+    management_notes: str | None = None
     crew: list[CrewRow] | None = None
     subs: list[SubRow] | None = None
 
@@ -217,6 +222,7 @@ class DailyReportRead(BaseModel):
     what_poured: str | None
     tax_exempt: bool | None
     maintenance: list[str]
+    management_notes: str | None = None  # None for anyone below a senior estimator
     source: str
     jotform_submission_id: str | None
     signature_url: str | None

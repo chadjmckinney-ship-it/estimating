@@ -25,6 +25,7 @@ from app.auth import current_user
 from app.db import get_db
 from app.models.daily_report import DailyReport, FieldForeman, FieldJob
 from app.models.estimator import Estimator
+from app.policy import RANK
 from app.schemas.daily_report import (
     DailyReportCreate,
     DailyReportMeta,
@@ -69,6 +70,13 @@ def _job_or_400(db: Session, job_id: int) -> FieldJob:
     if job is None:
         raise HTTPException(status_code=400, detail="Unknown job")
     return job
+
+
+def _for(user: Estimator, data: dict) -> DailyReportRead:
+    """Management notes are for senior estimators and above (sql/085); the rest get the report without them."""
+    if RANK.get(user.role, -1) < RANK["senior_estimator"]:
+        data = dict(data, management_notes=None)
+    return DailyReportRead(**data)
 
 
 def _name_conflict(what: str) -> HTTPException:
@@ -250,6 +258,7 @@ def list_daily_reports(
     limit: int = Query(500, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
+    user: Estimator = Depends(current_user),
 ) -> list[DailyReportRead]:
     stmt = select(DailyReport).order_by(DailyReport.report_date.desc(), DailyReport.submitted_at.desc())
     if job_id is not None:
@@ -276,7 +285,7 @@ def list_daily_reports(
             ).lower()
 
         rows = [r for r in rows if needle in hay(r)]
-    return [DailyReportRead(**r) for r in reads(db, rows[offset:offset + limit])]
+    return [_for(user, r) for r in reads(db, rows[offset:offset + limit])]
 
 
 @router.post("", response_model=DailyReportRead, status_code=status.HTTP_201_CREATED)
@@ -291,16 +300,20 @@ def create_daily_report(
     set_grids(row, [c.model_dump() for c in body.crew], [s.model_dump() for s in body.subs])
     db.commit()
     db.refresh(row)
-    return DailyReportRead(**to_read(db, row))
+    return _for(user, to_read(db, row))
 
 
 @router.get("/{report_id}", response_model=DailyReportRead)
-def get_daily_report(report_id: UUID, db: Session = Depends(get_db)) -> DailyReportRead:
-    return DailyReportRead(**to_read(db, _or_404(db, report_id)))
+def get_daily_report(
+    report_id: UUID, db: Session = Depends(get_db), user: Estimator = Depends(current_user)
+) -> DailyReportRead:
+    return _for(user, to_read(db, _or_404(db, report_id)))
 
 
 @router.patch("/{report_id}", response_model=DailyReportRead)
-def update_daily_report(report_id: UUID, body: DailyReportUpdate, db: Session = Depends(get_db)) -> DailyReportRead:
+def update_daily_report(
+    report_id: UUID, body: DailyReportUpdate, db: Session = Depends(get_db), user: Estimator = Depends(current_user)
+) -> DailyReportRead:
     row = _or_404(db, report_id)
     data = body.model_dump(exclude_unset=True)
     crew = data.pop("crew", None)
@@ -318,7 +331,7 @@ def update_daily_report(report_id: UUID, body: DailyReportUpdate, db: Session = 
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
-    return DailyReportRead(**to_read(db, row))
+    return _for(user, to_read(db, row))
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)

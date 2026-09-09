@@ -11,11 +11,13 @@ class EstimatorRole(str, Enum):
     2026-09-07: admin, senior estimator, estimator and user — "senior
     estimator can change pricing, user can only view. admin has access to
     add, delete, users and full control." A foreman (sql/084) stands apart:
-    the daily report, and nothing else of the app.
+    the daily report, and nothing else of the app. Management (sql/085) is a
+    senior estimator by another name.
     """
 
     admin = "admin"
     senior_estimator = "senior_estimator"
+    management = "management"
     estimator = "estimator"
     user = "user"
     foreman = "foreman"
