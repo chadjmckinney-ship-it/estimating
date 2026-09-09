@@ -347,6 +347,16 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
         "unit_cost": 155, "has_ash": True, "has_air": False, "notes": "n",
     }).status_code == 200
 
+    # openSectionModal — edit (2026-09-09): every box, blanks as the job's defaults
+    assert client.patch(f"/api/sections/{slab.id}", json={
+        "name": "Mono slab on grade", "margin_pct": 0.15, "contingency_pct": 0,
+        "tax_exempt": None, "notes": None, "unit": "SF",
+    }).status_code == 200
+    assert client.patch(f"/api/sections/{slab.id}", json={
+        "name": "Mono slab on grade", "margin_pct": 0.2, "contingency_pct": 0.03,
+        "tax_exempt": False, "notes": "n",
+    }).status_code == 200
+
     # wireEstimateRules / wireSectionRates / wireSettings
     assert client.put(f"/api/estimates/{estimate.id}/rules/waste_concrete",
                       json={"value": "0.09", "note": "long pumps"}).status_code == 200

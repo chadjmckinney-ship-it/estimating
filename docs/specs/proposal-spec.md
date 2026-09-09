@@ -50,6 +50,17 @@ totals.
   footing gets the wall line only. Each line remembers which half it is,
   so a refresh moves both. Spot footings sell per each, and a new spot
   footings section defaults to EA (it defaulted to SF).
+* **A line is filed where the work is** (Chad, 2026-09-08: "spot footings
+  that are in the mono slab to be added to that section... others listed
+  under site work"). Every line has a Section box; a section's lines move
+  together with one control; an emptied section is deleted. The section's
+  estimate figure is what the rows filed in it sell for in the estimate,
+  wall and footing halves included, so a section assembled from three
+  estimate sections still checks against the takeoff, and a typed line is
+  money on top. A refresh leaves a moved line where it was filed and puts a
+  new row beside its siblings rather than reviving a section that was
+  merged away. The seed stays one section per estimate section, since
+  where a spot footing belongs on the form is a job call.
 * **Excluded is a status, not a deletion.** The line keeps its quantity on
   the form and prices nothing — measured and excluded, not missed. The
   takeoff row behind it still prices; the estimate is untouched.

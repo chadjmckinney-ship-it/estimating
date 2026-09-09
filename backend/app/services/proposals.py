@@ -439,9 +439,15 @@ def refresh_from_estimate(db: Session, proposal: Proposal) -> dict[str, int]:
     seen: set[tuple[str | None, Any, str | None]] = set()
     updated = added = added_sections = 0
     next_section_order = max((ps.sort_order for ps in psections), default=0)
+    ps_by_id = {ps.id: ps for ps in psections}
 
     for section in _sections(db, proposal.estimate_id):
         ps = by_section.get(section.id)
+        if ps is None:
+            # The estimator filed this section's lines elsewhere and let the
+            # seeded section go. New rows go where their siblings went.
+            home = _home_of(db, section, lines)
+            ps = ps_by_id.get(home) if home is not None else None
         if ps is None:
             next_section_order += 10
             ps = ProposalSection(
@@ -503,6 +509,21 @@ def refresh_from_estimate(db: Session, proposal: Proposal) -> dict[str, int]:
     return {"updated": updated, "added_lines": added, "added_sections": added_sections, "missing": missing}
 
 
+def _home_of(db: Session, section: EstimateSection, lines: list[ProposalLine]) -> Any:
+    """The proposal section holding most of the lines taken off in this estimate section, if any."""
+    votes: dict[Any, int] = {}
+    for ln in lines:
+        if ln.source_table is None or ln.source_id is None:
+            continue
+        model = MODEL_BY_TABLE.get(ln.source_table)
+        row = db.get(model, ln.source_id) if model is not None else None
+        if row is not None and getattr(row, "section_id", None) == section.id:
+            votes[ln.proposal_section_id] = votes.get(ln.proposal_section_id, 0) + 1
+    if not votes:
+        return None
+    return max(votes.items(), key=lambda kv: kv[1])[0]
+
+
 def file_name(proposal: Proposal, project: Project | None, estimate: Estimate) -> str:
     """The playbook's name: `<Job Name> - Proposal - <Job #> - <YYYY-MM-DD>_<NN>.xlsx`."""
     parts = [(project.name if project else estimate.name).strip(), "Proposal"]
@@ -527,8 +548,33 @@ def source_label(db: Session, line: ProposalLine) -> str | None:
     return f"{label} · {line.source_part}" if line.source_part else label
 
 
+def source_sale(db: Session, line: ProposalLine) -> Decimal | None:
+    """
+    What the row behind a line sells for in the estimate: the wall or the
+    footing half of a wall run, else the whole row. None on a typed line or
+    a row that is gone.
+    """
+    if line.source_table is None or line.source_id is None:
+        return None
+    model = MODEL_BY_TABLE.get(line.source_table)
+    row = db.get(model, line.source_id) if model is not None else None
+    if row is None:
+        return None
+    field = {"wall": "calc_wall_sale", "footing": "calc_footing_sale"}.get(line.source_part or "", "calc_sale")
+    value = getattr(row, field, None)
+    return _d(value).quantize(_Q2) if value is not None else None
+
+
 def proposal_read(db: Session, proposal: Proposal) -> dict[str, Any]:
-    """The whole proposal as the page and the workbook read it, totals and tie-outs included."""
+    """
+    The whole proposal as the page and the workbook read it, totals and
+    tie-outs included.
+
+    A section's `estimate_sale` is what the rows filed in it sell for in the
+    estimate, whatever section they were taken off in — so a section the
+    estimator assembled from three still checks against the takeoff, and a
+    typed line shows as money on top.
+    """
     estimate = db.get(Estimate, proposal.estimate_id)
     project = db.get(Project, estimate.project_id) if estimate is not None else None
     est_sections = {s.id: s for s in _sections(db, proposal.estimate_id)}
@@ -542,12 +588,19 @@ def proposal_read(db: Session, proposal: Proposal) -> dict[str, Any]:
     for ps in _proposal_sections(db, proposal.id):
         lines_out = []
         section_total = Decimal("0.00")
+        sourced = Decimal("0.00")
+        any_sourced = False
         for ln in lines_by_section.get(ps.id, []):
             ext = line_extended(ln)
             section_total += ext
+            sale = source_sale(db, ln)
+            if sale is not None:
+                sourced += sale
+                any_sourced = True
             lines_out.append(
                 {
                     "id": ln.id,
+                    "proposal_section_id": ln.proposal_section_id,
                     "sort_order": ln.sort_order,
                     "description": ln.description,
                     "qty": ln.qty,
@@ -564,7 +617,7 @@ def proposal_read(db: Session, proposal: Proposal) -> dict[str, Any]:
                 }
             )
         est = est_sections.get(ps.section_id) if ps.section_id is not None else None
-        est_sale = _d(est.calc_total_sale).quantize(_Q2) if est is not None and est.calc_total_sale is not None else None
+        est_sale = sourced if any_sourced else None
         sections_out.append(
             {
                 "id": ps.id,

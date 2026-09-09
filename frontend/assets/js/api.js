@@ -452,6 +452,9 @@ export const Api = {
       body: { rows, delete_missing: deleteMissing },
     }),
   deleteProposalSection: (id) => api(`/proposal-sections/${id}`, { method: "DELETE" }),
+  // Every line of one section onto another of the same proposal.
+  moveProposalLines: (sectionId, to) =>
+    api(`/proposal-sections/${sectionId}/move-lines`, { method: "POST", body: { to } }),
   deleteProposalLine: (id) => api(`/proposal-lines/${id}`, { method: "DELETE" }),
   // The .xlsx is a file, not JSON: a plain same-origin URL the browser can
   // open, the session cookie riding along.

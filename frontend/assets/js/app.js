@@ -1154,6 +1154,8 @@ async function renderEstimateSummary(root) {
             <td class="num muted">${x.calc_cost_per_unit == null ? "—" : "$" + num(Number(x.calc_cost_per_unit), 4)}</td>
             <td class="num">${money(x.calc_total_sale)}</td>
             <td style="white-space:nowrap">
+              <button type="button" class="btn ghost" data-edit-section="${x.id}"
+                title="Name, unit, markup, tax and notes">Edit</button>
               <button type="button" class="btn ghost" data-del-section="${x.id}"
                 title="Delete this section and its work">Delete</button>
             </td>
@@ -1181,8 +1183,18 @@ async function renderEstimateSummary(root) {
   $$("tr[data-section]").forEach((tr) => {
     tr.style.cursor = "pointer";
     tr.onclick = (ev) => {
-      if (ev.target.closest("[data-del-section]")) return;
+      if (ev.target.closest("button")) return;
       setRoute("section", { sectionId: tr.dataset.section });
+    };
+  });
+
+  // Edit, the way the estimates list has one (Chad, 2026-09-09: "there is an
+  // edit button for each estimate, need one for each section").
+  $$("[data-edit-section]").forEach((btn) => {
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const row = sections.find((x) => x.id === btn.dataset.editSection);
+      if (row) openSectionModal(estimate, row);
     };
   });
 
@@ -1243,49 +1255,67 @@ async function renderEstimateSummary(root) {
   }
 }
 
-async function openSectionModal(estimate) {
+async function openSectionModal(estimate, existing = null) {
+  const isEdit = !!existing;
   let kinds = [];
   try {
     kinds = await Api.sectionKinds();
   } catch {
     kinds = Object.keys(SECTION_LABELS);
   }
+  const pct = (v) => (v == null || v === "" ? "" : num(Number(v) * 100, 2));
+  const taxSel = existing?.tax_exempt == null ? "" : String(existing.tax_exempt);
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <div class="modal">
-      <h2>Add section</h2>
+      <h2>${isEdit ? "Edit section" : "Add section"}</h2>
       <form id="section-form">
         <div class="field">
-          <label>Type</label>
-          <select name="kind">
-            ${kinds.map((k) => `<option value="${k}">${esc(sectionLabel(k))}</option>`).join("")}
+          <label>Type${isEdit ? ' <span class="muted">(fixed once the section has work)</span>' : ""}</label>
+          <select name="kind"${isEdit ? " disabled" : ""}>
+            ${kinds.map((k) => `<option value="${k}"${existing?.kind === k ? " selected" : ""}>${esc(sectionLabel(k))}</option>`).join("")}
           </select>
         </div>
         <div class="field">
           <label>Name</label>
-          <input name="name" required maxlength="200" placeholder="e.g. ROW paving" />
+          <input name="name" required maxlength="200" placeholder="e.g. ROW paving"
+            value="${esc(existing?.name || "")}"${isEdit ? ' data-touched="1"' : ""} />
+        </div>
+        <div class="field">
+          <label>Unit <span class="muted">(what the section is sold per)</span></label>
+          <input name="unit" maxlength="8" placeholder="${isEdit ? "" : "the type's own"}"
+            value="${esc(existing?.unit || "")}" />
         </div>
         <div class="field">
           <label>Margin % <span class="muted">(blank = job default)</span></label>
           <input type="number" name="margin_pct" min="0" max="200" step="any"
-            placeholder="${num(Number(estimate.margin_pct ?? 0.2) * 100, 1)}" />
+            placeholder="${num(Number(estimate.margin_pct ?? 0.2) * 100, 1)}" value="${pct(existing?.margin_pct)}" />
+        </div>
+        <div class="field">
+          <label>Contingency % <span class="muted">(blank = job default)</span></label>
+          <input type="number" name="contingency_pct" min="0" max="200" step="any"
+            placeholder="${num(Number(estimate.contingency_pct ?? 0) * 100, 1)}" value="${pct(existing?.contingency_pct)}" />
         </div>
         <div class="field">
           <label>Sales tax</label>
           <select name="tax_exempt">
-            <option value="">Follow the project</option>
-            <option value="true">Exempt (ROW paving, sidewalks)</option>
-            <option value="false">Taxable</option>
+            <option value=""${taxSel === "" ? " selected" : ""}>Follow the project</option>
+            <option value="true"${taxSel === "true" ? " selected" : ""}>Exempt (ROW paving, sidewalks)</option>
+            <option value="false"${taxSel === "false" ? " selected" : ""}>Taxable</option>
           </select>
           <p class="muted" style="font-size:0.8rem;margin:0.25rem 0 0">
             Left on "follow the project" unless this section genuinely differs —
             not every paving job is ROW.
           </p>
         </div>
+        <div class="field">
+          <label>Notes</label>
+          <textarea name="notes" rows="2">${esc(existing?.notes || "")}</textarea>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn ghost" id="section-cancel">Cancel</button>
-          <button type="submit" class="btn primary">Add</button>
+          <button type="submit" class="btn primary">${isEdit ? "Save" : "Add"}</button>
         </div>
       </form>
     </div>`;
@@ -1307,13 +1337,41 @@ async function openSectionModal(estimate) {
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const fd = new FormData(form);
-    const body = { kind: fd.get("kind"), name: String(fd.get("name")).trim() };
-    const margin = fd.get("margin_pct");
-    if (margin !== "" && margin != null) body.margin_pct = Number(margin) / 100;
+    // A blank percentage means the job's default; a blank unit means the
+    // type's own on a new section and "leave it" on an edit.
+    const pctOrNull = (k) => {
+      const v = fd.get(k);
+      return v === "" || v == null ? null : Number(v) / 100;
+    };
     const exempt = fd.get("tax_exempt");
-    if (exempt === "true") body.tax_exempt = true;
-    else if (exempt === "false") body.tax_exempt = false;
+    const taxExempt = exempt === "true" ? true : exempt === "false" ? false : null;
+    const unit = String(fd.get("unit") || "").trim().toUpperCase();
+    const notes = String(fd.get("notes") || "").trim() || null;
     try {
+      if (isEdit) {
+        const body = {
+          name: String(fd.get("name")).trim(),
+          // The columns cannot be empty: a blank is the job's own figure.
+          margin_pct: pctOrNull("margin_pct") ?? Number(estimate.margin_pct ?? 0.2),
+          contingency_pct: pctOrNull("contingency_pct") ?? Number(estimate.contingency_pct ?? 0),
+          tax_exempt: taxExempt,
+          notes,
+        };
+        if (unit) body.unit = unit;
+        await Api.updateSection(existing.id, body);
+        backdrop.remove();
+        toast("Section saved");
+        render();
+        return;
+      }
+      const body = { kind: fd.get("kind"), name: String(fd.get("name")).trim() };
+      const margin = pctOrNull("margin_pct");
+      if (margin != null) body.margin_pct = margin;
+      const conting = pctOrNull("contingency_pct");
+      if (conting != null) body.contingency_pct = conting;
+      if (taxExempt != null) body.tax_exempt = taxExempt;
+      if (unit) body.unit = unit;
+      if (notes) body.notes = notes;
       const created = await Api.createSection(estimate.id, body);
       backdrop.remove();
       toast("Section added");
@@ -3025,6 +3083,8 @@ async function renderSectionDetail(root) {
         <button class="btn ghost" id="btn-jump-equip" type="button">Equipment</button>`}
         <button class="btn" id="btn-recalc-estimate" type="button"
           title="Rewrite pours and stored takeoffs from current inputs — use after changing company defaults">Recalculate</button>
+        <button class="btn" id="btn-edit-section" type="button"
+          title="Name, unit, markup, tax and notes">Edit section</button>
         <button class="btn danger" id="btn-del-estimate">Delete section</button>
       </div>
     </div>
@@ -4220,6 +4280,7 @@ async function renderSectionDetail(root) {
       }
     };
   }
+  $("#btn-edit-section").onclick = () => openSectionModal(estimate, section);
   $("#btn-del-estimate").onclick = async () => {
     const msg =
       `Delete section “${section.name}”?\n\n` +
@@ -6723,20 +6784,30 @@ function proposalSectionColumns() {
       label: "Estimate",
       derived: (r) => (r.estimate_sale == null ? "—" : usd(r.estimate_sale, 0)),
       title: (r) =>
-        r.estimate_section_name
-          ? `Seeded from the ${r.estimate_section_name} section, at its markup`
-          : "Typed by hand — no estimate section behind it",
+        r.estimate_sale == null
+          ? "No takeoff rows filed here — typed lines only"
+          : "What the takeoff rows filed in this section sell for in the estimate, wherever they were taken off",
     },
     { label: "Difference", derived: (r) => (r.difference == null ? "—" : usd(r.difference, 0)) },
   ];
 }
 
-function proposalLineColumns() {
+function proposalLineColumns(sections = []) {
   return [
     {
       f: "description",
       label: "Description",
       placeholder: "PLAN MARK ITEM @ LOCATION (thickness, psi, reinforcing, finish, per detail)",
+    },
+    // Where the line goes on the form (Chad, 2026-09-08: the spot footings
+    // that are in the mono slab under that section, the rest under site
+    // work). Filing a line elsewhere moves it on save, words and numbers with it.
+    {
+      f: "proposal_section_id",
+      label: "Section",
+      type: "select",
+      options: sections.map((s) => ({ id: s.id, label: s.title || "(untitled)" })),
+      hint: "Where the line goes on the form. Pick another section and save to move it there.",
     },
     { f: "qty", label: "Qty", type: "number" },
     { f: "unit", label: "Unit", placeholder: "SF" },
@@ -6888,8 +6959,10 @@ async function renderProposal(root) {
       blurb:
         "One per estimate section, in order, seeded with the section's name — retitle them the way the " +
         "GC will level them (courtyards by their plan name, ROW split from onsite, garage on its own). " +
-        "<strong>Order</strong> sorts them; a section added here has no estimate section behind it. " +
-        "Estimate against proposal is the tie-out: a difference beyond pennies is a rewritten price, a " +
+        "<strong>Order</strong> sorts them; a section added here starts empty. A line goes wherever you " +
+        "file it — its Section box, or a whole section's lines at once from the card below. " +
+        "<strong>Estimate</strong> is what the takeoff rows filed in a section sell for, wherever they were " +
+        "taken off, so the tie-out follows the lines: a difference beyond pennies is a rewritten price, a " +
         "typed line, or an estimate that moved.",
       columns: proposalSectionColumns(),
       rows: p.sections,
@@ -6904,13 +6977,22 @@ async function renderProposal(root) {
             id: `proposal-lines-${sct.id}`,
             title: `${i + 1}. ${sct.title || "(untitled)"}`,
             blurb:
-              (sct.estimate_section_name
-                ? `Seeded from the <strong>${esc(sct.estimate_section_name)}</strong> section · estimate ${usd(sct.estimate_sale, 0)} · proposal ${usd(sct.total, 0)} · difference ${usd(sct.difference, 0)}. `
-                : "Typed by hand — no estimate section behind it. ") +
+              (sct.estimate_sale != null
+                ? `Estimate ${usd(sct.estimate_sale, 0)} for the rows filed here · proposal ${usd(sct.total, 0)} · difference ${usd(sct.difference, 0)}. `
+                : `Proposal ${usd(sct.total, 0)}, typed lines only. `) +
+              (sct.estimate_section_name ? `Seeded from the <strong>${esc(sct.estimate_section_name)}</strong> section. ` : "") +
               "Write each description to the standard: plan mark, item, location, thickness, psi, reinforcing, " +
               "finish, the governing detail. An <strong>excluded</strong> line keeps its quantity on the form and " +
-              "prices nothing — measured and excluded, not missed.",
-            columns: proposalLineColumns(),
+              "prices nothing — measured and excluded, not missed." +
+              (p.sections.length > 1 && sct.lines.length
+                ? ` <span style="white-space:nowrap">Move all ${sct.lines.length} lines to ` +
+                  `<select data-move-from="${esc(sct.id)}"><option value="">—</option>${p.sections
+                    .filter((o) => o.id !== sct.id)
+                    .map((o) => `<option value="${esc(o.id)}">${esc(o.title || "(untitled)")}</option>`)
+                    .join("")}</select> ` +
+                  `<button type="button" class="btn ghost" data-move-btn="${esc(sct.id)}">Move</button></span>`
+                : ""),
+            columns: proposalLineColumns(p.sections),
             rows: sct.lines,
             addLabel: "Line",
             saveLabel: "Save lines",
@@ -6998,10 +7080,29 @@ async function renderProposal(root) {
     },
     remove: (id) => Api.deleteProposalSection(id),
   });
+  $$("[data-move-btn]", root).forEach((btn) => {
+    btn.onclick = async () => {
+      const from = btn.dataset.moveBtn;
+      const sel = root.querySelector(`select[data-move-from="${CSS.escape(from)}"]`);
+      if (!sel || !sel.value) {
+        toast("Pick the section to move the lines to", "err");
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await Api.moveProposalLines(from, sel.value);
+        toast("Lines moved");
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+        btn.disabled = false;
+      }
+    };
+  });
   for (const sct of p.sections) {
     wireGrid(root, {
       id: `proposal-lines-${sct.id}`,
-      columns: proposalLineColumns(),
+      columns: proposalLineColumns(p.sections),
       required: ["description"],
       blank: { status: "INCLUDED" },
       save: async (rows) => {

@@ -54,7 +54,10 @@ LIBRARY_COUNTS = {
 def job(db, estimate):
     """Three shapes on one job: the LBJ slab, the piers, an exercise of the misc library."""
     sections = [mf.build(db, estimate), pif.build(db, estimate), mcf.build(db, estimate)]
-    for s in sections:
+    # Built in one transaction they share a created_at, so the order is pinned
+    # the way a job's sections are — by sort_order.
+    for i, s in enumerate(sections):
+        s.sort_order = (i + 1) * 10
         refresh_pour_costs(db, s)
     refresh_estimate_totals(db, estimate)
     db.flush()
@@ -499,4 +502,83 @@ def test_a_line_seeded_before_the_split_becomes_the_wall_half(client, db, estima
     adopted = next(ln for ln in lines if ln["id"] == wall["id"])
     assert adopted["source_part"] == "wall" and adopted["description"] == "W1 as it was written before the split"
     assert sum(1 for ln in lines if ln["source_id"] == wall["source_id"] and ln["source_part"] == "footing") == 1
+
+
+# ------------------------------------------------------------- filing ----
+
+
+def test_a_line_is_filed_where_the_work_is(client, db, estimate, job):
+    """
+    Chad, 2026-09-08: "is it possible to build the proposal where it is
+    instead of just the section... like spot footings that are in the mono
+    slab to be added to that section". A line goes where the estimator files
+    it; the tie-out follows; a refresh remembers.
+    """
+    slab, piers, misc = job
+    p = _make(client, estimate)
+    mono, pier_sec, misc_sec = p["sections"]
+    total_before = D(str(p["total"]))
+
+    # One pier group filed under the slab: its words and numbers travel with it.
+    moved = pier_sec["lines"][0]
+    r = client.put(f"/api/proposal-sections/{pier_sec['id']}/lines/bulk", json={"rows": [
+        {"id": moved["id"], "proposal_section_id": mono["id"], "description": "Elevator pit piers"},
+    ]})
+    assert r.status_code == 200, r.text
+    got = r.json()
+    mono2, pier2 = got["sections"][0], got["sections"][1]
+    assert mono2["lines"][-1]["id"] == moved["id"] and mono2["lines"][-1]["proposal_section_id"] == mono["id"]
+    assert mono2["lines"][-1]["description"] == "Elevator pit piers"
+    assert D(str(mono2["lines"][-1]["unit_price"])) == D(str(moved["unit_price"]))
+    assert all(ln["id"] != moved["id"] for ln in pier2["lines"])
+    assert D(str(got["total"])) == total_before
+
+    # The tie-out follows the line: the slab section's estimate figure grew by
+    # the pier group's sale, the piers section's shrank by it.
+    grew = D(str(mono2["estimate_sale"])) - D(str(mono["estimate_sale"]))
+    shrank = D(str(pier_sec["estimate_sale"])) - D(str(pier2["estimate_sale"]))
+    assert grew == shrank and abs(grew - D(str(moved["extended"]))) <= D("0.05")
+    assert abs(D(str(mono2["difference"]))) <= _tolerance(mono2)
+
+    # A typed line is money on top; a section of typed lines has no estimate figure.
+    r = client.put(f"/api/proposals/{p['id']}/sections/bulk", json={"rows": [{"title": "SITE WORK"}]})
+    site = r.json()["sections"][-1]
+    r = client.put(f"/api/proposal-sections/{site['id']}/lines/bulk", json={"rows": [
+        {"description": "Certified Payroll", "qty": 1, "unit": "LS", "unit_price": 7500},
+    ]})
+    site = r.json()["sections"][-1]
+    assert site["estimate_sale"] is None and D(str(site["total"])) == D("7500.00")
+
+    # Every misc line moved at once, the emptied section let go, and a refresh
+    # files a new misc item beside its siblings rather than reviving the section.
+    r = client.post(f"/api/proposal-sections/{misc_sec['id']}/move-lines", json={"to": site["id"]})
+    assert r.status_code == 200, r.text
+    site2 = next(s for s in r.json()["sections"] if s["id"] == site["id"])
+    assert len(site2["lines"]) == 1 + len(misc_sec["lines"])
+    assert [ln["id"] for ln in site2["lines"][1:]] == [ln["id"] for ln in misc_sec["lines"]]
+    assert client.delete(f"/api/proposal-sections/{misc_sec['id']}").status_code == 204
+    r = client.post("/api/misc-items", json={
+        "section_id": str(misc.id), "code": "1399", "description": "Flagpole base", "shape": "round",
+        "unit": "EA", "qty": 2, "unit_sale": 900, "labor_per_unit": 150, "dim_a": 24, "dim_b": 4,
+    })
+    assert r.status_code == 201, r.text
+    res = client.post(f"/api/proposals/{p['id']}/refresh").json()
+    assert (res["added_lines"], res["added_sections"]) == (1, 0)
+    site3 = next(s for s in res["proposal"]["sections"] if s["id"] == site["id"])
+    assert site3["lines"][-1]["description"].startswith("Flagpole base (")
+    assert not any(s["title"] == misc.name for s in res["proposal"]["sections"])
+
+    # A move needs a section of the same proposal, and not the same one.
+    other = Estimate(project_id=estimate.project_id, name="Other job")
+    db.add(other)
+    db.flush()
+    p2 = _make(client, other)
+    r = client.put(f"/api/proposals/{p2['id']}/sections/bulk", json={"rows": [{"title": "ELSEWHERE"}]})
+    elsewhere = r.json()["sections"][0]
+    r = client.put(f"/api/proposal-sections/{mono['id']}/lines/bulk", json={"rows": [
+        {"id": mono["lines"][0]["id"], "proposal_section_id": elsewhere["id"]},
+    ]})
+    assert r.status_code == 400
+    assert client.post(f"/api/proposal-sections/{mono['id']}/move-lines", json={"to": mono["id"]}).status_code == 400
+    assert client.post(f"/api/proposal-sections/{mono['id']}/move-lines", json={"to": elsewhere["id"]}).status_code == 400
 

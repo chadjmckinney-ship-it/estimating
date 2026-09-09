@@ -17,7 +17,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -26,6 +26,7 @@ from app.models.proposal import BLOCKS, Proposal, ProposalItem, ProposalLibraryI
 from app.schemas.proposal import (
     ItemsUpdate,
     LibraryRead,
+    MoveLines,
     ProposalCreate,
     ProposalLinesBulk,
     ProposalRead,
@@ -232,6 +233,14 @@ def bulk_save_lines(
     last = max((r.sort_order for r in existing.values()), default=0)
     for order, incoming in enumerate(body.rows):
         data = incoming.model_dump(exclude_unset=True, exclude={"id"})
+        # Where the line goes: another section of this proposal, or here.
+        target_id = data.pop("proposal_section_id", None)
+        if target_id is not None and target_id != section_id:
+            target = _section_or_404(db, target_id)
+            if target.proposal_id != section.proposal_id:
+                raise HTTPException(status_code=400, detail="That section is on another proposal")
+        else:
+            target_id = None
         if incoming.id is not None:
             row = existing.get(incoming.id)
             if row is None:
@@ -240,6 +249,8 @@ def bulk_save_lines(
                 if key in ("description", "status") and value is None:
                     continue
                 setattr(row, key, value)
+            if target_id is not None:
+                _file_line(db, row, target_id)
             _touch(row)
         else:
             if data.get("sort_order") is None:
@@ -251,6 +262,9 @@ def bulk_save_lines(
                 data["status"] = "INCLUDED"
             row = ProposalLine(proposal_section_id=section_id, **data)
             db.add(row)
+            if target_id is not None:
+                db.flush()
+                _file_line(db, row, target_id)
         db.flush()
         seen.add(row.id)
     if body.delete_missing:
@@ -259,6 +273,42 @@ def bulk_save_lines(
                 db.delete(row)
         db.flush()
     _touch(section)
+    db.commit()
+    db.refresh(proposal)
+    return _read(db, proposal)
+
+
+def _file_line(db: Session, row: ProposalLine, target_id: UUID) -> None:
+    """Put a line at the end of another section, its words and numbers untouched."""
+    last = db.scalar(
+        select(func.coalesce(func.max(ProposalLine.sort_order), 0)).where(
+            ProposalLine.proposal_section_id == target_id
+        )
+    )
+    row.proposal_section_id = target_id
+    row.sort_order = int(last or 0) + 10
+
+
+@router.post("/proposal-sections/{section_id}/move-lines", response_model=ProposalRead)
+def move_lines(section_id: UUID, body: MoveLines, db: Session = Depends(get_db)) -> ProposalRead:
+    """Every line of this section onto another of the same proposal, in order, after what is there."""
+    section = _section_or_404(db, section_id)
+    target = _section_or_404(db, body.to)
+    if target.proposal_id != section.proposal_id:
+        raise HTTPException(status_code=400, detail="That section is on another proposal")
+    if target.id == section.id:
+        raise HTTPException(status_code=400, detail="That is the same section")
+    rows = db.scalars(
+        select(ProposalLine)
+        .where(ProposalLine.proposal_section_id == section_id)
+        .order_by(ProposalLine.sort_order, ProposalLine.created_at)
+    ).all()
+    for row in rows:
+        _file_line(db, row, target.id)
+        _touch(row)
+        db.flush()
+    proposal = _proposal_or_404(db, section.proposal_id)
+    _touch(proposal)
     db.commit()
     db.refresh(proposal)
     return _read(db, proposal)

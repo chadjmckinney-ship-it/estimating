@@ -78,6 +78,9 @@ class ProposalLineRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID | None = None
+    # Where the line goes on the form. Sent when a line is moved to another
+    # section of the same proposal; left out, the line stays where it is.
+    proposal_section_id: UUID | None = None
     description: str | None = None
     qty: Decimal | None = Field(None, ge=0)
     unit: str | None = Field(None, max_length=10)
@@ -99,6 +102,14 @@ class ProposalLinesBulk(BaseModel):
     delete_missing: bool = False
 
 
+class MoveLines(BaseModel):
+    """Every line of one section onto another section of the same proposal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    to: UUID
+
+
 class ItemsUpdate(BaseModel):
     """A whole block, in order: one string per bullet or numbered paragraph."""
 
@@ -112,6 +123,7 @@ class ItemsUpdate(BaseModel):
 
 class ProposalLineRead(BaseModel):
     id: UUID
+    proposal_section_id: UUID
     sort_order: int
     description: str
     qty: Decimal | None
@@ -134,6 +146,8 @@ class ProposalSectionRead(BaseModel):
     section_id: UUID | None
     estimate_section_name: str | None = None
     estimate_section_kind: str | None = None
+    # What the rows filed in this section sell for in the estimate — wall
+    # and footing halves included — whatever section they were taken off in.
     estimate_sale: Decimal | None = None
     total: Decimal
     difference: Decimal | None = None
