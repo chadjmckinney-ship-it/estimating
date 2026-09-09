@@ -52,8 +52,16 @@ only, a search across the texts), file, read, edit, delete; `/meta` for
 what the form offers (the two lists with their report counts, the suppliers
 — the Jotform six plus the catalog's active ones — the grids' rows and the
 checks with both languages); `/summary` for reports, pours, yards and
-man-hours by job and month; `/jobs` and `/foremen` to keep the lists;
+man-hours by job and month; `/jobs` and `/foremen` to keep the lists —
+add, edit, and delete (a job with reports must say which job they move
+to first; a foreman's name may stay on the reports as typed or move to
+another foreman, which is how a Jotform typo folds into the right name);
 `/import` for raw Jotform submissions.
+
+Deleting is a senior estimator's, here and everywhere whole (Chad,
+2026-09-09: "estimators and lower.. no delete of anything"); an estimator
+deletes only rows inside a takeoff, on estimates whose project lists
+them (`app/ownership.py`).
 
 ### The foreman role
 

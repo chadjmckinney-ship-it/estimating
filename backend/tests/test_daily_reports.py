@@ -222,6 +222,7 @@ def test_a_foreman_files_and_reads_and_nothing_else(db, as_role):
         ("patch", f"/api/daily-reports/{r.json()['id']}", {"delays": "rain"}),
         ("delete", f"/api/daily-reports/{r.json()['id']}", None),
         ("post", "/api/daily-reports/jobs", {"name": "New job"}),
+        ("delete", "/api/daily-reports/jobs/1", None),
         ("post", "/api/daily-reports/import", {"form_id": NEW_FORM, "submissions": []}),
         ("get", "/api/estimates", None),
         ("get", "/api/projects", None),
@@ -322,3 +323,55 @@ def test_the_jotform_import_both_forms(client, db):
         dict(NEW_SUB, id="1", status="DELETED"), {"id": "2", "created_at": "2026-09-08 09:00:00", "answers": []},
     ]}).json()
     assert (junk["created"], junk["skipped"]) == (0, 2)
+
+
+# ---------------------------------------------------------- the deletes --
+
+
+def test_deleting_a_job_moves_its_reports_first(client, as_role):
+    """Chad, 2026-09-09: "let me delete jobs and foreman" — and nothing left pointing at a job that is gone."""
+    nw = _job_id(client, "NORTHWEST VILLAGE")
+    spare = client.post("/api/daily-reports/jobs", json={"name": "Spare lot"}).json()["id"]
+    assert client.delete(f"/api/daily-reports/jobs/{spare}").json() == {"moved": 0}, "no reports: gone outright"
+    assert all(j["name"] != "Spare lot" for j in client.get("/api/daily-reports/jobs").json())
+
+    old = client.post("/api/daily-reports/jobs", json={"name": "Old yard"}).json()["id"]
+    a = _report(client, job_id=old)
+    b = _report(client, job_id=old, report_date="2026-09-08")
+    r = client.delete(f"/api/daily-reports/jobs/{old}")
+    assert r.status_code == 409 and "2 reports" in r.json()["detail"], r.text
+    assert client.delete(f"/api/daily-reports/jobs/{old}?move_to=999999").status_code == 400
+    assert client.delete(f"/api/daily-reports/jobs/{old}?move_to={old}").status_code == 400
+    assert client.delete(f"/api/daily-reports/jobs/{old}?move_to={nw}").json() == {"moved": 2}
+    assert {client.get(f"/api/daily-reports/{x['id']}").json()["job_id"] for x in (a, b)} == {nw}
+    assert client.get("/api/daily-reports/meta").json()["jobs"][0]["name"] != "Old yard"
+    assert client.delete(f"/api/daily-reports/jobs/{old}").status_code == 404
+
+    # Estimators and below delete nothing whole; the foreman role is pinned above.
+    est = as_role("estimator")
+    r = est.delete(f"/api/daily-reports/jobs/{nw}")
+    assert r.status_code == 403 and "a senior estimator or above" in r.json()["detail"], r.text
+    assert est.delete(f"/api/daily-reports/{a['id']}").status_code == 403
+    assert as_role("senior_estimator").delete(f"/api/daily-reports/{a['id']}").status_code == 204
+
+
+def test_deleting_a_foreman_keeps_or_moves_the_name(client):
+    typo = client.post("/api/daily-reports/foremen", json={"name": "Juan Calros"}).json()["id"]
+    real = next(f["id"] for f in client.get("/api/daily-reports/foremen").json() if f["name"] == "Juan Carlos")
+    a = _report(client, foremen=["Juan Calros", "Jorge"])
+    b = _report(client, foremen=["Jorge"])
+    c = _report(client, foremen=["juan calros", "Juan Carlos"])  # the typo and the right name on one report
+    assert client.delete(f"/api/daily-reports/foremen/{typo}?move_to=999999").status_code == 400
+    assert client.delete(f"/api/daily-reports/foremen/{typo}?move_to={real}").json() == {"moved": 2}
+    got = {x["id"]: client.get(f"/api/daily-reports/{x['id']}").json()["foremen"] for x in (a, b, c)}
+    assert got[a["id"]] == ["Juan Carlos", "Jorge"]
+    assert got[b["id"]] == ["Jorge"], "untouched"
+    assert got[c["id"]] == ["Juan Carlos"], "the two spellings fold into one name"
+    assert all(f["name"] != "Juan Calros" for f in client.get("/api/daily-reports/foremen").json())
+
+    # Without a target the entry goes and the reports keep the name as typed.
+    fidel = client.post("/api/daily-reports/foremen", json={"name": "Fidel"}).json()["id"]
+    d = _report(client, foremen=["Fidel"])
+    assert client.delete(f"/api/daily-reports/foremen/{fidel}").json() == {"moved": 0}
+    assert client.get(f"/api/daily-reports/{d['id']}").json()["foremen"] == ["Fidel"]
+    assert client.delete(f"/api/daily-reports/foremen/{fidel}").status_code == 404

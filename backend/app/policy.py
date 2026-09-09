@@ -8,11 +8,21 @@ add, delete, users and full control." Each role includes the ones below it:
     user               reads everything; writes nothing
     estimator          the takeoff: projects and estimates, sections, pours,
                        groups, runs, types, levels, beams, the line sets'
-                       switches and typed quantities, refreshes and recalcs
+                       switches and typed quantities, refreshes and recalcs;
+                       deleting a row inside a takeoff (a pour, a run, a
+                       type, a level, a group, a proposal line) only on an
+                       estimate whose project lists them (app/ownership.py)
     senior_estimator   also the money: the three catalogs and suppliers,
                        company settings, a job's price sheet, rules, section
                        rates, quotes, a typed RATE on a line, and the markup
-                       (margin / contingency) on an estimate or a section
+                       (margin / contingency) on an estimate or a section;
+                       and deleting anything whole but an estimate or a
+                       project — a section, a bid, a daily report, the
+                       form's lists, a proposal, a catalog row (Chad,
+                       2026-09-09: "estimators and lower.. no delete of
+                       anything", records that is, "and only estimates they
+                       are assigned to can they delete rows out of estimate
+                       sections")
     admin              also people (the estimators list and their passwords)
                        and deleting a whole estimate or project
 
@@ -32,8 +42,11 @@ from __future__ import annotations
 import re
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy.orm import Session
 
+from app import ownership
 from app.auth import current_user
+from app.db import get_db
 from app.models.estimator import Estimator
 
 ROLES = ("user", "estimator", "senior_estimator", "admin")
@@ -71,8 +84,12 @@ def needed(method: str, path: str, body_keys: set[str] | frozenset[str] = frozen
         return "user"
     if path.startswith("/api/estimators"):
         return "admin"
-    if method == "DELETE" and _WHOLE_JOB.fullmatch(path):
-        return "admin"
+    if method == "DELETE":
+        if _WHOLE_JOB.fullmatch(path):
+            return "admin"
+        if ownership.ROW_DELETE.fullmatch(path):
+            return "estimator"  # and only on an estimate they are on; authorize asks ownership
+        return "senior_estimator"
     if path.startswith(_PRICING_PREFIXES):
         return "senior_estimator"
     if _JOB_PRICING.fullmatch(path) or _SECTION_PRICING.fullmatch(path):
@@ -109,9 +126,22 @@ async def _body_keys(request: Request) -> frozenset[str]:
     return frozenset(data.keys()) if isinstance(data, dict) else frozenset()
 
 
-async def authorize(request: Request, user: Estimator = Depends(current_user)) -> Estimator:
-    """Signed in, and the role is enough for this request."""
+async def authorize(
+    request: Request, user: Estimator = Depends(current_user), db: Session = Depends(get_db)
+) -> Estimator:
+    """Signed in, the role is enough for this request, and a takeoff row an estimator deletes is theirs."""
     keys = await _body_keys(request)
+    path = request.url.path
+    if user.role == "estimator" and request.method.upper() == "DELETE" and ownership.ROW_DELETE.fullmatch(path):
+        project_id = ownership.project_of(db, path)
+        if project_id is not None and not ownership.assigned(db, project_id, user.id):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"That row is on an estimate you are not assigned to; you are signed in as {user.full_name}, "
+                    "an estimator. Ask a senior estimator, or to be added to the project."
+                ),
+            )
     if not allowed(user.role, request.method, request.url.path, keys):
         role_needed = needed(request.method, request.url.path, keys)
         raise HTTPException(

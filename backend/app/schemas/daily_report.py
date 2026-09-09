@@ -375,3 +375,9 @@ class ImportResult(BaseModel):
     jobs_added: list[str] = Field(default_factory=list)
     foremen_added: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+class MoveResult(BaseModel):
+    """What a delete of a job or a foreman moved to another before going."""
+
+    moved: int

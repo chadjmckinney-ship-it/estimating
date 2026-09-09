@@ -149,6 +149,9 @@ export const Api = {
   updateFieldJob: (id, body) => api(`/daily-reports/jobs/${id}`, { method: "PATCH", body }),
   createFieldForeman: (body) => api("/daily-reports/foremen", { method: "POST", body }),
   updateFieldForeman: (id, body) => api(`/daily-reports/foremen/${id}`, { method: "PATCH", body }),
+  deleteFieldJob: (id, moveTo) => api(`/daily-reports/jobs/${id}${moveTo ? `?move_to=${moveTo}` : ""}`, { method: "DELETE" }),
+  deleteFieldForeman: (id, moveTo) =>
+    api(`/daily-reports/foremen/${id}${moveTo ? `?move_to=${moveTo}` : ""}`, { method: "DELETE" }),
   projectStatuses: () => api("/projects/meta/statuses"),
   // Estimates
   listEstimates: (params = {}) => {

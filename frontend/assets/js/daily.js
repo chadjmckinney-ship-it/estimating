@@ -270,16 +270,17 @@ export async function renderDaily(root) {
           <td>${esc(x.name)}${kind === "job" && x.project_name ? ` <span class="muted">→ ${esc(x.project_name)}</span>` : ""}</td>
           <td class="num">${x.reports}</td><td class="muted" style="white-space:nowrap">${esc(day(x.last_report))}</td>
           <td><label style="display:flex;align-items:center;gap:0.4rem"><input type="checkbox" data-${kind}-active="${x.id}"${x.is_active ? " checked" : ""} /> on the form</label></td>
+          <td>${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" data-del-${kind}="${x.id}">Delete</button>` : ""}</td>
         </tr>`
         )
         .join("");
     return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:1rem">
       <div class="card"><h3 style="margin:0 0 0.5rem">Jobs on the form</h3>
-        <div class="table-wrap"><table class="data"><thead><tr><th>Job</th><th class="num">Reports</th><th>Last</th><th></th></tr></thead><tbody>${rows(meta.jobs, "job")}</tbody></table></div>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Job</th><th class="num">Reports</th><th>Last</th><th></th><th></th></tr></thead><tbody>${rows(meta.jobs, "job")}</tbody></table></div>
         <form id="add-job" class="toolbar" style="margin:0.6rem 0 0"><input name="name" placeholder="New job name" required maxlength="200" style="flex:1" /><button class="btn primary" type="submit">Add</button></form>
       </div>
       <div class="card"><h3 style="margin:0 0 0.5rem">Foremen on the form</h3>
-        <div class="table-wrap"><table class="data"><thead><tr><th>Foreman</th><th class="num">Reports</th><th>Last</th><th></th></tr></thead><tbody>${rows(meta.foremen, "foreman")}</tbody></table></div>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Foreman</th><th class="num">Reports</th><th>Last</th><th></th><th></th></tr></thead><tbody>${rows(meta.foremen, "foreman")}</tbody></table></div>
         <form id="add-foreman" class="toolbar" style="margin:0.6rem 0 0"><input name="name" placeholder="New foreman" required maxlength="200" style="flex:1" /><button class="btn primary" type="submit">Add</button></form>
       </div>
     </div>`;
@@ -331,6 +332,34 @@ export async function renderDaily(root) {
         } catch (err) {
           toast(err.message, "err");
         }
+      };
+    });
+    const refresh = async () => {
+      meta = await Api.dailyReportMeta();
+      await load();
+    };
+    $$("[data-del-job]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const job = meta.jobs.find((j) => String(j.id) === btn.dataset.delJob);
+        if (!job) return;
+        if (!job.reports) {
+          if (!confirm(`Delete the job "${job.name}"?`)) return;
+          Api.deleteFieldJob(job.id).then(refresh).catch((err) => toast(err.message, "err"));
+          return;
+        }
+        openMoveDeleteModal({ kind: "job", item: job, others: meta.jobs.filter((j) => j.id !== job.id), onDone: refresh });
+      };
+    });
+    $$("[data-del-foreman]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const f = meta.foremen.find((x) => String(x.id) === btn.dataset.delForeman);
+        if (!f) return;
+        if (!f.reports) {
+          if (!confirm(`Delete the foreman "${f.name}"?`)) return;
+          Api.deleteFieldForeman(f.id).then(refresh).catch((err) => toast(err.message, "err"));
+          return;
+        }
+        openMoveDeleteModal({ kind: "foreman", item: f, others: meta.foremen.filter((x) => x.id !== f.id), onDone: refresh });
       };
     });
     const addJob = $("#add-job", root);
@@ -494,7 +523,7 @@ export function openReportModal(r, { onChanged } = {}) {
         ${r.signature_url ? `<div class="field full"><a href="${esc(r.signature_url)}" target="_blank" rel="noopener">signature ↗</a></div>` : ""}
       </div>
       <div class="modal-actions">
-        ${canAct("estimator") ? `<button type="button" class="btn danger ghost" id="rep-delete">Delete</button>` : ""}
+        ${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="rep-delete">Delete</button>` : ""}
         <button type="button" class="btn ghost" id="rep-close">Close</button>
         ${canAct("estimator") ? `<button type="button" class="btn primary" id="rep-edit">Edit</button>` : ""}
       </div>
@@ -911,4 +940,56 @@ export async function renderCalendar(root) {
     load().catch((err) => toast(err.message, "err"));
   };
   await load();
+}
+
+// ------------------------------------------------- deleting a list entry --
+
+/**
+ * A job with reports must say where they go; a foreman may leave the name as
+ * typed on the reports, or move them to another. Chad, 2026-09-09: "let me
+ * delete jobs and foreman".
+ */
+function openMoveDeleteModal({ kind, item, others, onDone }) {
+  const { $, esc, toast } = d;
+  const isJob = kind === "job";
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Delete ${esc(item.name)}</h2>
+      <p class="muted" style="color:var(--text-muted)">${item.reports} report${item.reports === 1 ? "" : "s"} ${
+        isJob ? `${item.reports === 1 ? "is" : "are"} on this job` : `${item.reports === 1 ? "names" : "name"} this foreman`
+      }.</p>
+      <div class="field">
+        <label>${isJob ? "Move them to" : "Move them to another foreman"}</label>
+        <select id="mv-target">
+          ${isJob ? `<option value="">Choose…</option>` : `<option value="">Leave the name as typed on them</option>`}
+          ${others.map((o) => `<option value="${o.id}">${esc(o.name)}${o.is_active ? "" : " (off the form)"}</option>`).join("")}
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="mv-cancel">Cancel</button>
+        <button type="button" class="btn danger" id="mv-go">Delete</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#mv-cancel", backdrop).onclick = () => backdrop.remove();
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  $("#mv-go", backdrop).onclick = async () => {
+    const target = $("#mv-target", backdrop).value;
+    if (isJob && !target) {
+      toast("Choose the job the reports move to", "err");
+      return;
+    }
+    try {
+      const res = isJob ? await Api.deleteFieldJob(item.id, target) : await Api.deleteFieldForeman(item.id, target);
+      toast(`${item.name} deleted${res.moved ? `, ${res.moved} report${res.moved === 1 ? "" : "s"} moved` : ""}`);
+      backdrop.remove();
+      if (onDone) onDone();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
 }

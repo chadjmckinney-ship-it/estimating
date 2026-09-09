@@ -794,7 +794,7 @@ function openBidModal(existing = null) {
           <textarea name="notes" rows="4">${esc(existing?.notes || "")}</textarea>
         </div>
         <div class="modal-actions" style="grid-column:1/-1">
-          ${isEdit ? `<button type="button" class="btn danger ghost" id="bid-delete">Delete</button>` : ""}
+          ${isEdit && canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="bid-delete">Delete</button>` : ""}
           <button type="button" class="btn ghost" id="bid-cancel">Cancel</button>
           <button type="submit" class="btn primary">Save</button>
         </div>
@@ -907,6 +907,18 @@ function openProjectModal(existing = null) {
           </select>
         </div>
         <div class="field">
+          <label>Assigned to <span class="muted">(who may delete rows in its estimates)</span></label>
+          <select name="estimator_ids" multiple size="4">
+            ${state.estimators
+              .filter((e) => e.role !== "foreman")
+              .map(
+                (e) =>
+                  `<option value="${esc(e.id)}"${(existing?.estimator_ids || []).map(String).includes(String(e.id)) ? " selected" : ""}>${esc(e.full_name)}</option>`
+              )
+              .join("")}
+          </select>
+        </div>
+        <div class="field">
           <label>Created by</label>
           <select name="created_by">
             <option value="">—</option>
@@ -951,6 +963,7 @@ function openProjectModal(existing = null) {
       tax_exempt: fd.get("tax_exempt") === "true",
       project_types: types,
       created_by: fd.get("created_by") || null,
+      estimator_ids: [...e.target.estimator_ids.selectedOptions].map((o) => o.value),
       plans_url: fd.get("plans_url") || null,
       notes: fd.get("notes") || null,
     };
@@ -993,7 +1006,15 @@ async function renderProjectDetail(root) {
       <div>
         <button class="btn ghost" id="back">← Projects</button>
         <h1 style="margin-top:0.5rem">${esc(project.name)}</h1>
-        <p>${esc(project.gc || "No GC")} · ${esc(project.location || "No location")}</p>
+        <p>${esc(project.gc || "No GC")} · ${esc(project.location || "No location")}${
+          (project.estimator_ids || []).length
+            ? ` · assigned to ${esc(
+                (project.estimator_ids || [])
+                  .map((id) => (state.estimators.find((e) => String(e.id) === String(id)) || {}).full_name || "?")
+                  .join(", ")
+              )}`
+            : ""
+        }</p>
       </div>
       <div style="display:flex;gap:0.5rem">
         <button class="btn" id="edit-proj">Edit</button>
@@ -3591,7 +3612,7 @@ async function renderSectionDetail(root) {
           title="Rewrite pours and stored takeoffs from current inputs — use after changing company defaults">Recalculate</button>
         <button class="btn" id="btn-edit-section" type="button"
           title="Name, unit, markup, tax and notes">Edit section</button>
-        <button class="btn danger" id="btn-del-estimate">Delete section</button>
+        ${canAct("senior_estimator") ? `<button class="btn danger" id="btn-del-estimate">Delete section</button>` : ""}
       </div>
     </div>
 
@@ -4787,7 +4808,8 @@ async function renderSectionDetail(root) {
     };
   }
   $("#btn-edit-section").onclick = () => openSectionModal(estimate, section);
-  $("#btn-del-estimate").onclick = async () => {
+  const delSection = $("#btn-del-estimate"); // a senior's (2026-09-09)
+  if (delSection) delSection.onclick = async () => {
     const msg =
       `Delete section “${section.name}”?\n\n` +
       `This permanently removes its pours, beam types and takeoffs. ` +
@@ -7415,7 +7437,7 @@ async function renderProposal(root) {
           title="Pull the estimate onto the proposal again: fresh quantities and prices on every seeded line, new rows and sections added, your descriptions kept">Refresh from estimate</button>
         <a class="btn primary" id="btn-download-proposal" href="${Api.proposalXlsxUrl(p.id)}" download="${esc(p.file_name)}"
           title="The bid form as .xlsx — unit prices held outside the print area">Download .xlsx</a>
-        <button class="btn danger ghost" id="btn-del-proposal" type="button">Delete proposal</button>
+        ${canAct("senior_estimator") ? `<button class="btn danger ghost" id="btn-del-proposal" type="button">Delete proposal</button>` : ""}
       </div>
     </div>
 
@@ -7534,7 +7556,8 @@ async function renderProposal(root) {
     }
   };
 
-  $("#btn-del-proposal").onclick = async () => {
+  const delProposal = $("#btn-del-proposal"); // a senior's (2026-09-09)
+  if (delProposal) delProposal.onclick = async () => {
     if (!confirm("Delete this proposal? The estimate is untouched; a new one can be seeded from it.")) return;
     try {
       await Api.deleteProposal(p.id);

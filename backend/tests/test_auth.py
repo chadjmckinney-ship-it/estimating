@@ -325,7 +325,17 @@ def test_hashes_are_salted_and_verify_across_work_factors():
     ("PUT", "/api/estimates/x/rules/waste_concrete", set(), "senior_estimator"),
     ("PUT", "/api/sections/x/quotes/rebar", set(), "senior_estimator"),
     ("PUT", "/api/sections/x/rates/labor_forming_sf", set(), "senior_estimator"),
-    ("DELETE", "/api/sections/x", set(), "estimator"),
+    # Deletes (Chad, 2026-09-09): a whole estimate or project is an admin's; anything else whole is a
+    # senior's; a row inside a takeoff an estimator's, on an estimate they are on (the API test below).
+    ("DELETE", "/api/sections/x", set(), "senior_estimator"),
+    ("DELETE", "/api/bid-requests/x", set(), "senior_estimator"),
+    ("DELETE", "/api/daily-reports/x", set(), "senior_estimator"),
+    ("DELETE", "/api/daily-reports/jobs/1", set(), "senior_estimator"),
+    ("DELETE", "/api/proposals/x", set(), "senior_estimator"),
+    ("DELETE", "/api/mono-slabs/x", set(), "estimator"),
+    ("DELETE", "/api/wall-runs/x", set(), "estimator"),
+    ("DELETE", "/api/grade-beams/x", set(), "estimator"),
+    ("DELETE", "/api/proposal-lines/x", set(), "estimator"),
     ("DELETE", "/api/estimates/x", set(), "admin"),
     ("DELETE", "/api/projects/x", set(), "admin"),
     ("POST", "/api/estimators", set(), "admin"),
@@ -413,3 +423,30 @@ def test_a_cross_origin_page_gets_no_cors_answer(client):
         "Origin": "https://evil.test", "Access-Control-Request-Method": "POST",
     })
     assert "access-control-allow-origin" not in {k.lower() for k in r.headers}
+
+
+# ------------------------------------------------------------- deletes --
+
+
+def test_an_estimator_deletes_rows_only_on_estimates_they_are_on(db, as_role, project, estimate, section, make_pour):
+    """Chad, 2026-09-09: "only estimates they are assigned to can they delete rows out of estimate sections"."""
+    from app.models.project import ProjectEstimator
+
+    est = as_role("estimator")
+    senior = as_role("senior_estimator")
+    a, b, c = make_pour(description="A"), make_pour(description="B"), make_pour(description="C")
+
+    r = est.delete(f"/api/mono-slabs/{a.id}")
+    assert r.status_code == 403 and "not assigned to" in r.json()["detail"], r.text
+    assert senior.delete(f"/api/mono-slabs/{a.id}").status_code == 204, "a senior, on it or not"
+
+    db.add(ProjectEstimator(project_id=project.id, estimator_id=_person(db, "test_estimator").id))
+    db.flush()
+    assert est.delete(f"/api/mono-slabs/{b.id}").status_code == 204, "assigned now"
+
+    # Whole records are a senior's, assigned or not (a section with rows left takes force=true either way).
+    r = est.delete(f"/api/sections/{section.id}?force=true")
+    assert r.status_code == 403 and "a senior estimator or above" in r.json()["detail"], r.text
+    assert est.delete(f"/api/estimates/{estimate.id}").status_code == 403
+    assert senior.delete(f"/api/sections/{section.id}?force=true").status_code == 204
+    assert est.get(f"/api/sections/{section.id}").status_code == 404, "the section went, pour C with it"

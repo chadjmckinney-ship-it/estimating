@@ -4,8 +4,8 @@ Daily reports from the field (sql/084).
     /daily-reports                 list (job, foreman, dates, poured, search), file one
     /daily-reports/meta            what the form offers: jobs, foremen, suppliers, the grids' rows, the checks
     /daily-reports/summary         reports, pours, yards and man-hours by job and month
-    /daily-reports/jobs            the job pick-list: list, add, edit
-    /daily-reports/foremen         the foreman pick-list: list, add, edit
+    /daily-reports/jobs            the job pick-list: list, add, edit, delete (its reports moved first)
+    /daily-reports/foremen         the foreman pick-list: list, add, edit, delete (its reports moved, or not)
     /daily-reports/import          raw Jotform submissions, upserted by submission id
     /daily-reports/{id}            read, edit, delete
 
@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,7 @@ from app.schemas.daily_report import (
     FieldJobUpdate,
     ImportBody,
     ImportResult,
+    MoveResult,
     SummaryRow,
 )
 from app.services.daily_reports import (
@@ -160,6 +161,71 @@ def update_field_foreman(foreman_id: int, body: FieldForemanUpdate, db: Session 
         db.rollback()
         raise _name_conflict("foreman") from exc
     return next(FieldForemanRead(**f) for f in foreman_reads(db) if f["id"] == row.id)
+
+
+@router.delete("/jobs/{job_id}", response_model=MoveResult)
+def delete_field_job(
+    job_id: int,
+    move_to: int | None = Query(None, description="The job its reports move to first"),
+    db: Session = Depends(get_db),
+) -> MoveResult:
+    """A job with reports is refused until told where they go; nothing is left pointing at a job that is gone."""
+    row = db.get(FieldJob, job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    db.flush()
+    n = db.scalar(select(func.count()).select_from(DailyReport).where(DailyReport.job_id == job_id)) or 0
+    if n and move_to is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{row.name} has {n} report{'' if n == 1 else 's'}; choose the job to move them to first",
+        )
+    moved = 0
+    if n:
+        if move_to == job_id or db.get(FieldJob, move_to) is None:
+            raise HTTPException(status_code=400, detail="Unknown job to move the reports to")
+        moved = db.execute(
+            update(DailyReport)
+            .where(DailyReport.job_id == job_id)
+            .values(job_id=move_to, updated_at=datetime.now(timezone.utc))
+        ).rowcount
+    db.delete(row)
+    db.commit()
+    return MoveResult(moved=moved)
+
+
+@router.delete("/foremen/{foreman_id}", response_model=MoveResult)
+def delete_field_foreman(
+    foreman_id: int,
+    move_to: int | None = Query(None, description="The foreman whose name replaces this one on the reports; blank keeps the name as typed"),
+    db: Session = Depends(get_db),
+) -> MoveResult:
+    """The reports name their foremen in text, so the list entry can go and the name stay; or the name moves."""
+    row = db.get(FieldForeman, foreman_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Foreman not found")
+    moved = 0
+    if move_to is not None:
+        target = db.get(FieldForeman, move_to)
+        if target is None or move_to == foreman_id:
+            raise HTTPException(status_code=400, detail="Unknown foreman to move the reports to")
+        db.flush()
+        gone = row.name.lower()
+        for report in db.scalars(select(DailyReport)).all():
+            names = list(report.foremen or [])
+            if not any(n.lower() == gone for n in names):
+                continue
+            kept: list[str] = []
+            for n in names:
+                new = target.name if n.lower() == gone else n
+                if new.lower() not in {k.lower() for k in kept}:
+                    kept.append(new)
+            report.foremen = kept
+            report.updated_at = datetime.now(timezone.utc)
+            moved += 1
+    db.delete(row)
+    db.commit()
+    return MoveResult(moved=moved)
 
 
 @router.post("/import", response_model=ImportResult)
