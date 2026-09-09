@@ -12,6 +12,7 @@ from app.models.column_type import ColumnType
 from app.models.panel_type import PanelType
 from app.models.misc_item import MiscItem, MiscItemLibrary
 from app.models.proposal import Proposal, ProposalItem, ProposalLibraryItem, ProposalLine, ProposalSection
+from app.models.bid_request import BidRequest, BidRequestEstimator
 from app.models.estimate_section import EstimateSection
 from app.models.session import LoginSession
 from app.models.audit_log import AuditLog
@@ -38,6 +39,8 @@ __all__ = [
     "ProposalLine",
     "ProposalItem",
     "ProposalLibraryItem",
+    "BidRequest",
+    "BidRequestEstimator",
     "Project",
     "ProjectEstimator",
     "Estimate",

@@ -347,6 +347,19 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
         "unit_cost": 155, "has_ash": True, "has_air": False, "notes": "n",
     }).status_code == 200
 
+    # openBidModal (sql/082): every box, blanks as nulls, the two multi-selects as lists
+    r = client.post("/api/bid-requests", json={
+        "name": "EOS Fitness", "gc": "MYCON", "location": "Forney, TX", "status": "not_started",
+        "bid_due": "2026-09-30", "bid_due_time": None, "bid_date": None, "project_types": ["Retail"],
+        "estimator_ids": [], "bid_price": None, "plans_url": None, "notes": None,
+    })
+    assert r.status_code == 201, r.text
+    assert client.patch(f"/api/bid-requests/{r.json()['id']}", json={
+        "name": "EOS Fitness", "gc": None, "location": None, "status": "submitted",
+        "bid_due": "2026-09-30", "bid_due_time": "17:00", "bid_date": "2026-09-04", "project_types": [],
+        "estimator_ids": [], "bid_price": 148412.98, "plans_url": "https://app.buildingconnected.com/x", "notes": "n",
+    }).status_code == 200
+
     # openSectionModal — edit (2026-09-09): every box, blanks as the job's defaults
     assert client.patch(f"/api/sections/{slab.id}", json={
         "name": "Mono slab on grade", "margin_pct": 0.15, "contingency_pct": 0,

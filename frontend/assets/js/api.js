@@ -120,6 +120,17 @@ export const Api = {
   createProject: (body) => api("/projects", { method: "POST", body }),
   updateProject: (id, body) => api(`/projects/${id}`, { method: "PATCH", body }),
   projectTypes: () => api("/projects/meta/project-types"),
+  // The bid list (sql/082): every invite as it came in, apart from projects.
+  listBids: (params = {}) => {
+    const q = qs(params);
+    return api(`/bid-requests${q ? "?" + q : ""}`);
+  },
+  bidStatuses: () => api("/bid-requests/meta/statuses"),
+  createBid: (body) => api("/bid-requests", { method: "POST", body }),
+  updateBid: (id, body) => api(`/bid-requests/${id}`, { method: "PATCH", body }),
+  deleteBid: (id) => api(`/bid-requests/${id}`, { method: "DELETE" }),
+  // "Estimate this": the bid becomes a project, linked both ways.
+  estimateBid: (id) => api(`/bid-requests/${id}/estimate`, { method: "POST" }),
   projectStatuses: () => api("/projects/meta/statuses"),
   // Estimates
   listEstimates: (params = {}) => {

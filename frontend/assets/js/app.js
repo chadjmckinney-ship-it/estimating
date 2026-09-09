@@ -349,6 +349,381 @@ async function renderProjects(root) {
   $("#btn-new-project").onclick = () => openProjectModal();
 }
 
+// ---------- Bid list (sql/082) ----------
+//
+// Every invite as it came in, apart from the projects that were chosen
+// (Chad, 2026-09-09: "a new table... so we are not scrolling thru a ton of
+// jobs to find the one i want.. then when we choose that we are estimating,
+// it gets copied over"). The whole list is fetched once — a few hundred
+// rows — and filtered here, so the boxes answer as you type.
+
+const BID_STATUS_LABEL = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  submitted: "Submitted",
+  awarded: "Awarded",
+  canceled: "Canceled",
+};
+const BID_OPEN = new Set(["not_started", "in_progress"]);
+
+/** Days from today to the bid's due date; null with no date. */
+function bidDaysLeft(bid) {
+  if (!bid.bid_due) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(`${bid.bid_due}T00:00:00`);
+  return Math.round((due - today) / 86400000);
+}
+
+function bidDueHtml(bid) {
+  if (!bid.bid_due) return `<span class="muted">no date</span>`;
+  const days = bidDaysLeft(bid);
+  const time = bid.bid_due_time ? ` ${String(bid.bid_due_time).slice(0, 5)}` : "";
+  const open = BID_OPEN.has(bid.status);
+  let cls = "";
+  let note = "";
+  if (open && days < 0) {
+    cls = "warn";
+    note = ` · ${-days} day${-days === 1 ? "" : "s"} overdue`;
+  } else if (open && days === 0) {
+    cls = "warn";
+    note = " · today";
+  } else if (open && days <= 7) {
+    cls = "info";
+    note = ` · ${days} day${days === 1 ? "" : "s"}`;
+  }
+  return `<span class="badge ${cls}" title="${esc(bid.bid_due)}${esc(time)}">${esc(fmtDay(bid.bid_due))}${esc(time)}${note}</span>`;
+}
+
+function bidStatusSelect(bid) {
+  return `<select data-bid-status="${esc(bid.id)}" title="Change the status here; it saves at once">${Object.entries(BID_STATUS_LABEL)
+    .map(([k, label]) => `<option value="${k}"${bid.status === k ? " selected" : ""}>${label}</option>`)
+    .join("")}</select>`;
+}
+
+function bidsTable(bids) {
+  if (!bids.length) return `<div class="empty">No bids match.</div>`;
+  const clamp =
+    "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:0.8rem;max-width:30rem";
+  return `<div class="table-wrap"><table class="data">
+    <thead><tr>
+      <th>Due</th><th>Bid</th><th>GC</th><th>Estimators</th><th>Status</th><th>Notes</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${bids
+        .map(
+          (b) => `<tr data-bid="${esc(b.id)}">
+        <td style="white-space:nowrap">${bidDueHtml(b)}</td>
+        <td>
+          <strong>${esc(b.name)}</strong>
+          ${b.location ? `<div class="muted">${esc(b.location)}</div>` : ""}
+          ${(b.project_types || []).length ? `<div class="chips">${b.project_types.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div>` : ""}
+        </td>
+        <td class="muted">${esc(b.gc || "—")}</td>
+        <td><div class="chips">${(b.estimator_names || []).map((n) => `<span class="chip">${esc(n)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
+        <td>${bidStatusSelect(b)}</td>
+        <td><div class="muted" style="${clamp}" title="${esc(b.notes || "")}">${esc(b.notes || "")}</div>
+          ${b.plans_url && isWebLink(b.plans_url) ? `<a href="${esc(b.plans_url)}" target="_blank" rel="noopener" style="font-size:0.8rem">plans ↗</a>` : ""}</td>
+        <td style="white-space:nowrap">
+          <button type="button" class="btn ghost" data-edit-bid="${esc(b.id)}">Edit</button>
+          ${
+            b.project_id
+              ? `<button type="button" class="btn ghost" data-open-project="${esc(b.project_id)}" title="This bid is being estimated">→ ${esc(b.project_name || "project")}</button>`
+              : `<button type="button" class="btn primary ghost" data-estimate-bid="${esc(b.id)}" title="Copy this bid into a new project and open it">Estimate this</button>`
+          }
+        </td>
+      </tr>`
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function bidsBoard(bids) {
+  const cols = Object.keys(BID_STATUS_LABEL);
+  return `<div class="grid stats" style="align-items:start">${cols
+    .map((k) => {
+      const rows = bids.filter((b) => b.status === k);
+      return `<div class="card"><h3 style="margin:0 0 0.5rem">${BID_STATUS_LABEL[k]} <span class="muted">${rows.length}</span></h3>
+        ${rows
+          .map(
+            (b) => `<div style="padding:0.4rem 0;border-top:1px solid var(--border)">
+              <strong>${esc(b.name)}</strong>
+              <div class="muted" style="font-size:0.8rem">${esc(b.gc || "")}</div>
+              <div style="margin-top:0.2rem">${bidDueHtml(b)}</div>
+            </div>`
+          )
+          .join("") || `<div class="muted">—</div>`}
+      </div>`;
+    })
+    .join("")}</div>`;
+}
+
+async function renderBids(root) {
+  root.innerHTML = `<div class="loading">Loading bids…</div>`;
+  if (!state.projectTypes.length) state.projectTypes = await Api.projectTypes();
+  if (!state.estimators.length) state.estimators = await Api.listEstimators({ active_only: "true" });
+  let bids = await Api.listBids();
+  const filters = { status: "open", estimator: "", q: "", due: "all", view: "table" };
+
+  const filtered = () =>
+    bids.filter((b) => {
+      if (filters.status === "open" && !BID_OPEN.has(b.status)) return false;
+      if (filters.status !== "open" && filters.status !== "all" && b.status !== filters.status) return false;
+      if (filters.estimator && !(b.estimator_ids || []).includes(filters.estimator)) return false;
+      if (filters.q) {
+        const hay = `${b.name} ${b.gc || ""} ${b.location || ""} ${b.notes || ""}`.toLowerCase();
+        if (!hay.includes(filters.q.toLowerCase())) return false;
+      }
+      const days = bidDaysLeft(b);
+      if (filters.due === "overdue" && !(days !== null && days < 0)) return false;
+      if (filters.due === "week" && !(days !== null && days >= 0 && days <= 7)) return false;
+      if (filters.due === "month" && !(days !== null && days >= 0 && days <= 30)) return false;
+      return true;
+    });
+
+  const counts = () => {
+    const open = bids.filter((b) => BID_OPEN.has(b.status));
+    const overdue = open.filter((b) => bidDaysLeft(b) !== null && bidDaysLeft(b) < 0).length;
+    const week = open.filter((b) => bidDaysLeft(b) !== null && bidDaysLeft(b) >= 0 && bidDaysLeft(b) <= 7).length;
+    return { open: open.length, overdue, week, all: bids.length };
+  };
+
+  const paint = () => {
+    const c = counts();
+    $("#bids-counts").innerHTML =
+      `<strong>${c.open}</strong> open · <strong>${c.week}</strong> due this week · ` +
+      `<strong>${c.overdue}</strong> overdue · ${c.all} on the list`;
+    const rows = filtered();
+    $("#bids-body").innerHTML = filters.view === "board" ? bidsBoard(rows) : bidsTable(rows);
+    wire();
+  };
+
+  const wire = () => {
+    $$("[data-bid-status]", root).forEach((sel) => {
+      sel.onchange = async () => {
+        try {
+          const updated = await Api.updateBid(sel.dataset.bidStatus, { status: sel.value });
+          bids = bids.map((b) => (b.id === updated.id ? updated : b));
+          toast(`${updated.name}: ${BID_STATUS_LABEL[updated.status]}`);
+          paint();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+    $$("[data-edit-bid]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const bid = bids.find((b) => b.id === btn.dataset.editBid);
+        if (bid) openBidModal(bid);
+      };
+    });
+    $$("[data-open-project]", root).forEach((btn) => {
+      btn.onclick = () => setRoute("project", { projectId: btn.dataset.openProject });
+    });
+    $$("[data-estimate-bid]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const bid = bids.find((b) => b.id === btn.dataset.estimateBid);
+        if (!bid) return;
+        if (!confirm(`Estimate "${bid.name}"? It becomes a project, with its GC, dates, plans and notes.`)) return;
+        btn.disabled = true;
+        try {
+          const res = await Api.estimateBid(bid.id);
+          toast("Project made from the bid");
+          setRoute("project", { projectId: res.project_id });
+        } catch (err) {
+          toast(err.message, "err");
+          btn.disabled = false;
+        }
+      };
+    });
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1>Bids</h1>
+        <p id="bids-counts"></p>
+      </div>
+      <button class="btn primary" id="btn-new-bid">+ New bid</button>
+    </div>
+    <div class="toolbar">
+      <input id="bids-q" placeholder="Search name / GC / location / notes…" style="min-width:220px" />
+      <select id="bids-status">
+        <option value="open">Open (not started + in progress)</option>
+        <option value="all">All statuses</option>
+        ${Object.entries(BID_STATUS_LABEL).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}
+      </select>
+      <select id="bids-estimator">
+        <option value="">Any estimator</option>
+        ${state.estimators.map((e) => `<option value="${esc(e.id)}">${esc(e.full_name)}</option>`).join("")}
+      </select>
+      <select id="bids-due">
+        <option value="all">Any due date</option>
+        <option value="overdue">Overdue</option>
+        <option value="week">Due this week</option>
+        <option value="month">Due in 30 days</option>
+      </select>
+      <select id="bids-view">
+        <option value="table">Table</option>
+        <option value="board">Board by status</option>
+      </select>
+    </div>
+    <div id="bids-body"></div>
+  `;
+  paint();
+
+  let t;
+  $("#bids-q").oninput = (e) => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      filters.q = e.target.value.trim();
+      paint();
+    }, 150);
+  };
+  $("#bids-status").onchange = (e) => {
+    filters.status = e.target.value;
+    paint();
+  };
+  $("#bids-estimator").onchange = (e) => {
+    filters.estimator = e.target.value;
+    paint();
+  };
+  $("#bids-due").onchange = (e) => {
+    filters.due = e.target.value;
+    paint();
+  };
+  $("#bids-view").onchange = (e) => {
+    filters.view = e.target.value;
+    paint();
+  };
+  $("#btn-new-bid").onclick = () => openBidModal();
+}
+
+function openBidModal(existing = null) {
+  const isEdit = !!existing;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const ids = new Set((existing?.estimator_ids || []).map(String));
+  backdrop.innerHTML = `
+    <div class="modal" style="width:min(760px,100%)">
+      <h2>${isEdit ? "Edit bid" : "New bid"}</h2>
+      <form id="bid-form" class="form-grid">
+        <div class="field full">
+          <label>Project name</label>
+          <input name="name" required maxlength="500" value="${esc(existing?.name || "")}" />
+        </div>
+        <div class="field">
+          <label>GC</label>
+          <input name="gc" value="${esc(existing?.gc || "")}" />
+        </div>
+        <div class="field">
+          <label>Location</label>
+          <input name="location" value="${esc(existing?.location || "")}" />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select name="status">
+            ${Object.entries(BID_STATUS_LABEL)
+              .map(([k, l]) => `<option value="${k}"${(existing?.status || "not_started") === k ? " selected" : ""}>${l}</option>`)
+              .join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Bid due</label>
+          <input type="date" name="bid_due" value="${esc(existing?.bid_due || "")}" />
+        </div>
+        <div class="field">
+          <label>Due time <span class="muted">(blank = the day)</span></label>
+          <input type="time" name="bid_due_time" value="${esc(existing?.bid_due_time ? String(existing.bid_due_time).slice(0, 5) : "")}" />
+        </div>
+        <div class="field">
+          <label>Invite received</label>
+          <input type="date" name="bid_date" value="${esc(existing?.bid_date || "")}" />
+        </div>
+        <div class="field">
+          <label>Project types</label>
+          <select name="project_types" multiple size="4">
+            ${state.projectTypes
+              .map((t) => `<option value="${esc(t)}"${(existing?.project_types || []).includes(t) ? " selected" : ""}>${esc(t)}</option>`)
+              .join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Estimators</label>
+          <select name="estimator_ids" multiple size="4">
+            ${state.estimators
+              .map((e) => `<option value="${esc(e.id)}"${ids.has(String(e.id)) ? " selected" : ""}>${esc(e.full_name)}</option>`)
+              .join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Bid price</label>
+          <input type="number" name="bid_price" min="0" step="0.01" value="${esc(existing?.bid_price ?? "")}" />
+        </div>
+        <div class="field full">
+          <label>Plans link</label>
+          <input name="plans_url" placeholder="https://…" value="${esc(existing?.plans_url || "")}" />
+        </div>
+        <div class="field full">
+          <label>Notes</label>
+          <textarea name="notes" rows="4">${esc(existing?.notes || "")}</textarea>
+        </div>
+        <div class="modal-actions" style="grid-column:1/-1">
+          ${isEdit ? `<button type="button" class="btn danger ghost" id="bid-delete">Delete</button>` : ""}
+          <button type="button" class="btn ghost" id="bid-cancel">Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#bid-cancel", backdrop).onclick = () => backdrop.remove();
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  const del = $("#bid-delete", backdrop);
+  if (del) {
+    del.onclick = async () => {
+      if (!confirm(`Delete the bid "${existing.name}"?`)) return;
+      try {
+        await Api.deleteBid(existing.id);
+        toast("Bid deleted");
+        backdrop.remove();
+        render();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  }
+  $("#bid-form", backdrop).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const picked = (name) => [...e.target[name].selectedOptions].map((o) => o.value);
+    const body = {
+      name: String(fd.get("name")).trim(),
+      gc: fd.get("gc") || null,
+      location: fd.get("location") || null,
+      status: fd.get("status"),
+      bid_due: fd.get("bid_due") || null,
+      bid_due_time: fd.get("bid_due_time") || null,
+      bid_date: fd.get("bid_date") || null,
+      project_types: picked("project_types"),
+      estimator_ids: picked("estimator_ids"),
+      bid_price: fd.get("bid_price") === "" ? null : Number(fd.get("bid_price")),
+      plans_url: fd.get("plans_url") || null,
+      notes: fd.get("notes") || null,
+    };
+    try {
+      if (isEdit) await Api.updateBid(existing.id, body);
+      else await Api.createBid(body);
+      toast(isEdit ? "Bid updated" : "Bid added");
+      backdrop.remove();
+      render();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  };
+}
+
 function openProjectModal(existing = null) {
   const isEdit = !!existing;
   const backdrop = document.createElement("div");
@@ -7915,6 +8290,7 @@ async function render() {
   try {
     if (state.route === "home") await renderHome(root);
     else if (state.route === "projects") await renderProjects(root);
+    else if (state.route === "bids") await renderBids(root);
     else if (state.route === "project") await renderProjectDetail(root);
     else if (state.route === "estimate") await renderEstimateSummary(root);
     else if (state.route === "section") await renderSectionDetail(root);

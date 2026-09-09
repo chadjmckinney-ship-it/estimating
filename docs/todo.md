@@ -97,6 +97,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 ## Database / schema next
 
 - [ ] Seed a **sample project** (e.g. Pearl Landing garden-style pour) for end-to-end calcs
+- [x] **The bid list** (`sql/082`, 2026-09-09): bids apart from projects, imported from Notion, "Estimate this"
+      copies one into a project. Left: the 8:05 email and the invite intake on the Fedora box read and write it
 - [x] **Garden style** — a `qty` on the pour row (`sql/079`, 2026-09-08): one row per building type,
       every quantity and cost on it multiplied; a row at qty 8 is eight rows to the cent
 - [ ] Wire mesh: optional **gage** link from `mono_slabs` → `materials` (not just boolean)
