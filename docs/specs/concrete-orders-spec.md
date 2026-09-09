@@ -67,6 +67,19 @@ rows; a misspelled field, zero yards, a made-up status, a blank supplier
 refused, an unknown job a 400. The screens test carries the form's payload
 as the phone sends it; `test_auth.py` the policy rows.
 
+### The morning email
+
+Chad, the same afternoon: "is it possible to have it send an email daily
+with a list of concrete orders for the next 7 days?" —
+`backend/email_concrete_orders.py`, every morning at 06:30 on the box
+(`concrete-orders-email.timer`), through the Outlook sender the bid email
+uses: the next seven days a day at a time, TODAY and TOMORROW marked,
+each order with its time, job, yards, supplier, mix, order number, who
+ordered and when, status and notes, the totals at the top; canceled
+orders left out; a week with nothing ordered still gets a message saying
+so. `backend/tests/test_email_concrete_orders.py` pins the window and the
+message. The runbook has the unit and the addresses.
+
 ## Not done here
 
 * A link from an order to the daily report that reported the pour; the

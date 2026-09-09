@@ -165,6 +165,27 @@ journalctl --user -u daily-reports-pull -n 20      # what the last pull said
 cd ~/estimating/app && .venv/bin/python backend/import_daily_reports.py --dry-run
 ```
 
+## The concrete-orders email (2026-09-09)
+
+`backend/email_concrete_orders.py` mails the next seven days of concrete
+orders (sql/086) every morning at 06:30 as the user unit
+`concrete-orders-email.timer` → `concrete-orders-email.service`, through
+`~/daily-status-report/outlook_mail.py` — the Microsoft Graph sender the
+08:05 bid email uses, with its device-login token and its `.env`. It goes
+to `REPORT_TO_EMAIL` unless `ORDERS_EMAIL_TO` in that `.env` names others
+(commas between, one message each). A morning with nothing ordered still
+gets the message; `--skip-empty` in the unit turns that off.
+
+```bash
+cd ~/estimating/app && .venv/bin/python backend/email_concrete_orders.py --dry-run
+systemctl --user start concrete-orders-email.service      # send one now
+journalctl --user -u concrete-orders-email -n 20
+```
+
+`msal` and `requests` are in the app's requirements for it. If the Outlook
+token ever lapses, the message says so and the fix is the bid email's:
+`python ~/daily-status-report/auth_outlook_send.py`.
+
 ## Still to do on the box
 
 * Funnel is up (above). `tailscale funnel status` shows it; it survives a
