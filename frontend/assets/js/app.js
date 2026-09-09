@@ -1,5 +1,6 @@
 import { Api } from "./api.js";
 import { toShown, toStored } from "./units.js";
+import { initDaily, renderDaily, renderReportForm } from "./daily.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -13,6 +14,8 @@ const state = {
   // The section the estimate page is currently editing (sql/033-034). Set when
   // an estimate opens; the pour and beam modals read it.
   sectionId: null,
+  // The daily report being edited on the form page (sql/084); null files a new one.
+  reportId: null,
   estimators: [],
   projectTypes: [],
   projectStatuses: [],
@@ -161,6 +164,7 @@ function setRoute(route, params = {}) {
   state.projectId = params.projectId || null;
   state.estimateId = params.estimateId || null;
   state.sectionId = params.sectionId || null;
+  state.reportId = params.reportId || null;
   $$(".nav button").forEach((b) => {
     const active =
       b.dataset.route === route ||
@@ -168,7 +172,8 @@ function setRoute(route, params = {}) {
       (route === "estimate" && b.dataset.route === "projects") ||
       (route === "section" && b.dataset.route === "projects") ||
       (route === "prices" && b.dataset.route === "projects") ||
-      (route === "proposal" && b.dataset.route === "projects");
+      (route === "proposal" && b.dataset.route === "projects") ||
+      (route === "report" && b.dataset.route === "daily");
     b.classList.toggle("active", active);
   });
   render();
@@ -178,6 +183,7 @@ function setRoute(route, params = {}) {
   if (route === "section" && state.sectionId) hash = `#section/${state.sectionId}`;
   if (route === "prices" && state.estimateId) hash = `#prices/${state.estimateId}`;
   if (route === "proposal" && state.estimateId) hash = `#proposal/${state.estimateId}`;
+  if (route === "report" && state.reportId) hash = `#report/${state.reportId}`;
   if (location.hash !== hash) history.replaceState(null, "", hash);
 }
 
@@ -196,6 +202,9 @@ function parseHash() {
   }
   if (h.startsWith("prices/")) {
     return { route: "prices", projectId: null, estimateId: h.slice("prices/".length), sectionId: null };
+  }
+  if (h.startsWith("report/")) {
+    return { route: "report", projectId: null, estimateId: null, sectionId: null, reportId: h.slice("report/".length) };
   }
   return { route: h, projectId: null, estimateId: null, sectionId: null };
 }
@@ -1250,8 +1259,11 @@ async function renderActivity(root) {
 }
 
 function roleOptions(current) {
-  return ["user", "estimator", "senior_estimator", "admin"]
-    .map((r) => `<option value="${r}"${r === current ? " selected" : ""}>${ROLE_LABELS[r]}</option>`)
+  return ["user", "estimator", "senior_estimator", "admin", "foreman"]
+    .map(
+      (r) =>
+        `<option value="${r}"${r === current ? " selected" : ""}>${r === "foreman" ? "foreman (daily report only)" : ROLE_LABELS[r]}</option>`
+    )
     .join("");
 }
 
@@ -8287,10 +8299,17 @@ function wireSectionRates(root, section) {
 
 async function render() {
   const root = $("#app");
+  if (state.user && state.user.role === "foreman" && state.route !== "report") {
+    // The field's role (sql/084): the daily report is the whole app.
+    setRoute("report");
+    return;
+  }
   try {
     if (state.route === "home") await renderHome(root);
     else if (state.route === "projects") await renderProjects(root);
     else if (state.route === "bids") await renderBids(root);
+    else if (state.route === "daily") await renderDaily(root);
+    else if (state.route === "report") await renderReportForm(root);
     else if (state.route === "project") await renderProjectDetail(root);
     else if (state.route === "estimate") await renderEstimateSummary(root);
     else if (state.route === "section") await renderSectionDetail(root);
@@ -8319,7 +8338,8 @@ function syncNavActive() {
       (state.route === "estimate" && b.dataset.route === "projects") ||
       (state.route === "section" && b.dataset.route === "projects") ||
       (state.route === "prices" && b.dataset.route === "projects") ||
-      (state.route === "proposal" && b.dataset.route === "projects");
+      (state.route === "proposal" && b.dataset.route === "projects") ||
+      (state.route === "report" && b.dataset.route === "daily");
     b.classList.toggle("active", active);
   });
 }
@@ -8337,6 +8357,8 @@ const ROLE_LABELS = {
   estimator: "estimator",
   senior_estimator: "senior estimator",
   admin: "admin",
+  // Apart from the ladder (sql/084): the daily report and nothing else.
+  foreman: "foreman",
 };
 
 /** Is the signed-in person at least this role? */
@@ -8412,8 +8434,19 @@ function paintUserFoot() {
 /** The nav offers what the role can do; everything else is the API's 403. */
 function applyRole() {
   paintUserFoot();
+  const field = !!state.user && state.user.role === "foreman";
+  $$(".nav .section-label").forEach((el) => el.classList.toggle("hidden", field));
   $$(".nav button").forEach((b) => {
     b.disabled = false;
+    if (field) {
+      // The field's role (sql/084): the daily report and nothing else.
+      b.classList.toggle("hidden", b.dataset.route !== "report");
+      return;
+    }
+    if (b.dataset.route === "report") {
+      b.classList.add("hidden"); // the office reaches the form from Daily reports
+      return;
+    }
     const need =
       b.dataset.route === "estimators"
         ? "admin"
@@ -8470,6 +8503,7 @@ function enter() {
   state.projectId = p.projectId;
   state.estimateId = p.estimateId;
   state.sectionId = p.sectionId || null;
+  state.reportId = p.reportId || null;
   syncNavActive();
   render();
 }
@@ -8486,6 +8520,7 @@ async function init() {
     state.projectId = p.projectId;
     state.estimateId = p.estimateId;
     state.sectionId = p.sectionId || null;
+  state.reportId = p.reportId || null;
     syncNavActive();
     render();
   });
@@ -8510,4 +8545,5 @@ async function init() {
   enter();
 }
 
+initDaily({ state, $, $$, esc, toast, setRoute, canAct, render });
 init();

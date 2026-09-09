@@ -335,6 +335,12 @@ def test_hashes_are_salted_and_verify_across_work_factors():
     ("PUT", "/api/proposal-sections/x/lines/bulk", set(), "estimator"),
     ("GET", "/api/proposals/x/xlsx", set(), "user"),
     ("PUT", "/api/proposal-library/labor_rates", set(), "senior_estimator"),
+    # Daily reports (sql/084): the office files, edits and keeps the lists; the foreman role is a
+    # branch off the ladder, pinned in test_daily_reports.py.
+    ("GET", "/api/daily-reports", set(), "user"),
+    ("POST", "/api/daily-reports", set(), "estimator"),
+    ("PATCH", "/api/daily-reports/x", {"delays"}, "estimator"),
+    ("POST", "/api/daily-reports/jobs", set(), "estimator"),
 ])
 def test_the_policy_table(method, path, keys, role):
     assert policy.needed(method, path, keys) == role

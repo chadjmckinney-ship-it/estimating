@@ -679,3 +679,87 @@ table.data.price-sheet tr.edited td:first-child {
     flex-wrap: wrap;
   }
 }
+
+/* The daily report form (sql/084): a phone, thumbs, sunlight. */
+.report-form {
+  max-width: 34rem;
+  margin: 0 auto;
+}
+.report-form .field {
+  margin-bottom: 0.9rem;
+}
+.report-form input,
+.report-form select,
+.report-form textarea {
+  font-size: 16px;
+  min-height: 2.6rem;
+  width: 100%;
+}
+.report-form .grid-3,
+.report-form .grid-4 {
+  display: grid;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+.report-form .grid-3 {
+  grid-template-columns: 1.3fr 1fr 1fr;
+}
+.report-form .grid-4 {
+  grid-template-columns: 1fr 1.3fr 0.8fr 0.8fr;
+}
+.report-form .head span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.report-form .row-label {
+  font-size: 0.95rem;
+}
+.report-form .choices label {
+  /* a choice, not a field caption: .field label's small caps do not apply */
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  font-size: 1rem;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.report-form .choices.row {
+  display: flex;
+  gap: 1.5rem;
+}
+.report-form .choices input[type="checkbox"],
+.report-form .choices input[type="radio"] {
+  width: 1.35rem;
+  height: 1.35rem;
+  min-height: 0;
+  margin: 0;
+}
+.report-form .btn.big {
+  width: 100%;
+  padding: 0.9rem;
+  font-size: 1.1rem;
+}
+.lang-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.lang-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  cursor: pointer;
+}
+.lang-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+}

@@ -147,6 +147,24 @@ certificate was issued; every one after was immediate. A phone on the
 public name needs no CA of ours; the box's own CA is only for the LAN
 address.
 
+## The daily reports pull (2026-09-09)
+
+`backend/import_daily_reports.py` brings every Jotform submission of both
+daily-report forms into `daily_reports` (sql/084), upserting by submission
+id, the API key read from `~/notion/notion-jotform.env` as the Notion
+importer did. It runs on the hour as the user unit
+`daily-reports-pull.timer` → `daily-reports-pull.service` (WorkingDirectory
+`~/estimating/app`, `.venv/bin/python backend/import_daily_reports.py`),
+until the crews file from the app's form; then the timer goes and, later,
+the Jotform form. The 07:35 `notion-daily-reports-sync.timer` (Jotform →
+Notion) is disabled, its unit files left in place.
+
+```bash
+systemctl --user list-timers | grep daily-reports
+journalctl --user -u daily-reports-pull -n 20      # what the last pull said
+cd ~/estimating/app && .venv/bin/python backend/import_daily_reports.py --dry-run
+```
+
 ## Still to do on the box
 
 * Funnel is up (above). `tailscale funnel status` shows it; it survives a

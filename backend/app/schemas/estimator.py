@@ -10,13 +10,15 @@ class EstimatorRole(str, Enum):
     Each role includes the ones below it (sql/068, app/policy.py). Chad,
     2026-09-07: admin, senior estimator, estimator and user — "senior
     estimator can change pricing, user can only view. admin has access to
-    add, delete, users and full control."
+    add, delete, users and full control." A foreman (sql/084) stands apart:
+    the daily report, and nothing else of the app.
     """
 
     admin = "admin"
     senior_estimator = "senior_estimator"
     estimator = "estimator"
     user = "user"
+    foreman = "foreman"
 
 
 class EstimatorBase(BaseModel):

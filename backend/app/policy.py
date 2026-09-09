@@ -16,6 +16,9 @@ add, delete, users and full control." Each role includes the ones below it:
     admin              also people (the estimators list and their passwords)
                        and deleting a whole estimate or project
 
+    foreman            apart from the ladder (sql/084): files the daily report
+                       and reads under /api/daily-reports; nothing else
+
 The activity feed (/api/audit) is senior_estimator and above, prices being
 what it shows.
 
@@ -40,7 +43,10 @@ LABEL = {
     "estimator": "an estimator",
     "senior_estimator": "a senior estimator",
     "admin": "an admin",
+    "foreman": "a foreman",
 }
+FIELD_ROLES = ("foreman",)
+_FIELD_PREFIX = "/api/daily-reports"
 
 _PRICING_PREFIXES = (
     "/api/mix-designs", "/api/concrete-suppliers", "/api/materials",
@@ -78,7 +84,16 @@ def needed(method: str, path: str, body_keys: set[str] | frozenset[str] = frozen
     return "estimator"
 
 
+def field_allowed(method: str, path: str) -> bool:
+    """A foreman (sql/084): reads under /api/daily-reports and files a report. Nothing else."""
+    if method.upper() in ("GET", "HEAD", "OPTIONS"):
+        return path.startswith(_FIELD_PREFIX)
+    return method.upper() == "POST" and path.rstrip("/") == _FIELD_PREFIX
+
+
 def allowed(role: str, method: str, path: str, body_keys: set[str] | frozenset[str] = frozenset()) -> bool:
+    if role in FIELD_ROLES:
+        return field_allowed(method, path)
     return RANK.get(role, -1) >= RANK[needed(method, path, body_keys)]
 
 
@@ -97,13 +112,13 @@ async def _body_keys(request: Request) -> frozenset[str]:
 async def authorize(request: Request, user: Estimator = Depends(current_user)) -> Estimator:
     """Signed in, and the role is enough for this request."""
     keys = await _body_keys(request)
-    role_needed = needed(request.method, request.url.path, keys)
-    if RANK.get(user.role, -1) < RANK[role_needed]:
+    if not allowed(user.role, request.method, request.url.path, keys):
+        role_needed = needed(request.method, request.url.path, keys)
         raise HTTPException(
             status_code=403,
             detail=(
                 f"That takes {LABEL[role_needed]} or above; you are signed in as "
-                f"{user.full_name}, {LABEL[user.role]}."
+                f"{user.full_name}, {LABEL.get(user.role, user.role)}."
             ),
         )
     return user

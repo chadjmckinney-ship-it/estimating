@@ -131,6 +131,24 @@ export const Api = {
   deleteBid: (id) => api(`/bid-requests/${id}`, { method: "DELETE" }),
   // "Estimate this": the bid becomes a project, linked both ways.
   estimateBid: (id) => api(`/bid-requests/${id}/estimate`, { method: "POST" }),
+  // Daily reports from the field (sql/084): the reports, the form's lists, the totals.
+  listDailyReports: (params = {}) => {
+    const q = qs(params);
+    return api(`/daily-reports${q ? "?" + q : ""}`);
+  },
+  getDailyReport: (id) => api(`/daily-reports/${id}`),
+  createDailyReport: (body) => api("/daily-reports", { method: "POST", body }),
+  updateDailyReport: (id, body) => api(`/daily-reports/${id}`, { method: "PATCH", body }),
+  deleteDailyReport: (id) => api(`/daily-reports/${id}`, { method: "DELETE" }),
+  dailyReportMeta: () => api("/daily-reports/meta"),
+  dailyReportSummary: (params = {}) => {
+    const q = qs(params);
+    return api(`/daily-reports/summary${q ? "?" + q : ""}`);
+  },
+  createFieldJob: (body) => api("/daily-reports/jobs", { method: "POST", body }),
+  updateFieldJob: (id, body) => api(`/daily-reports/jobs/${id}`, { method: "PATCH", body }),
+  createFieldForeman: (body) => api("/daily-reports/foremen", { method: "POST", body }),
+  updateFieldForeman: (id, body) => api(`/daily-reports/foremen/${id}`, { method: "PATCH", body }),
   projectStatuses: () => api("/projects/meta/statuses"),
   // Estimates
   listEstimates: (params = {}) => {

@@ -99,6 +99,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [ ] Seed a **sample project** (e.g. Pearl Landing garden-style pour) for end-to-end calcs
 - [x] **The bid list** (`sql/082`, 2026-09-09): bids apart from projects, imported from Notion, "Estimate this"
       copies one into a project. Left: the 8:05 email and the invite intake on the Fedora box read and write it
+- [x] **Daily reports from the field** (`sql/084`, 2026-09-09): every Jotform submission of both forms imported,
+      a phone-sized bilingual form in the app for the new `foreman` role, the office's list with totals by job
+      and month (`docs/specs/daily-reports-spec.md`). Left: foreman accounts (Chad), retiring the Jotform form
 - [x] **Garden style** — a `qty` on the pour row (`sql/079`, 2026-09-08): one row per building type,
       every quantity and cost on it multiplied; a row at qty 8 is eight rows to the cent
 - [ ] Wire mesh: optional **gage** link from `mono_slabs` → `materials` (not just boolean)
@@ -196,6 +199,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 - [x] Sign-in lockout — sql/083 (2026-09-09): five wrong tries lock a name, twenty lock an address, fifteen
       minutes each; `/docs`, `/redoc` and `/openapi.json` need a session. Built the day the app went public
 - [ ] Seed remaining estimator people (names TBD)
+- [ ] Foreman accounts (role `foreman`, sql/084) for the ten on the form's list — Chad's, from Estimators
 
 ---
 

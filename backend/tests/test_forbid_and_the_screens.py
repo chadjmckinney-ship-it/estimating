@@ -360,6 +360,28 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
         "estimator_ids": [], "bid_price": 148412.98, "plans_url": "https://app.buildingconnected.com/x", "notes": "n",
     }).status_code == 200
 
+    # The daily report form (sql/084): every box as the phone sends it — numbers as strings,
+    # blanks as empty strings, the grids as rows, the checks as keys
+    meta = client.get("/api/daily-reports/meta").json()
+    r = client.post("/api/daily-reports", json={
+        "report_date": "2026-09-09", "job_id": meta["jobs"][0]["id"], "foremen": ["Jorge"],
+        "work_accomplished": "Set forms", "delays": "", "plan_tomorrow": "", "safety_concerns": "",
+        "concrete_poured": True, "yards_poured": "42.5", "supplier": "Cowtown", "what_poured": "SOG", "tax_exempt": None,
+        "maintenance": ["fuel", "grease"],
+        "crew": [{"trade": "foreman", "workers": "1", "hours": "8"}, {"trade": "laborers", "workers": "", "hours": ""}],
+        "subs": [{"trade": "finishers", "sub_name": "ACME", "workers": "4", "hours": "8"}],
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["delays"] is None and [c["trade"] for c in r.json()["crew"]] == ["foreman"]
+    assert client.patch(f"/api/daily-reports/{r.json()['id']}", json={
+        "report_date": "2026-09-09", "job_id": meta["jobs"][0]["id"], "foremen": ["Jorge", "Pedro"],
+        "work_accomplished": "Set forms", "delays": "Rain", "plan_tomorrow": "", "safety_concerns": "",
+        "concrete_poured": False, "yards_poured": "", "supplier": "", "what_poured": "", "tax_exempt": None,
+        "maintenance": [], "crew": [], "subs": [],
+    }).status_code == 200
+    assert client.post("/api/daily-reports/jobs", json={"name": "Screens job", "is_active": True}).status_code == 201
+    assert client.post("/api/daily-reports/foremen", json={"name": "Screens foreman", "is_active": True}).status_code == 201
+
     # openSectionModal — edit (2026-09-09): every box, blanks as the job's defaults
     assert client.patch(f"/api/sections/{slab.id}", json={
         "name": "Mono slab on grade", "margin_pct": 0.15, "contingency_pct": 0,
