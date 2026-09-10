@@ -161,6 +161,20 @@ export const Api = {
   createConcreteOrder: (body) => api("/concrete-orders", { method: "POST", body }),
   updateConcreteOrder: (id, body) => api(`/concrete-orders/${id}`, { method: "PATCH", body }),
   deleteConcreteOrder: (id) => api(`/concrete-orders/${id}`, { method: "DELETE" }),
+  // Material orders (sql/087): rebar, post-tension and the rest.
+  listMaterialOrders: (params = {}) => {
+    const q = qs(params);
+    return api(`/material-orders${q ? "?" + q : ""}`);
+  },
+  getMaterialOrder: (id) => api(`/material-orders/${id}`),
+  createMaterialOrder: (body) => api("/material-orders", { method: "POST", body }),
+  updateMaterialOrder: (id, body) => api(`/material-orders/${id}`, { method: "PATCH", body }),
+  deleteMaterialOrder: (id) => api(`/material-orders/${id}`, { method: "DELETE" }),
+  materialOrderMeta: () => api("/material-orders/meta"),
+  materialOrderSummary: (params = {}) => {
+    const q = qs(params);
+    return api(`/material-orders/summary${q ? "?" + q : ""}`);
+  },
   projectStatuses: () => api("/projects/meta/statuses"),
   // Estimates
   listEstimates: (params = {}) => {

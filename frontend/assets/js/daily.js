@@ -83,6 +83,24 @@ const WORDS = {
     st_confirmed: "Confirmed",
     st_poured: "Poured",
     st_canceled: "Canceled",
+    st_delivered: "Delivered",
+    m_title: "Material order",
+    m_edit: "Edit material order",
+    m_kind: "What kind",
+    m_supplier: "Supplier",
+    m_description: "What (sizes, lengths, the shop drawing)",
+    m_quantity: "Quantity",
+    m_unit: "Unit",
+    m_needed_by: "Needed on site by",
+    m_delivered_on: "Delivered on",
+    m_submit: "Send order",
+    m_sent: "Order sent",
+    m_another: "Another order",
+    m_list: "Back to the orders",
+    m_need_description: "Say what the material is",
+    k_rebar: "Rebar",
+    k_post_tension: "Post-tension",
+    k_other: "Other",
     trades: {
       foreman: "Foreman",
       assistants: "Assistants",
@@ -156,6 +174,24 @@ const WORDS = {
     st_confirmed: "Confirmado",
     st_poured: "Colado",
     st_canceled: "Cancelado",
+    st_delivered: "Entregado",
+    m_title: "Pedido de material",
+    m_edit: "Editar pedido de material",
+    m_kind: "Qué tipo",
+    m_supplier: "Proveedor",
+    m_description: "Qué es (medidas, largos, el plano de taller)",
+    m_quantity: "Cantidad",
+    m_unit: "Unidad",
+    m_needed_by: "Necesario en obra para el",
+    m_delivered_on: "Entregado el",
+    m_submit: "Enviar pedido",
+    m_sent: "Pedido enviado",
+    m_another: "Otro pedido",
+    m_list: "Volver a los pedidos",
+    m_need_description: "Diga qué material es",
+    k_rebar: "Varilla",
+    k_post_tension: "Postensado",
+    k_other: "Otro",
     trades: {
       foreman: "Mayordomo",
       assistants: "Asistentes",
@@ -889,6 +925,7 @@ export async function renderCalendar(root) {
   const filters = { job_id: "", poured: false, show: "both" };
   let reports = [];
   let orders = [];
+  let materials = [];
 
   const pad = (n) => String(n).padStart(2, "0");
   const grid = () => {
@@ -907,11 +944,13 @@ export async function renderCalendar(root) {
     if (filters.poured) p.poured = "true";
     const op = { date_from: g.start, date_to: g.end, limit: 2000 };
     if (filters.job_id) op.job_id = filters.job_id;
-    [reports, orders] = await Promise.all([
-      filters.show === "orders" ? Promise.resolve([]) : Api.listDailyReports(p),
-      filters.show === "reports" ? Promise.resolve([]) : Api.listConcreteOrders(op),
+    [reports, orders, materials] = await Promise.all([
+      ["orders", "deliveries"].includes(filters.show) ? Promise.resolve([]) : Api.listDailyReports(p),
+      ["reports", "deliveries"].includes(filters.show) ? Promise.resolve([]) : Api.listConcreteOrders(op),
+      ["reports", "orders"].includes(filters.show) ? Promise.resolve([]) : Api.listMaterialOrders(op),
     ]);
     orders = orders.filter((o) => o.status !== "canceled");
+    materials = materials.filter((m) => m.status !== "canceled" && m.needed_by);
     paint();
   };
 
@@ -927,6 +966,12 @@ export async function renderCalendar(root) {
     return `<div class="cal-item${r.concrete_poured ? " pour" : ""}" data-cal-report="${esc(r.id)}" title="${esc(title)}">${esc(text)}</div>`;
   };
 
+  const deliveryItem = (m) => {
+    const qty = m.quantity != null ? `${n1(m.quantity)} ${m.unit || ""}`.trim() : "";
+    const title = `Delivery: ${word("k_" + m.kind, "en")} — ${m.job_name} — ${m.description}${qty ? " — " + qty : ""} — ${m.supplier}${m.order_number ? " — #" + m.order_number : ""} (${m.status})`;
+    return `<div class="cal-item delivery${m.status === "delivered" ? " done" : ""}" data-cal-delivery="${esc(m.id)}" title="${esc(title)}">${esc(word("k_" + m.kind, "en"))} · ${esc(m.job_name)}${qty ? ` · ${esc(qty)}` : ""}</div>`;
+  };
+
   const paint = () => {
     const g = grid();
     const byDay = {};
@@ -939,22 +984,30 @@ export async function renderCalendar(root) {
     });
     const ordered = orders.filter((o) => o.pour_date.startsWith(g.first.slice(0, 7)));
     const orderedYards = ordered.reduce((s, o) => s + Number(o.yards || 0), 0);
+    const materialsByDay = {};
+    materials.forEach((m) => {
+      (materialsByDay[m.needed_by] = materialsByDay[m.needed_by] || []).push(m);
+    });
+    const dueThisMonth = materials.filter((m) => m.needed_by.startsWith(g.first.slice(0, 7))).length;
     const inMonth = reports.filter((r) => r.report_date.startsWith(g.first.slice(0, 7)));
     const pours = inMonth.filter((r) => r.concrete_poured);
     const yards = pours.reduce((s, r) => s + Number(r.yards_poured || 0), 0);
     $("#cal-title").textContent = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
     $("#cal-totals").innerHTML =
       `<strong>${inMonth.length}</strong> reports · <strong>${pours.length}</strong> pours · <strong>${n1(yards)}</strong> yards this month` +
-      (filters.show === "reports" ? "" : ` · <strong>${ordered.length}</strong> orders · <strong>${n1(orderedYards)}</strong> yards ordered`);
+      (filters.show === "reports" ? "" : ` · <strong>${ordered.length}</strong> orders · <strong>${n1(orderedYards)}</strong> yards ordered`) +
+      (["reports", "orders"].includes(filters.show) ? "" : ` · <strong>${dueThisMonth}</strong> deliveries`);
     const cells = [];
     for (let i = 0; i < g.rows * 7; i += 1) {
       const iso = shiftDays(g.start, i);
       const other = !iso.startsWith(g.first.slice(0, 7));
       const items = byDay[iso] || [];
       const dayOrders = ordersByDay[iso] || [];
+      const dayDeliveries = materialsByDay[iso] || [];
       cells.push(`<div class="cal-day${other ? " other" : ""}${iso === today ? " today" : ""}">
         <div class="d">${Number(iso.slice(8, 10))}</div>
         ${dayOrders.map(orderItem).join("")}
+        ${dayDeliveries.map(deliveryItem).join("")}
         ${items.map(item).join("")}
       </div>`);
     }
@@ -970,6 +1023,12 @@ export async function renderCalendar(root) {
       el.onclick = () => {
         const o = orders.find((x) => x.id === el.dataset.calOrder);
         if (o) openOrderModal(o, { onChanged: load });
+      };
+    });
+    $$("[data-cal-delivery]", root).forEach((el) => {
+      el.onclick = () => {
+        const m = materials.find((x) => x.id === el.dataset.calDelivery);
+        if (m) openMaterialOrderModal(m, { onChanged: load });
       };
     });
   };
@@ -993,11 +1052,12 @@ export async function renderCalendar(root) {
         .join("")}</select>
       <label style="display:flex;align-items:center;gap:0.35rem"><input type="checkbox" id="cal-poured" /> Pours only</label>
       <select id="cal-show" title="Reports on the day they were filed, orders on the day of the pour">
-        <option value="both">Reports and orders</option>
+        <option value="both">Everything</option>
         <option value="reports">Reports only</option>
-        <option value="orders">Orders only</option>
+        <option value="orders">Concrete orders only</option>
+        <option value="deliveries">Deliveries only</option>
       </select>
-      <span class="muted" style="font-size:0.8rem"><span class="cal-key order"></span> ordered pour &nbsp; <span class="cal-key pour"></span> reported pour</span>
+      <span class="muted" style="font-size:0.8rem"><span class="cal-key order"></span> ordered pour &nbsp; <span class="cal-key pour"></span> reported pour &nbsp; <span class="cal-key delivery"></span> delivery</span>
     </div>
     <div id="cal-grid" class="cal-grid"></div>
   `;
@@ -1464,6 +1524,426 @@ export async function renderOrderForm(root) {
       $("#order-again", root).onclick = () => renderOrderForm(root);
       const back = $("#order-list", root);
       if (back) back.onclick = () => setRoute("orders");
+    } catch (error) {
+      err.textContent = error.message;
+      err.classList.remove("hidden");
+      btn.disabled = false;
+    }
+  };
+}
+
+// ----------------------------------------------------- material orders --
+//
+// Chad, 2026-09-09: "like concrete orders.. but materials.. mostly to track
+// post tension and rebar for projects.. so actually concrete orders should
+// be there too". The two sit together in the Orders group; this is the
+// material side: rebar, post-tension or other, what it is in words, a
+// quantity and unit, needed on site by, delivered on.
+
+const MATERIAL_KINDS = ["rebar", "post_tension", "other"];
+const MATERIAL_STATUSES = ["ordered", "confirmed", "delivered", "canceled"];
+
+function materialStatusBadge(status) {
+  const cls = status === "delivered" ? "ok" : status === "confirmed" ? "info" : status === "canceled" ? "" : "warn";
+  return `<span class="badge ${cls}">${esc(word("st_" + status, "en"))}</span>`;
+}
+
+function qtyText(m) {
+  if (m.quantity == null) return "";
+  return `${n1(m.quantity)} ${m.unit || ""}`.trim();
+}
+
+export async function renderMaterialOrders(root) {
+  const { $, $$, toast, setRoute, canAct } = d;
+  root.innerHTML = `<div class="loading">Loading material orders…</div>`;
+  const [daily, meta] = await Promise.all([Api.dailyReportMeta(), Api.materialOrderMeta()]);
+  const filters = { kind: "", job_id: "", supplier: "", status: "open", range: "all", date_from: "", date_to: "", q: "" };
+  let orders = [];
+  let summary = [];
+  let showByJob = false;
+
+  const params = () => {
+    const p = { limit: 2000 };
+    if (filters.kind) p.kind = filters.kind;
+    if (filters.job_id) p.job_id = filters.job_id;
+    if (filters.supplier) p.supplier = filters.supplier;
+    if (filters.q) p.q = filters.q;
+    if (filters.status !== "open" && filters.status !== "all") p.status = filters.status;
+    if (filters.range === "custom") {
+      if (filters.date_from) p.date_from = filters.date_from;
+      if (filters.date_to) p.date_to = filters.date_to;
+    } else if (filters.range === "month") {
+      p.date_from = shiftDays(todayLocal(), -30);
+    }
+    return p;
+  };
+
+  const load = async () => {
+    const sp = {};
+    if (filters.job_id) sp.job_id = filters.job_id;
+    if (filters.kind) sp.kind = filters.kind;
+    [orders, summary] = await Promise.all([Api.listMaterialOrders(params()), Api.materialOrderSummary(sp)]);
+    if (filters.status === "open") orders = orders.filter((o) => o.status === "ordered" || o.status === "confirmed");
+    paint();
+  };
+
+  const totals = () => {
+    const byUnit = {};
+    orders.forEach((o) => {
+      if (o.quantity == null) return;
+      const u = o.unit || "—";
+      byUnit[u] = (byUnit[u] || 0) + Number(o.quantity);
+    });
+    return Object.entries(byUnit)
+      .map(([u, q]) => `<strong>${n1(q)}</strong> ${esc(u)}`)
+      .join(" · ");
+  };
+
+  const table = () => {
+    if (!orders.length) return `<div class="empty">No material orders match.</div>`;
+    const today = todayLocal();
+    return `<div class="table-wrap"><table class="data">
+      <thead><tr>
+        <th>Needed</th><th>Kind</th><th>Job</th><th>What</th><th class="num">Qty</th><th>Supplier</th><th>Order #</th><th>Ordered</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>${orders
+        .map(
+          (o) => `<tr data-morder="${esc(o.id)}" class="clickable">
+          <td style="white-space:nowrap">${o.needed_by === today ? `<span class="badge accent">today</span> ` : ""}${o.needed_by && o.needed_by < today && o.status !== "delivered" && o.status !== "canceled" ? `<span class="badge warn">late</span> ` : ""}${esc(day(o.needed_by))}</td>
+          <td>${esc(word("k_" + o.kind, "en"))}</td>
+          <td><strong>${esc(o.job_name)}</strong></td>
+          <td><div class="muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:0.85rem;max-width:24rem" title="${esc(o.description)}">${esc(o.description)}</div></td>
+          <td class="num">${esc(qtyText(o) || "—")}</td>
+          <td>${esc(o.supplier)}</td>
+          <td class="muted">${esc(o.order_number || "—")}</td>
+          <td class="muted" style="white-space:nowrap" title="${esc(o.ordered_by || "")}">${esc(day(o.ordered_on))}${o.ordered_by ? ` · ${esc(o.ordered_by)}` : ""}</td>
+          <td>${
+            canAct("estimator")
+              ? `<select data-morder-status="${esc(o.id)}">${MATERIAL_STATUSES.map((s) => `<option value="${s}"${o.status === s ? " selected" : ""}>${esc(word("st_" + s, "en"))}</option>`).join("")}</select>`
+              : materialStatusBadge(o.status)
+          }</td>
+          <td style="white-space:nowrap">
+            <button type="button" class="btn ghost" data-view-morder="${esc(o.id)}">View</button>
+            ${canAct("estimator") ? `<button type="button" class="btn ghost" data-edit-morder="${esc(o.id)}">Edit</button>` : ""}
+          </td>
+        </tr>`
+        )
+        .join("")}</tbody></table></div>`;
+  };
+
+  const byJob = () => {
+    if (!showByJob) return "";
+    if (!summary.length) return `<div class="card" style="margin-bottom:1rem"><div class="empty">Nothing ordered yet.</div></div>`;
+    return `<div class="card" style="margin-bottom:1rem"><h3 style="margin:0 0 0.5rem">By job <span class="muted">(canceled left out)</span></h3>
+      <div class="table-wrap"><table class="data"><thead><tr><th>Job</th><th>Kind</th><th class="num">Orders</th><th class="num">Quantity</th></tr></thead>
+      <tbody>${summary
+        .map((s) => `<tr><td>${esc(s.job_name)}</td><td>${esc(word("k_" + s.kind, "en"))}</td><td class="num">${s.orders}</td><td class="num">${esc(n1(s.quantity))} ${esc(s.unit || "")}</td></tr>`)
+        .join("")}</tbody></table></div></div>`;
+  };
+
+  const paint = () => {
+    $("#morders-counts").innerHTML = `<strong>${orders.length}</strong> orders${orders.length ? " · " + totals() : ""}`;
+    $("#morders-byjob").innerHTML = byJob();
+    $("#morders-body").innerHTML = table();
+    $$("[data-view-morder]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const o = orders.find((x) => x.id === btn.dataset.viewMorder);
+        if (o) openMaterialOrderModal(o, { onChanged: load });
+      };
+    });
+    $$("[data-edit-morder]", root).forEach((btn) => {
+      btn.onclick = () => setRoute("material-order", { materialOrderId: btn.dataset.editMorder });
+    });
+    $$("[data-morder-status]", root).forEach((sel) => {
+      sel.onchange = async () => {
+        try {
+          const updated = await Api.updateMaterialOrder(sel.dataset.morderStatus, { status: sel.value });
+          toast(`${updated.job_name}: ${word("st_" + updated.status, "en")}`);
+          load();
+        } catch (err) {
+          toast(err.message, "err");
+          load();
+        }
+      };
+    });
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h1>Material orders</h1>
+        <p id="morders-counts"></p>
+      </div>
+      <div class="toolbar" style="margin:0">
+        <button class="btn ghost" id="btn-byjob">By job</button>
+        ${canAct("estimator") ? `<button class="btn primary" id="btn-new-morder">+ New order</button>` : ""}
+      </div>
+    </div>
+    <div class="toolbar">
+      <select id="morders-kind"><option value="">All kinds</option>${MATERIAL_KINDS.map((k) => `<option value="${k}">${esc(word("k_" + k, "en"))}</option>`).join("")}</select>
+      <select id="morders-job"><option value="">All jobs</option>${daily.jobs
+        .map((j) => `<option value="${j.id}">${esc(j.name)}${j.is_active ? "" : " (off the form)"}</option>`)
+        .join("")}</select>
+      <select id="morders-supplier"><option value="">Any supplier</option>${meta.suppliers.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
+      <select id="morders-status">
+        <option value="open">Ordered + confirmed</option>
+        <option value="all">All statuses</option>
+        ${MATERIAL_STATUSES.map((s) => `<option value="${s}">${esc(word("st_" + s, "en"))}</option>`).join("")}
+      </select>
+      <select id="morders-range">
+        <option value="all" selected>All dates</option>
+        <option value="month">Needed in the last 30 days and ahead</option>
+        <option value="custom">Needed between dates…</option>
+      </select>
+      <span id="morders-custom" class="hidden"><input type="date" id="morders-from" /> – <input type="date" id="morders-to" /></span>
+      <input id="morders-q" placeholder="Search job / supplier / what / order # / notes…" style="min-width:220px" />
+    </div>
+    <div id="morders-byjob"></div>
+    <div id="morders-body"><div class="loading">Loading…</div></div>
+  `;
+  $("#morders-kind").onchange = (e) => {
+    filters.kind = e.target.value;
+    load();
+  };
+  $("#morders-job").onchange = (e) => {
+    filters.job_id = e.target.value;
+    load();
+  };
+  $("#morders-supplier").onchange = (e) => {
+    filters.supplier = e.target.value;
+    load();
+  };
+  $("#morders-status").onchange = (e) => {
+    filters.status = e.target.value;
+    load();
+  };
+  $("#morders-range").onchange = (e) => {
+    filters.range = e.target.value;
+    $("#morders-custom").classList.toggle("hidden", filters.range !== "custom");
+    if (filters.range !== "custom") load();
+  };
+  $("#morders-from").onchange = (e) => {
+    filters.date_from = e.target.value;
+    load();
+  };
+  $("#morders-to").onchange = (e) => {
+    filters.date_to = e.target.value;
+    load();
+  };
+  let timer;
+  $("#morders-q").oninput = (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      filters.q = e.target.value.trim();
+      load();
+    }, 250);
+  };
+  $("#btn-byjob").onclick = () => {
+    showByJob = !showByJob;
+    paint();
+  };
+  const fresh = $("#btn-new-morder");
+  if (fresh) fresh.onclick = () => setRoute("material-order");
+  await load();
+}
+
+/** The whole material order, read-only, with Edit and Delete for the roles that may. */
+export function openMaterialOrderModal(m, { onChanged } = {}) {
+  const { $, toast, setRoute, canAct } = d;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const row = (label, v) => (v ? `<div class="field"><label>${label}</label><div>${esc(v)}</div></div>` : "");
+  backdrop.innerHTML = `
+    <div class="modal" style="width:min(640px,100%)">
+      <h2 style="margin-bottom:0.2rem">${esc(word("k_" + m.kind, "en"))} — ${esc(m.job_name)}</h2>
+      <p class="muted" style="margin-top:0">${materialStatusBadge(m.status)} &nbsp; ordered ${esc(day(m.ordered_on))}${m.ordered_by ? ` by ${esc(m.ordered_by)}` : ""}${m.created_by_name && m.created_by_name !== m.ordered_by ? ` <span class="muted">(filed by ${esc(m.created_by_name)})</span>` : ""}</p>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field full"><label>What</label><div style="white-space:pre-wrap">${esc(m.description)}</div></div>
+        ${row("Quantity", qtyText(m))}
+        ${row("Supplier", m.supplier)}
+        ${row("Needed on site by", m.needed_by ? day(m.needed_by) : "")}
+        ${row("Delivered on", m.delivered_on ? day(m.delivered_on) : "")}
+        ${row("Order number", m.order_number)}
+        ${m.notes ? `<div class="field full"><label>Notes</label><div style="white-space:pre-wrap">${esc(m.notes)}</div></div>` : ""}
+      </div>
+      <div class="modal-actions">
+        ${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="mord-delete">Delete</button>` : ""}
+        <button type="button" class="btn ghost" id="mord-close">Close</button>
+        ${canAct("estimator") ? `<button type="button" class="btn primary" id="mord-edit">Edit</button>` : ""}
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  $("#mord-close", backdrop).onclick = () => backdrop.remove();
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  const edit = $("#mord-edit", backdrop);
+  if (edit) {
+    edit.onclick = () => {
+      backdrop.remove();
+      setRoute("material-order", { materialOrderId: m.id });
+    };
+  }
+  const del = $("#mord-delete", backdrop);
+  if (del) {
+    del.onclick = async () => {
+      if (!confirm(`Delete the ${word("k_" + m.kind, "en").toLowerCase()} order for ${m.job_name}?`)) return;
+      try {
+        await Api.deleteMaterialOrder(m.id);
+        toast("Order deleted");
+        backdrop.remove();
+        if (onChanged) onChanged();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  }
+}
+
+/** The material order form: the phone page, English and Spanish, the kind chosen first. */
+export async function renderMaterialOrderForm(root) {
+  const { $, $$, toast, setRoute, state, canAct } = d;
+  root.innerHTML = `<div class="loading">Loading…</div>`;
+  const [daily, meta] = await Promise.all([Api.dailyReportMeta(), Api.materialOrderMeta()]);
+  const existing = state.materialOrderId ? await Api.getMaterialOrder(state.materialOrderId) : null;
+  const field = !!state.user && state.user.role === "foreman";
+  const jobs = daily.jobs.filter((j) => j.is_active || (existing && j.id === existing.job_id));
+  const me = (state.user && state.user.full_name) || "";
+
+  root.innerHTML = `
+    <form id="morder-form" class="report-form card">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.6rem">
+        <h2 style="margin:0" data-w="${existing ? "m_edit" : "m_title"}">${esc(word(existing ? "m_edit" : "m_title"))}</h2>
+        <div class="lang-toggle">
+          <button type="button" data-lang="en"${lang === "en" ? ' class="active"' : ""}>English</button>
+          <button type="button" data-lang="es"${lang === "es" ? ' class="active"' : ""}>Español</button>
+        </div>
+      </div>
+      <div class="field"><label data-w="m_kind">${esc(word("m_kind"))}</label>
+        <select name="kind" required>${MATERIAL_KINDS.map((k) => `<option value="${k}"${(existing ? existing.kind : "rebar") === k ? " selected" : ""} data-w="k_${k}">${esc(word("k_" + k))}</option>`).join("")}</select></div>
+      <div class="field"><label data-w="o_ordered_on">${esc(word("o_ordered_on"))}</label>
+        <input type="date" name="ordered_on" required value="${esc(existing ? existing.ordered_on : todayLocal())}" /></div>
+      <div class="field"><label data-w="job">${esc(word("job"))}</label>
+        <select name="job_id" required>
+          <option value="" data-w="pick">${esc(word("pick"))}</option>
+          ${jobs.map((j) => `<option value="${j.id}"${existing && existing.job_id === j.id ? " selected" : ""}>${esc(j.name)}</option>`).join("")}
+        </select></div>
+      <div class="field"><label data-w="m_supplier">${esc(word("m_supplier"))}</label>
+        <input type="text" name="supplier" list="morder-suppliers" required maxlength="200" value="${esc(existing ? existing.supplier : "")}" />
+        <datalist id="morder-suppliers">${meta.suppliers.map((s) => `<option value="${esc(s)}"></option>`).join("")}</datalist></div>
+      <div class="field"><label data-w="m_description">${esc(word("m_description"))}</label>
+        <textarea name="description" rows="3" required maxlength="2000">${esc(existing ? existing.description : "")}</textarea></div>
+      <div class="grid-3" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label data-w="m_quantity">${esc(word("m_quantity"))}</label>
+          <input type="number" inputmode="decimal" min="0" step="0.01" name="quantity" value="${existing && existing.quantity != null ? esc(String(existing.quantity)) : ""}" /></div>
+        <div class="field"><label data-w="m_unit">${esc(word("m_unit"))}</label>
+          <input type="text" name="unit" list="morder-units" maxlength="20" value="${esc(existing ? existing.unit || "" : "")}" />
+          <datalist id="morder-units">${meta.units.map((u) => `<option value="${esc(u)}"></option>`).join("")}</datalist></div>
+      </div>
+      <div class="grid-3" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label data-w="m_needed_by">${esc(word("m_needed_by"))}</label>
+          <input type="date" name="needed_by" value="${esc(existing ? existing.needed_by || "" : "")}" /></div>
+        ${existing ? `<div class="field"><label data-w="m_delivered_on">${esc(word("m_delivered_on"))}</label>
+          <input type="date" name="delivered_on" value="${esc(existing.delivered_on || "")}" /></div>` : "<div></div>"}
+      </div>
+      <div class="field"><label data-w="o_number">${esc(word("o_number"))}</label>
+        <input type="text" name="order_number" maxlength="100" value="${esc(existing ? existing.order_number || "" : "")}" /></div>
+      <div class="field"><label data-w="o_by">${esc(word("o_by"))}</label>
+        <input type="text" name="ordered_by" maxlength="200" value="${esc(existing ? existing.ordered_by || "" : me)}" /></div>
+      <div class="field"><label data-w="o_notes">${esc(word("o_notes"))}</label>
+        <textarea name="notes" rows="2">${esc(existing ? existing.notes || "" : "")}</textarea></div>
+      ${
+        existing && canAct("estimator")
+          ? `<div class="field"><label data-w="o_status">${esc(word("o_status"))}</label>
+        <select name="status">${MATERIAL_STATUSES.map((s) => `<option value="${s}"${existing.status === s ? " selected" : ""} data-w="st_${s}">${esc(word("st_" + s))}</option>`).join("")}</select></div>`
+          : ""
+      }
+      <div id="morder-error" class="error-banner hidden"></div>
+      <div class="modal-actions" style="flex-direction:column;gap:0.5rem">
+        <button type="submit" class="btn primary big" data-w="${existing ? "save" : "m_submit"}">${esc(word(existing ? "save" : "m_submit"))}</button>
+        ${existing || !field ? `<button type="button" class="btn ghost big" id="morder-cancel" data-w="cancel">${esc(word("cancel"))}</button>` : ""}
+      </div>
+    </form>`;
+
+  const form = $("#morder-form", root);
+  const relabel = () => {
+    $$("[data-w]", form).forEach((el) => {
+      el.textContent = word(el.dataset.w);
+    });
+    $$("[data-lang]", form).forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
+  };
+  $$("[data-lang]", form).forEach((b) => {
+    b.onclick = () => {
+      lang = b.dataset.lang;
+      try {
+        localStorage.setItem("daily_lang", lang);
+      } catch {
+        // a private window; the choice lasts the page
+      }
+      relabel();
+    };
+  });
+  const cancel = $("#morder-cancel", form);
+  if (cancel) cancel.onclick = () => setRoute(field ? "material-order" : "material-orders");
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const err = $("#morder-error", form);
+    err.classList.add("hidden");
+    const fd = new FormData(form);
+    const str = (name) => String(fd.get(name) || "").trim();
+    const body = {
+      kind: str("kind"),
+      ordered_on: str("ordered_on"),
+      job_id: Number(fd.get("job_id")),
+      supplier: str("supplier"),
+      description: str("description"),
+      quantity: str("quantity"),
+      unit: str("unit"),
+      needed_by: str("needed_by"),
+      order_number: str("order_number"),
+      ordered_by: str("ordered_by"),
+      notes: str("notes"),
+      ...(existing ? { delivered_on: str("delivered_on") } : {}),
+      ...(existing && canAct("estimator") ? { status: str("status") } : {}),
+    };
+    if (!body.job_id) {
+      err.textContent = word("need_job");
+      err.classList.remove("hidden");
+      return;
+    }
+    if (!body.supplier) {
+      err.textContent = word("o_need_supplier");
+      err.classList.remove("hidden");
+      return;
+    }
+    if (!body.description) {
+      err.textContent = word("m_need_description");
+      err.classList.remove("hidden");
+      return;
+    }
+    const btn = form.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      if (existing) {
+        await Api.updateMaterialOrder(existing.id, body);
+        toast("Order saved");
+        setRoute("material-orders");
+        return;
+      }
+      await Api.createMaterialOrder(body);
+      root.innerHTML = `
+        <div class="report-form card" style="text-align:center">
+          <h2 style="margin-top:0">✓ ${esc(word("m_sent"))}</h2>
+          <p class="muted">${esc(word("k_" + body.kind))} · ${esc(body.description.slice(0, 60))}${body.needed_by ? ` · ${esc(day(body.needed_by))}` : ""}</p>
+          <div class="modal-actions" style="flex-direction:column;gap:0.5rem">
+            <button type="button" class="btn primary big" id="morder-again">${esc(word("m_another"))}</button>
+            ${!field ? `<button type="button" class="btn ghost big" id="morder-list">${esc(word("m_list"))}</button>` : ""}
+          </div>
+        </div>`;
+      $("#morder-again", root).onclick = () => renderMaterialOrderForm(root);
+      const back = $("#morder-list", root);
+      if (back) back.onclick = () => setRoute("material-orders");
     } catch (error) {
       err.textContent = error.message;
       err.classList.remove("hidden");

@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.models.concrete_order import ConcreteOrder  # noqa: E402
+from app.models.material_order import KIND_LABELS, MaterialOrder  # noqa: E402
 
 MAIL_DIR = Path(os.environ.get("ORDERS_MAIL_DIR", "~/daily-status-report")).expanduser()
 
@@ -56,34 +57,83 @@ def orders_in(db: Session, start: date, days: int) -> list[ConcreteOrder]:
     return list(db.scalars(stmt).unique().all())
 
 
+def materials_in(db: Session, start: date, days: int) -> list[MaterialOrder]:
+    """The material orders needed on site in the window, delivered and canceled ones left out (sql/087)."""
+    end = start + timedelta(days=days)
+    stmt = (
+        select(MaterialOrder)
+        .where(
+            MaterialOrder.needed_by >= start, MaterialOrder.needed_by < end,
+            MaterialOrder.status.not_in(("delivered", "canceled")),
+        )
+        .order_by(MaterialOrder.needed_by, MaterialOrder.created_at)
+    )
+    return list(db.scalars(stmt).unique().all())
+
+
+def _qty(m) -> str:
+    if m.quantity is None:
+        return ""
+    d = Decimal(m.quantity)
+    q = f"{d:,.2f}".rstrip("0").rstrip(".")
+    return f"{q} {m.unit or ''}".strip()
+
+
 def _yards(v) -> str:
     d = Decimal(v or 0)
     return f"{d:,.1f}" if d != d.to_integral() else f"{int(d):,}"
 
 
-def format_report(orders: list, start: date, days: int) -> tuple[str, str]:
-    """(subject, body). Plain text, a day at a time, in the house style of the bid email."""
+def _materials_section(materials: list, start: date, days: int) -> list[str]:
+    end = start + timedelta(days=days - 1)
+    lines = [f"=== MATERIALS DUE ON SITE {start:%b %d} to {end:%b %d} ({len(materials)}) ==="]
+    if not materials:
+        lines += ["  (none)", ""]
+        return lines
+    for i, m in enumerate(materials, 1):
+        job = m.job.name if getattr(m, "job", None) is not None else str(getattr(m, "job_name", ""))
+        kind = KIND_LABELS.get(m.kind, (m.kind, ""))[0]
+        when = "TODAY" if m.needed_by == start else "TOMORROW" if m.needed_by == start + timedelta(days=1) else ""
+        lines.append(f"{i}. {m.needed_by:%a %b %d}{' ' + when if when else ''}  {kind} — {job}")
+        lines.append(f"   What:       {m.description}{'  (' + _qty(m) + ')' if _qty(m) else ''}")
+        lines.append(f"   Supplier:   {m.supplier}{'  #' + m.order_number if m.order_number else ''}")
+        lines.append(f"   Ordered by: {m.ordered_by or '—'} on {m.ordered_on:%b %d}   Status: {m.status}")
+        if m.notes:
+            lines.append(f"   Notes:      {m.notes}")
+        lines.append("")
+    return lines
+
+
+def format_report(orders: list, start: date, days: int, materials: list | None = None) -> tuple[str, str]:
+    """(subject, body). Plain text, a day at a time, in the house style of the bid email; the deliveries after."""
+    materials = list(materials or [])
     end = start + timedelta(days=days - 1)
     total = sum((Decimal(o.yards or 0) for o in orders), Decimal(0))
     span = f"{start:%a %b %d} to {end:%a %b %d}"
-    if not orders:
+    deliveries = f", {len(materials)} deliver{'y' if len(materials) == 1 else 'ies'}" if materials else ""
+    if not orders and not materials:
         subject = f"Concrete orders: nothing ordered for the next {days} days"
         body = "\n".join([
             f"Concrete orders — {span}",
             "",
-            f"No pours ordered for the next {days} days.",
+            f"No pours ordered and no deliveries due for the next {days} days.",
             "",
             f"Generated {datetime.now().astimezone():%Y-%m-%d %H:%M %Z}",
-            "Source: the estimating app on the office box (concrete_orders).",
+            "Source: the estimating app on the office box (concrete_orders, material_orders).",
         ]) + "\n"
         return subject, body
 
-    subject = f"Concrete orders, next {days} days: {len(orders)} pour{'' if len(orders) == 1 else 's'}, {_yards(total)} yd"
+    if orders:
+        subject = f"Concrete orders, next {days} days: {len(orders)} pour{'' if len(orders) == 1 else 's'}, {_yards(total)} yd{deliveries}"
+    else:
+        subject = f"Concrete orders, next {days} days: no pours{deliveries}"
     lines = [
         f"Concrete orders — {span}",
-        f"{len(orders)} pour{'' if len(orders) == 1 else 's'} · {_yards(total)} yards ordered",
+        f"{len(orders)} pour{'' if len(orders) == 1 else 's'} · {_yards(total)} yards ordered" + (f" · {len(materials)} deliver{'y' if len(materials) == 1 else 'ies'} due" if materials else ""),
         "",
     ]
+    if not orders:
+        lines += [f"No pours ordered for the next {days} days.", ""]
     by_day: dict[date, list] = {}
     for o in orders:
         by_day.setdefault(o.pour_date, []).append(o)
@@ -106,8 +156,11 @@ def format_report(orders: list, start: date, days: int) -> tuple[str, str]:
                 lines.append(f"   Notes:      {o.notes}")
             lines.append("")
         lines.append("")
+    if materials:
+        lines += _materials_section(materials, start, days)
+        lines.append("")
     lines.append(f"Generated {datetime.now().astimezone():%Y-%m-%d %H:%M %Z}")
-    lines.append("Source: the estimating app on the office box (concrete_orders).")
+    lines.append("Source: the estimating app on the office box (concrete_orders, material_orders).")
     return subject, "\n".join(lines).rstrip() + "\n"
 
 
@@ -144,12 +197,13 @@ def main() -> int:
     engine = create_engine(args.database_url)
     with Session(engine, autoflush=False) as db:
         orders = orders_in(db, start, args.days)
-        subject, body = format_report(orders, start, args.days)
+        materials = materials_in(db, start, args.days)
+        subject, body = format_report(orders, start, args.days, materials)
     if args.dry_run:
         print(f"Subject: {subject}\n")
         print(body)
         return 0
-    if not orders and args.skip_empty:
+    if not orders and not materials and args.skip_empty:
         print("nothing ordered; not sent")
         return 0
     ok, msg = send(subject, body, args.to)

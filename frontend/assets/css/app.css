@@ -839,3 +839,15 @@ table.data.price-sheet tr.edited td:first-child {
 .cal-key.pour {
   background: rgba(61, 154, 106, 0.6);
 }
+
+/* Material deliveries on the calendar (sql/087). */
+.cal-item.delivery {
+  background: rgba(212, 160, 23, 0.18);
+  border-left: 3px solid var(--warn);
+}
+.cal-item.delivery.done {
+  opacity: 0.6;
+}
+.cal-key.delivery {
+  background: rgba(212, 160, 23, 0.55);
+}

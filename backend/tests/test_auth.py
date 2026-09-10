@@ -357,6 +357,9 @@ def test_hashes_are_salted_and_verify_across_work_factors():
     ("GET", "/api/concrete-orders", set(), "user"),
     ("POST", "/api/concrete-orders", set(), "estimator"),
     ("DELETE", "/api/concrete-orders/x", set(), "senior_estimator"),
+    ("GET", "/api/material-orders", set(), "user"),
+    ("POST", "/api/material-orders", set(), "estimator"),
+    ("DELETE", "/api/material-orders/x", set(), "senior_estimator"),
     ("POST", "/api/daily-reports", {"management_notes", "job_id"}, "senior_estimator"),
 ])
 def test_the_policy_table(method, path, keys, role):

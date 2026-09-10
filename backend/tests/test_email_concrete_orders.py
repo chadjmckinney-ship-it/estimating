@@ -17,7 +17,8 @@ from sqlalchemy import select
 
 from app.models.concrete_order import ConcreteOrder
 from app.models.daily_report import FieldJob
-from email_concrete_orders import clock, format_report, orders_in
+from app.models.material_order import MaterialOrder
+from email_concrete_orders import clock, format_report, materials_in, orders_in
 
 
 def _job(db, name: str) -> FieldJob:
@@ -65,7 +66,34 @@ def test_the_window_and_the_message(db):
 
 def test_a_week_with_nothing_ordered_still_says_so(db):
     today = date(2026, 9, 9)
-    assert orders_in(db, today, 7) == []
+    assert orders_in(db, today, 7) == [] and materials_in(db, today, 7) == []
     subject, body = format_report([], today, 7)
     assert subject == "Concrete orders: nothing ordered for the next 7 days"
-    assert "No pours ordered for the next 7 days." in body and "Wed Sep 09 to Tue Sep 15" in body
+    assert "No pours ordered and no deliveries due for the next 7 days." in body and "Wed Sep 09 to Tue Sep 15" in body
+
+
+def test_the_deliveries_due_join_the_message(db):
+    """sql/087: rebar and post-tension needed on site in the window, delivered and canceled left out."""
+    today = date(2026, 9, 9)
+    nw = _job(db, "NORTHWEST VILLAGE")
+    db.add_all([
+        MaterialOrder(kind="rebar", ordered_on=today, job_id=nw.id, supplier="CMC", description="#5 x 20' per S-3",
+                      quantity=Decimal("12.5"), unit="TON", needed_by=today + timedelta(days=1), order_number="CMC-4471",
+                      ordered_by="Chad", status="confirmed", notes="East gate."),
+        MaterialOrder(kind="post_tension", ordered_on=today, job_id=nw.id, supplier="Suncoast", description="PT per S-5",
+                      needed_by=today, status="ordered", ordered_by="Chad"),
+        MaterialOrder(kind="rebar", ordered_on=today, job_id=nw.id, supplier="CMC", description="delivered already",
+                      needed_by=today + timedelta(days=2), status="delivered", delivered_on=today),
+        MaterialOrder(kind="other", ordered_on=today, job_id=nw.id, supplier="Whitecap", description="too late",
+                      needed_by=today + timedelta(days=7), status="ordered"),
+    ])
+    db.flush()
+    materials = materials_in(db, today, 7)
+    assert [m.description for m in materials] == ["PT per S-5", "#5 x 20' per S-3"]
+    subject, body = format_report([], today, 7, materials)
+    assert subject == "Concrete orders, next 7 days: no pours, 2 deliveries"
+    assert "0 pours · 0 yards ordered · 2 deliveries due" in body and "No pours ordered for the next 7 days." in body
+    assert "=== MATERIALS DUE ON SITE Sep 09 to Sep 15 (2) ===" in body
+    assert "1. Wed Sep 09 TODAY  Post-tension — NORTHWEST VILLAGE\n   What:       PT per S-5\n   Supplier:   Suncoast\n" in body
+    assert "2. Thu Sep 10 TOMORROW  Rebar — NORTHWEST VILLAGE\n   What:       #5 x 20' per S-3  (12.5 TON)\n   Supplier:   CMC  #CMC-4471\n   Ordered by: Chad on Sep 09   Status: confirmed\n   Notes:      East gate.\n" in body
+    assert "delivered already" not in body and "too late" not in body

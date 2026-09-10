@@ -104,6 +104,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
       supplier's mix number, order number, ordered by, a status — the list, the form (foremen too), and the
       calendar beside the daily reports (`docs/specs/concrete-orders-spec.md`); the 06:30 email of the next
       seven days from the box
+- [x] **Material orders** (`sql/087`, 2026-09-09): rebar, post-tension and other for a job — what, how much,
+      from whom, needed by when — the list with a by-job fold, the phone form, deliveries on the calendar and in
+      the 06:30 email; the Orders group on the dock holds both (`docs/specs/material-orders-spec.md`)
 - [x] **Daily reports from the field** (`sql/084`, 2026-09-09): every Jotform submission of both forms imported,
       a phone-sized bilingual form in the app for the new `foreman` role, the office's list with totals by job
       and month (`docs/specs/daily-reports-spec.md`). Left: foreman accounts (Chad), retiring the Jotform form

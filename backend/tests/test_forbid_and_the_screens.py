@@ -395,6 +395,19 @@ def test_every_payload_the_screens_build_is_accepted(client, db, project, estima
         "status": "confirmed",
     }).status_code == 200
 
+    # The material order form (sql/087): every box as the phone sends it, blanks as empty strings
+    r = client.post("/api/material-orders", json={
+        "kind": "rebar", "ordered_on": "2026-09-09", "job_id": meta["jobs"][0]["id"], "supplier": "CMC",
+        "description": "#5 x 20' per S-3", "quantity": "12.5", "unit": "ton", "needed_by": "2026-09-15", "delivered_on": "",
+        "order_number": "", "ordered_by": "", "notes": "", "status": "ordered",
+    })
+    assert r.status_code == 201, r.text
+    assert client.patch(f"/api/material-orders/{r.json()['id']}", json={
+        "kind": "post_tension", "ordered_on": "2026-09-09", "job_id": meta["jobs"][0]["id"], "supplier": "Suncoast",
+        "description": "PT per S-5", "quantity": "", "unit": "", "needed_by": "", "delivered_on": "2026-09-16",
+        "order_number": "SC-1", "ordered_by": "Chad", "notes": "", "status": "delivered",
+    }).status_code == 200
+
     # openEditUserModal (2026-09-09): every box, blanks as nulls, the role from the list
     me = client.get("/api/auth/me").json()
     person = next(p for p in client.get("/api/estimators").json() if p["id"] != me["id"])

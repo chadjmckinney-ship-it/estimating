@@ -30,8 +30,8 @@ add, delete, users and full control." Each role includes the ones below it:
                        and deleting a whole estimate or project
 
     foreman            apart from the ladder (sql/084): files the daily report
-                       and a concrete order (sql/086), reads under
-                       /api/daily-reports and /api/concrete-orders; nothing else
+                       a concrete order (sql/086) and a material order (sql/087),
+                       reads under those three prefixes; nothing else
 
 The activity feed (/api/audit) is senior_estimator and above, prices being
 what it shows.
@@ -65,7 +65,7 @@ LABEL = {
     "foreman": "a foreman",
 }
 FIELD_ROLES = ("foreman",)
-_FIELD_PREFIXES = ("/api/daily-reports", "/api/concrete-orders")
+_FIELD_PREFIXES = ("/api/daily-reports", "/api/concrete-orders", "/api/material-orders")
 
 _PRICING_PREFIXES = (
     "/api/mix-designs", "/api/concrete-suppliers", "/api/materials",
