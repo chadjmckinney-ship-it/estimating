@@ -14,8 +14,9 @@ add, delete, users and full control." Each role includes the ones below it:
                        estimate whose project lists them (app/ownership.py)
     senior_estimator   also the money: the three catalogs and suppliers,
                        company settings, a job's price sheet, rules, section
-                       rates, quotes, a typed RATE on a line, and the markup
-                       (margin / contingency) on an estimate or a section;
+                       rates, quotes, a typed RATE on a line, the markup
+                       (margin / contingency) on an estimate or a section,
+                       and where a line is filed on the Summary (sql/088);
                        and deleting anything whole but an estimate or a
                        project — a section, a bid, a daily report, the
                        form's lists, a proposal, a catalog row (Chad,
@@ -72,6 +73,8 @@ _PRICING_PREFIXES = (
     "/api/equipment", "/api/system-settings",
     # The proposal's standing text carries the published day and hour rates (sql/080).
     "/api/proposal-library",
+    # Where a priced line is filed on the estimate Summary (sql/088).
+    "/api/cost-codes",
 )
 _JOB_PRICING = re.compile(r"/api/estimates/[^/]+/(prices|rules)(/.*)?")
 _SECTION_PRICING = re.compile(r"/api/sections/[^/]+/(quotes|rates)(/.*)?")

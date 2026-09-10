@@ -123,7 +123,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
       `SELECT * FROM grade_beams WHERE label LIKE 'Drop (migrated%';`
 - [x] Service function to **refresh all `calc_*`** — `app/services/recalc.py`, exposed as
       `POST /api/estimates/{id}/recalc` (+ UI button) and `POST /api/system-settings/recalc-all`
-- [ ] `cost_codes` table + link to materials / line items
+- [x] `cost_codes` table + link to materials / line items — `sql/088`: the workbook's chart, every priced line filed (2026-09-09)
 - [x] Roles / permissions tables — sql/068 (2026-09-07)
 - [ ] Numbered migration discipline + optional Alembic later — **two `015_` files
       exist**, and nothing records which migrations have been applied to a database.
@@ -243,7 +243,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred
 
 ## Nice to have
 
-- [ ] Export estimate to PDF / Excel summary
+- [x] Export estimate to Excel summary — the Summary page and its .xlsx, the workbook's Summary tab (`sql/088`, 2026-09-09); PDF still open
 - [x] Proposal sheet generation — `sql/080` (2026-09-08): one proposal per estimate seeded from the takeoff,
       edited on its own page, downloaded as the NEW FORM .xlsx; the standing text a library under Settings
 - [ ] `is_excluded` on the takeoff row itself (an excluded proposal line is a status; the row still prices)

@@ -518,4 +518,12 @@ export const Api = {
   proposalLibrary: () => api("/proposal-library"),
   replaceProposalLibraryBlock: (block, items) =>
     api(`/proposal-library/${block}`, { method: "PUT", body: { items } }),
+
+  // The estimate Summary (sql/088): the workbook's Summary tab read off the
+  // priced job, and the cost codes every line is filed under.
+  estimateSummary: (estimateId) => api(`/estimates/${estimateId}/summary`),
+  summaryXlsxUrl: (estimateId) => `${API_BASE}/estimates/${estimateId}/summary.xlsx`,
+  costCodes: () => api("/cost-codes"),
+  fileCostCodeLine: (kind, code, body) =>
+    api(`/cost-codes/lines/${kind}/${encodeURIComponent(code)}`, { method: "PUT", body }),
 };

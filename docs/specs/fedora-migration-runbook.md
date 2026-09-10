@@ -216,6 +216,24 @@ journalctl --user -u notion-bids-pull -n 20
 
 When invites come straight into the app, the timer goes and Notion with it.
 
+## The estimate Summary (2026-09-09)
+
+`sql/088_cost_codes.sql` seeds the workbook's cost codes and where every
+priced line is filed; the Summary page and its .xlsx read them live. On the
+box, the usual: pull, apply the migration (it takes its own dump first),
+restart.
+
+```bash
+cd ~/estimating/app && git pull -q
+.venv/bin/python backend/apply_sql.py sql/088_cost_codes.sql
+systemctl --user restart estimating && curl -sk https://127.0.0.1:8001/health
+```
+
+A line the summary meets that the table does not know shows as UNASSIGNED
+on the page and under Settings → Cost codes, where a senior estimator files
+it; the seed covers every code the services write today, and the suite's
+matrix fails on the first new one without a home.
+
 ## Still to do on the box
 
 * Funnel is up (above). `tailscale funnel status` shows it; it survives a

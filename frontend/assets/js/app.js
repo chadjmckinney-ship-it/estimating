@@ -192,6 +192,7 @@ function setRoute(route, params = {}) {
       (route === "section" && b.dataset.route === "projects") ||
       (route === "prices" && b.dataset.route === "projects") ||
       (route === "proposal" && b.dataset.route === "projects") ||
+      (route === "summary" && b.dataset.route === "projects") ||
       (route === "report" && b.dataset.route === "daily") ||
       (route === "order" && b.dataset.route === "orders") ||
       (route === "material-order" && b.dataset.route === "material-orders");
@@ -204,6 +205,7 @@ function setRoute(route, params = {}) {
   if (route === "section" && state.sectionId) hash = `#section/${state.sectionId}`;
   if (route === "prices" && state.estimateId) hash = `#prices/${state.estimateId}`;
   if (route === "proposal" && state.estimateId) hash = `#proposal/${state.estimateId}`;
+  if (route === "summary" && state.estimateId) hash = `#summary/${state.estimateId}`;
   if (route === "report" && state.reportId) hash = `#report/${state.reportId}`;
   if (route === "order" && state.orderId) hash = `#order/${state.orderId}`;
   if (route === "material-order" && state.materialOrderId) hash = `#material-order/${state.materialOrderId}`;
@@ -225,6 +227,9 @@ function parseHash() {
   }
   if (h.startsWith("prices/")) {
     return { route: "prices", projectId: null, estimateId: h.slice("prices/".length), sectionId: null };
+  }
+  if (h.startsWith("summary/")) {
+    return { route: "summary", projectId: null, estimateId: h.slice("summary/".length), sectionId: null };
   }
   if (h === "estimators") return { route: "users", projectId: null, estimateId: null, sectionId: null }; // the old bookmark
   if (h.startsWith("report/")) {
@@ -1682,6 +1687,8 @@ async function renderEstimateSummary(root) {
           title="What this job pays for each mix and material">Price sheet</button>
         <button class="btn" id="btn-proposal" type="button"
           title="The bid form: seeded from this estimate, edited on its own page, downloaded as .xlsx">Proposal</button>
+        <button class="btn" id="btn-summary" type="button"
+          title="The job cost summary: every section's money by column and by cost code, the totals, the profit; downloadable as .xlsx">Summary</button>
         <button class="btn" id="btn-recalc-job" type="button"
           title="Reprice every section from current inputs">Recalculate job</button>
       </div>
@@ -1849,6 +1856,8 @@ async function renderEstimateSummary(root) {
   if (priceCard) priceCard.onclick = goPrices;
   const proposalBtn = $("#btn-proposal");
   if (proposalBtn) proposalBtn.onclick = () => setRoute("proposal", { estimateId: estimate.id });
+  const summaryBtn = $("#btn-summary");
+  if (summaryBtn) summaryBtn.onclick = () => setRoute("summary", { estimateId: estimate.id });
 
   const recalcBtn = $("#btn-recalc-job");
   if (recalcBtn) {
@@ -7883,6 +7892,17 @@ async function renderSettings(root) {
       )
       .join("")}
 
+    <div class="card" style="margin-bottom:1rem" id="grp-costcodes">
+      <h3 style="margin:0 0 0.25rem">Cost codes</h3>
+      <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+        Where each priced line is filed on the estimate Summary: the workbook's chart, 000001 General
+        Requirements to 000091 Margin Contingency. A labor line takes its in-house code on a section whose
+        labor is not subcontracted. A line filed nowhere is counted as UNASSIGNED on every summary until it
+        is. Refiling a line moves it on every job's summary at once; no estimate is repriced.
+      </p>
+      <div id="cost-codes" class="muted">Loading…</div>
+    </div>
+
     <div class="card" style="margin-bottom:1rem" id="grp-proposaltext">
       <h3 style="margin:0 0 0.25rem">Proposal text</h3>
       <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
@@ -7896,6 +7916,347 @@ async function renderSettings(root) {
 
   wireSettings(root);
   wireProposalLibrary(root);
+  wireCostCodes(root);
+}
+
+// ---------- The estimate Summary (sql/088) ----------
+//
+// The workbook's Summary tab, read off the priced job. Chad, 2026-09-09:
+// "a summary like that is in the excel spreadsheet.. pulls all the
+// materials form each section, supervision, everything thats in a
+// project.. a total of each the a breakdown per section". Every figure on
+// this page is the server's (services/cost_summary.py); this lays the two
+// tables out and says what is missing.
+
+const SUMMARY_LOWER = [
+  ["total_material", "TOTAL MATERIAL", "the eight material columns"],
+  ["total_labor", "TOTAL LABOR", "in-house field labor"],
+  ["total_sub_labor", "TOTAL SUB LABOR", "sub labor and the other subs"],
+  ["total_other", "TOTAL OTHER", "equipment, supervision, PM, out of town"],
+  ["sales_tax", "SALES TAX", "on the purchases and the rental days; the workbook folds it into the material figures"],
+  ["unassigned", "UNASSIGNED", "lines no cost code claims"],
+  ["difference", "ROUNDING", "the stored cost less what the lines add to: per-row cents"],
+  ["margin_contingency", "MARGIN CONTINGENCY", "the contingency's share of the markup (code 000091)"],
+  ["estimated_profit", "ESTIMATED PROFIT", "the contract price less everything above: the margin"],
+];
+const LINE_KIND_LABELS = {
+  purchase: "Purchase",
+  material: "Forming",
+  labor: "Labor",
+  equipment: "Equipment",
+  misc: "Misc item",
+  uplift: "Uplift",
+};
+
+function summaryMoney(x, bold = false, digits = 0) {
+  const n = Number(x || 0);
+  if (n === 0) return `<span class="muted">—</span>`;
+  return bold ? `<strong>${usd(n, digits)}</strong>` : usd(n, digits);
+}
+
+async function renderCostSummary(root) {
+  root.innerHTML = `<div class="loading">Loading summary…</div>`;
+  const s = await Api.estimateSummary(state.estimateId);
+  const showUnassigned = Number(s.totals.columns.unassigned || 0) !== 0;
+  const cols = s.columns.filter((c) => c.key !== "unassigned" || showUnassigned);
+  const unassigned = s.sections.flatMap((x) => x.unassigned.map((ln) => ({ ...ln, section: x.name })));
+  const unbuilt = s.sections.filter((x) => x.missing_line_sets.length);
+  const price = Number(s.lower.contract_price || 0);
+  const pctOf = (x) => (price ? num((Number(x || 0) / price) * 100, 1) + "%" : "");
+  const perUnit = (x, key) =>
+    x.per_unit && x.per_unit[key] != null && Number(x.per_unit[key]) !== 0 ? usd(Number(x.per_unit[key]), 2) : "";
+  const n = s.sections.length;
+  let showEmpty = false;
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div>
+        <button class="btn ghost" id="back-estimate">← ${esc(s.estimate_name)}</button>
+        <h1 style="margin-top:0.5rem">Job cost summary</h1>
+        <p>${esc(s.project_name || "")}${s.job_number ? " · " + esc(s.job_number) : ""}${
+          s.gc ? " · " + esc(s.gc) : ""
+        } · <code>${esc(s.file_name)}</code></p>
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <a class="btn primary" id="btn-download-summary" href="${Api.summaryXlsxUrl(s.estimate_id)}" download="${esc(s.file_name)}"
+          title="The Summary tab as .xlsx: the job cost summary, the lower block, the cost codes">Download .xlsx</a>
+        ${
+          canAct("senior_estimator")
+            ? `<a class="btn" href="#settings" title="Where each priced line is filed, under Settings">Cost codes</a>`
+            : ""
+        }
+      </div>
+    </div>
+
+    ${
+      unbuilt.length
+        ? `<div class="warn-banner">
+             <strong>${unbuilt.length === 1 ? "One section has" : `${unbuilt.length} sections have`} line sets nobody has built yet</strong>
+             — ${unbuilt.map((x) => `${esc(x.name)} (${x.missing_line_sets.join(", ")})`).join("; ")}.
+             Open the section once and its forming, labor and equipment are priced onto it and onto this summary.
+           </div>`
+        : ""
+    }
+    ${
+      unassigned.length
+        ? `<div class="error-banner" style="margin-bottom:1rem">
+             <strong>${unassigned.length === 1 ? "One line has" : `${unassigned.length} lines have`} no cost code.</strong>
+             Counted under UNASSIGNED so the job still adds up; file ${unassigned.length === 1 ? "it" : "them"} under
+             <a href="#settings">Settings → Cost codes</a>.
+             <ul style="margin:0.4rem 0 0 1.2rem">
+               ${unassigned
+                 .map(
+                   (ln) =>
+                     `<li>${esc(ln.section)} · ${esc(LINE_KIND_LABELS[ln.kind] || ln.kind)} · <code>${esc(ln.code)}</code> ${esc(ln.label)} · ${usd(ln.cost, 2)}</li>`
+                 )
+                 .join("")}
+             </ul>
+           </div>`
+        : ""
+    }
+
+    <div class="grid stats">
+      <div class="card stat"><div class="label">Contract price</div>
+        <div class="value">${usd(s.lower.contract_price, 0)}</div>
+        <div class="hint">every section at its own markup</div></div>
+      <div class="card stat"><div class="label">Total cost</div>
+        <div class="value">${usd(s.lower.cost, 0)}</div>
+        <div class="hint">${price ? pctOf(s.lower.cost) + " of the price" : "nothing priced yet"}</div></div>
+      <div class="card stat"><div class="label">Estimated profit</div>
+        <div class="value">${usd(s.lower.estimated_profit, 0)}</div>
+        <div class="hint">${price ? pctOf(s.lower.estimated_profit) + " of the price · the margin" : ""}</div></div>
+      <div class="card stat"><div class="label">Margin contingency</div>
+        <div class="value">${usd(s.lower.margin_contingency, 0)}</div>
+        <div class="hint">code 000091 · the contingency's share</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin:0 0 0.25rem">Job cost summary</h3>
+      <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+        A row per section, its sale, and every dollar of its cost by column; under each, the same per unit.
+        The workbook's fifteen columns, then the sales tax the app keeps apart from the purchases.
+      </p>
+      <div class="table-wrap"><table class="data" style="font-size:0.8rem">
+        <thead><tr>
+          <th>Section</th><th class="num">Quantity</th><th class="num">Sale</th><th class="num">$ / unit</th>
+          ${cols.map((c) => `<th class="num">${esc(c.label)}</th>`).join("")}
+        </tr></thead>
+        <tbody>
+          ${s.sections
+            .map(
+              (x) => `<tr>
+              <td><strong>${esc(x.name)}</strong>${
+                x.missing_line_sets.length
+                  ? ` <span class="badge warn" title="${esc(x.missing_line_sets.join(", ") + " not built")}">not opened</span>`
+                  : ""
+              }<div class="muted" style="font-size:0.75rem">${esc(sectionLabel(x.kind))}${
+                x.labor_subcontracted ? " · labor subbed" : " · labor in house"
+              }</div></td>
+              <td class="num">${x.quantity == null ? "—" : num(Number(x.quantity), 0) + " " + esc(x.unit)}</td>
+              <td class="num"><strong>${usd(x.sale, 0)}</strong></td>
+              <td class="num muted">${x.sale_per_unit == null ? "" : usd(Number(x.sale_per_unit), 2)}</td>
+              ${cols.map((c) => `<td class="num">${summaryMoney(x.columns[c.key])}</td>`).join("")}
+            </tr>
+            <tr class="muted">
+              <td style="padding-left:1.5rem;font-size:0.75rem">$ / ${esc(x.unit)}</td><td></td><td></td><td></td>
+              ${cols.map((c) => `<td class="num" style="font-size:0.75rem">${perUnit(x, c.key)}</td>`).join("")}
+            </tr>`
+            )
+            .join("")}
+          <tr>
+            <td><strong>TOTALS</strong></td><td></td>
+            <td class="num"><strong>${usd(s.lower.contract_price, 0)}</strong></td><td></td>
+            ${cols.map((c) => `<td class="num">${summaryMoney(s.totals.columns[c.key], true)}</td>`).join("")}
+          </tr>
+          <tr class="muted">
+            <td style="padding-left:1.5rem;font-size:0.75rem">% of contract price</td><td></td><td></td><td></td>
+            ${cols.map((c) => `<td class="num" style="font-size:0.75rem">${Number(s.totals.columns[c.key] || 0) ? pctOf(s.totals.columns[c.key]) : ""}</td>`).join("")}
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+      <h3 style="margin:0 0 0.25rem">Totals</h3>
+      <div class="table-wrap" style="max-width:44rem"><table class="data">
+        <tbody>
+          ${SUMMARY_LOWER.filter(([key]) => !(key === "unassigned" && !showUnassigned) && !(key === "difference" && Number(s.lower.difference || 0) === 0))
+            .map(
+              ([key, label, hint]) => `<tr${key === "estimated_profit" ? ' style="font-weight:600"' : ""}>
+              <td>${esc(label)}<div class="muted" style="font-size:0.75rem;font-weight:400">${esc(hint)}</div></td>
+              <td class="num">${usd(s.lower[key], key === "difference" ? 2 : 0)}</td>
+              <td class="num muted">${key === "difference" ? "" : pctOf(s.lower[key])}</td>
+            </tr>`
+            )
+            .join("")}
+          <tr style="font-weight:600"><td>CONTRACT PRICE</td><td class="num">${usd(s.lower.contract_price, 0)}</td><td></td></tr>
+          <tr class="muted"><td>Labor insurance<div style="font-size:0.75rem">${num(Number(s.lower.labor_insurance_pct) * 100, 1)}% of sub labor, labor and supervision; noted, not deducted</div></td>
+            <td class="num">${usd(s.lower.labor_insurance, 0)}</td><td class="num">${pctOf(s.lower.labor_insurance)}</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap">
+        <h3 style="margin:0 0 0.25rem">Cost codes</h3>
+        <label class="muted" style="font-size:0.85rem"><input type="checkbox" id="show-empty-codes" /> show codes with nothing on them</label>
+      </div>
+      <p class="muted" style="margin:0 0 0.75rem;color:var(--text-muted);font-size:0.85rem">
+        The workbook's chart, a column per section: every dollar of a section's cost under its code, then the
+        tax, the total, the sale and the profit. Subtotals are the sum of their block and are not added again.
+      </p>
+      <div class="table-wrap"><table class="data" style="font-size:0.8rem">
+        <thead><tr>
+          <th>Code</th><th>Item</th><th class="num">Summary</th>
+          ${s.sections.map((x) => `<th class="num">${esc(x.name)}</th>`).join("")}
+        </tr></thead>
+        <tbody id="code-rows"></tbody>
+      </table></div>
+    </div>
+  `;
+
+  const paintCodes = () => {
+    const out = [];
+    let cat = null;
+    for (const cc of s.codes) {
+      const total = Number(s.totals.codes[cc.code] || 0);
+      if (!showEmpty && total === 0 && !cc.is_subtotal) continue;
+      if (cc.category !== cat) {
+        cat = cc.category;
+        out.push(
+          `<tr><td colspan="${3 + n}" class="muted" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">${esc(cc.category_label)}</td></tr>`
+        );
+      }
+      out.push(`<tr${cc.is_subtotal ? ' class="muted"' : ""}>
+        <td><code>${esc(cc.code)}</code></td>
+        <td>${esc(cc.name)}${cc.is_subtotal ? ' <span class="muted">(subtotal)</span>' : ""}</td>
+        <td class="num">${summaryMoney(s.totals.codes[cc.code], !cc.is_subtotal)}</td>
+        ${s.sections.map((x) => `<td class="num">${summaryMoney(x.codes[cc.code])}</td>`).join("")}
+      </tr>`);
+    }
+    const tail = (label, summaryValue, perSection, bold, digits = 0) =>
+      `<tr${bold ? ' style="font-weight:600"' : ""}><td></td><td>${esc(label)}</td>
+        <td class="num">${summaryMoney(summaryValue, bold, digits)}</td>
+        ${s.sections.map((x) => `<td class="num">${summaryMoney(perSection(x), false, digits)}</td>`).join("")}
+      </tr>`;
+    out.push(`<tr><td colspan="${3 + n}" class="muted" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Not on the chart</td></tr>`);
+    out.push(tail("Sales tax", s.totals.columns.tax, (x) => x.columns.tax, false));
+    if (showUnassigned) out.push(tail("Unassigned", s.totals.columns.unassigned, (x) => x.columns.unassigned, false));
+    if (Number(s.lower.difference || 0) !== 0) {
+      out.push(tail("Rounding (stored cost less the lines)", s.lower.difference, (x) => x.difference, false, 2));
+    }
+    out.push(tail("TOTAL COST", s.lower.cost, (x) => x.cost, true));
+    out.push(`<tr style="font-weight:600"><td></td><td>SALE</td><td class="num">${usd(s.lower.contract_price, 0)}</td>
+      ${s.sections.map((x) => `<td class="num">${usd(x.sale, 0)}</td>`).join("")}</tr>`);
+    out.push(`<tr style="font-weight:600"><td></td><td>ESTIMATED PROFIT</td><td class="num">${usd(s.lower.estimated_profit, 0)}</td>
+      ${s.sections.map((x) => `<td class="num">${usd(x.profit, 0)}</td>`).join("")}</tr>`);
+    $("#code-rows").innerHTML = out.join("");
+  };
+  paintCodes();
+  $("#show-empty-codes").onchange = (e) => {
+    showEmpty = e.target.checked;
+    paintCodes();
+  };
+  $("#back-estimate").onclick = () => setRoute("estimate", { estimateId: s.estimate_id });
+}
+
+/** A select of the chart, grouped by category, subtotals left out. */
+function costCodeOptions(codes, selected, blank) {
+  let out = blank ? `<option value=""${!selected ? " selected" : ""}>${esc(blank)}</option>` : "";
+  let cat = null;
+  for (const c of codes) {
+    if (c.is_subtotal) continue;
+    if (c.category !== cat) {
+      if (cat !== null) out += "</optgroup>";
+      cat = c.category;
+      out += `<optgroup label="${esc(c.category_label)}">`;
+    }
+    out += `<option value="${esc(c.code)}"${c.code === selected ? " selected" : ""}>${esc(c.code)} · ${esc(c.name)}</option>`;
+  }
+  if (cat !== null) out += "</optgroup>";
+  return out;
+}
+
+/** Settings → Cost codes: every line the summary can meet, and where it is filed (a senior edits). */
+async function wireCostCodes(root) {
+  const host = $("#cost-codes", root);
+  if (!host) return;
+  let data;
+  try {
+    data = await Api.costCodes();
+  } catch (err) {
+    host.textContent = err.message;
+    return;
+  }
+  host.classList.remove("muted");
+  const editable = canAct("senior_estimator");
+  const unfiled = data.lines.filter((ln) => !ln.cost_code).length;
+  host.innerHTML = `
+    ${
+      unfiled
+        ? `<div class="error-banner" style="margin-bottom:0.75rem"><strong>${unfiled} line${unfiled === 1 ? " has" : "s have"} no cost code.</strong>
+           ${unfiled === 1 ? "It is" : "They are"} counted as UNASSIGNED on every summary ${unfiled === 1 ? "it is" : "they are"} on.</div>`
+        : ""
+    }
+    <div style="display:flex;gap:0.75rem;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap">
+      <input type="search" id="cc-filter" placeholder="Filter lines…" style="width:16rem" />
+      <span class="muted" style="font-size:0.85rem">${data.lines.length} lines · ${data.codes.filter((c) => !c.is_subtotal).length} codes</span>
+    </div>
+    <div class="table-wrap" style="max-height:32rem"><table class="data" style="font-size:0.85rem">
+      <thead><tr><th>Kind</th><th>Line</th><th>Filed under</th><th>In house</th><th></th></tr></thead>
+      <tbody>
+        ${data.lines
+          .map(
+            (ln) => `<tr data-kind="${esc(ln.kind)}" data-code="${esc(ln.code)}"${ln.cost_code ? "" : ' class="unfiled"'}>
+            <td><span class="badge${ln.cost_code ? "" : " warn"}">${esc(LINE_KIND_LABELS[ln.kind] || ln.kind)}</span></td>
+            <td><strong>${esc(ln.label)}</strong><div class="muted" style="font-size:0.75rem"><code>${esc(ln.code)}</code>${
+              ln.seen ? "" : " · on no job today"
+            }</div></td>
+            <td><select data-f="cost_code"${editable ? "" : " disabled"}>${costCodeOptions(data.codes, ln.cost_code, "— not filed —")}</select></td>
+            <td>${
+              ln.kind === "labor" || ln.kind === "misc"
+                ? `<select data-f="inhouse_code"${editable ? "" : " disabled"}>${costCodeOptions(data.codes, ln.inhouse_code, "same as filed")}</select>`
+                : `<span class="muted" style="font-size:0.75rem">—</span>`
+            }</td>
+            <td>${editable ? `<button type="button" class="btn ghost cc-save">Save</button>` : ""}</td>
+          </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table></div>`;
+
+  $("#cc-filter", host).oninput = (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$("tbody tr", host).forEach((tr) => {
+      tr.style.display = !q || tr.textContent.toLowerCase().includes(q) ? "" : "none";
+    });
+  };
+  $$(".cc-save", host).forEach((btn) => {
+    btn.onclick = async () => {
+      const tr = btn.closest("tr");
+      const costCode = $('select[data-f="cost_code"]', tr).value;
+      if (!costCode) {
+        toast("Pick a cost code to file the line under", "err");
+        return;
+      }
+      const inhouse = $('select[data-f="inhouse_code"]', tr);
+      btn.disabled = true;
+      try {
+        await Api.fileCostCodeLine(tr.dataset.kind, tr.dataset.code, {
+          cost_code: costCode,
+          inhouse_code: inhouse ? inhouse.value || null : null,
+        });
+        tr.classList.remove("unfiled");
+        const badge = $(".badge", tr);
+        if (badge) badge.classList.remove("warn");
+        toast("Filed — every summary follows");
+      } catch (err) {
+        toast(err.message, "err");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  });
 }
 
 /** The company's standing proposal text (sql/080): six blocks, each a textarea, one save. */
@@ -8548,6 +8909,7 @@ async function render() {
     else if (state.route === "section") await renderSectionDetail(root);
     else if (state.route === "prices") await renderPriceSheet(root);
     else if (state.route === "proposal") await renderProposal(root);
+    else if (state.route === "summary") await renderCostSummary(root);
     else if (state.route === "users") await renderEstimators(root);
     else if (state.route === "mixes") await renderMixes(root);
     else if (state.route === "materials") await renderMaterials(root);
@@ -8572,6 +8934,7 @@ function syncNavActive() {
       (state.route === "section" && b.dataset.route === "projects") ||
       (state.route === "prices" && b.dataset.route === "projects") ||
       (state.route === "proposal" && b.dataset.route === "projects") ||
+      (state.route === "summary" && b.dataset.route === "projects") ||
       (state.route === "report" && b.dataset.route === "daily") ||
       (state.route === "order" && b.dataset.route === "orders") ||
       (state.route === "material-order" && b.dataset.route === "material-orders");
