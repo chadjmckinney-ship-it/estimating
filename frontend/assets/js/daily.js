@@ -1232,6 +1232,13 @@ export async function renderOrders(root) {
           <td style="white-space:nowrap">
             <button type="button" class="btn ghost" data-view-order="${esc(o.id)}">View</button>
             ${canAct("estimator") ? `<button type="button" class="btn ghost" data-edit-order="${esc(o.id)}">Edit</button>` : ""}
+            ${
+              canAct("estimator")
+                ? o.status === "canceled"
+                  ? `<button type="button" class="btn ghost" data-reinstate-order="${esc(o.id)}" title="Back to ordered">Reinstate</button>`
+                  : `<button type="button" class="btn danger ghost" data-cancel-order="${esc(o.id)}">Cancel</button>`
+                : ""
+            }
           </td>
         </tr>`
         )
@@ -1250,6 +1257,30 @@ export async function renderOrders(root) {
     });
     $$("[data-edit-order]", root).forEach((btn) => {
       btn.onclick = () => setRoute("order", { orderId: btn.dataset.editOrder });
+    });
+    $$("[data-cancel-order]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const o = orders.find((x) => x.id === btn.dataset.cancelOrder);
+        if (!o || !confirm(`Cancel the ${day(o.pour_date)} order for ${o.job_name} (${n1(o.yards)} yd)?`)) return;
+        try {
+          await Api.updateConcreteOrder(o.id, { status: "canceled" });
+          toast(`${o.job_name} ${day(o.pour_date)}: canceled`);
+          load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+    $$("[data-reinstate-order]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const o = await Api.updateConcreteOrder(btn.dataset.reinstateOrder, { status: "ordered" });
+          toast(`${o.job_name} ${day(o.pour_date)}: ordered again`);
+          load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
     });
     $$("[data-order-status]", root).forEach((sel) => {
       sel.onchange = async () => {
@@ -1351,6 +1382,13 @@ export function openOrderModal(o, { onChanged } = {}) {
       </div>
       <div class="modal-actions">
         ${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="ord-delete">Delete</button>` : ""}
+        ${
+          canAct("estimator")
+            ? o.status === "canceled"
+              ? `<button type="button" class="btn ghost" id="ord-reinstate" title="Back to ordered">Reinstate</button>`
+              : `<button type="button" class="btn danger ghost" id="ord-cancel">Cancel order</button>`
+            : ""
+        }
         <button type="button" class="btn ghost" id="ord-close">Close</button>
         ${canAct("estimator") ? `<button type="button" class="btn primary" id="ord-edit">Edit</button>` : ""}
       </div>
@@ -1365,6 +1403,33 @@ export function openOrderModal(o, { onChanged } = {}) {
     edit.onclick = () => {
       backdrop.remove();
       setRoute("order", { orderId: o.id });
+    };
+  }
+  const cancelBtn = $("#ord-cancel", backdrop);
+  if (cancelBtn) {
+    cancelBtn.onclick = async () => {
+      if (!confirm(`Cancel the ${day(o.pour_date)} order for ${o.job_name} (${n1(o.yards)} yd)?`)) return;
+      try {
+        await Api.updateConcreteOrder(o.id, { status: "canceled" });
+        toast(`${o.job_name} ${day(o.pour_date)}: canceled`);
+        backdrop.remove();
+        if (onChanged) onChanged();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  }
+  const reinstate = $("#ord-reinstate", backdrop);
+  if (reinstate) {
+    reinstate.onclick = async () => {
+      try {
+        await Api.updateConcreteOrder(o.id, { status: "ordered" });
+        toast(`${o.job_name} ${day(o.pour_date)}: ordered again`);
+        backdrop.remove();
+        if (onChanged) onChanged();
+      } catch (err) {
+        toast(err.message, "err");
+      }
     };
   }
   const del = $("#ord-delete", backdrop);
@@ -1625,6 +1690,13 @@ export async function renderMaterialOrders(root) {
           <td style="white-space:nowrap">
             <button type="button" class="btn ghost" data-view-morder="${esc(o.id)}">View</button>
             ${canAct("estimator") ? `<button type="button" class="btn ghost" data-edit-morder="${esc(o.id)}">Edit</button>` : ""}
+            ${
+              canAct("estimator")
+                ? o.status === "canceled"
+                  ? `<button type="button" class="btn ghost" data-reinstate-morder="${esc(o.id)}" title="Back to ordered">Reinstate</button>`
+                  : `<button type="button" class="btn danger ghost" data-cancel-morder="${esc(o.id)}">Cancel</button>`
+                : ""
+            }
           </td>
         </tr>`
         )
@@ -1653,6 +1725,30 @@ export async function renderMaterialOrders(root) {
     });
     $$("[data-edit-morder]", root).forEach((btn) => {
       btn.onclick = () => setRoute("material-order", { materialOrderId: btn.dataset.editMorder });
+    });
+    $$("[data-cancel-morder]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const o = orders.find((x) => x.id === btn.dataset.cancelMorder);
+        if (!o || !confirm(`Cancel the ${word("k_" + o.kind, "en").toLowerCase()} order for ${o.job_name}?`)) return;
+        try {
+          await Api.updateMaterialOrder(o.id, { status: "canceled" });
+          toast(`${o.job_name}: canceled`);
+          load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
+    });
+    $$("[data-reinstate-morder]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const o = await Api.updateMaterialOrder(btn.dataset.reinstateMorder, { status: "ordered" });
+          toast(`${o.job_name}: ordered again`);
+          load();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
     });
     $$("[data-morder-status]", root).forEach((sel) => {
       sel.onchange = async () => {
@@ -1768,6 +1864,13 @@ export function openMaterialOrderModal(m, { onChanged } = {}) {
       </div>
       <div class="modal-actions">
         ${canAct("senior_estimator") ? `<button type="button" class="btn danger ghost" id="mord-delete">Delete</button>` : ""}
+        ${
+          canAct("estimator")
+            ? m.status === "canceled"
+              ? `<button type="button" class="btn ghost" id="mord-reinstate" title="Back to ordered">Reinstate</button>`
+              : `<button type="button" class="btn danger ghost" id="mord-cancel">Cancel order</button>`
+            : ""
+        }
         <button type="button" class="btn ghost" id="mord-close">Close</button>
         ${canAct("estimator") ? `<button type="button" class="btn primary" id="mord-edit">Edit</button>` : ""}
       </div>
@@ -1782,6 +1885,33 @@ export function openMaterialOrderModal(m, { onChanged } = {}) {
     edit.onclick = () => {
       backdrop.remove();
       setRoute("material-order", { materialOrderId: m.id });
+    };
+  }
+  const cancelBtn = $("#mord-cancel", backdrop);
+  if (cancelBtn) {
+    cancelBtn.onclick = async () => {
+      if (!confirm(`Cancel the ${word("k_" + m.kind, "en").toLowerCase()} order for ${m.job_name}?`)) return;
+      try {
+        await Api.updateMaterialOrder(m.id, { status: "canceled" });
+        toast(`${m.job_name}: canceled`);
+        backdrop.remove();
+        if (onChanged) onChanged();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    };
+  }
+  const reinstate = $("#mord-reinstate", backdrop);
+  if (reinstate) {
+    reinstate.onclick = async () => {
+      try {
+        await Api.updateMaterialOrder(m.id, { status: "ordered" });
+        toast(`${m.job_name}: ordered again`);
+        backdrop.remove();
+        if (onChanged) onChanged();
+      } catch (err) {
+        toast(err.message, "err");
+      }
     };
   }
   const del = $("#mord-delete", backdrop);
