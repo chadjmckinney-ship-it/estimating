@@ -234,6 +234,23 @@ on the page and under Settings → Cost codes, where a senior estimator files
 it; the seed covers every code the services write today, and the suite's
 matrix fails on the first new one without a home.
 
+## Importing an estimate workbook (2026-09-10)
+
+`backend/import_workbook.py` reads the office's estimate workbook onto a
+job through the app's own services (`docs/specs/workbook-import-spec.md`).
+The workbook goes to `~/estimating/imports/` on the box; a dry run prints
+what would be written; the real run prints the tie-out and the estimate
+id. An estimate of the same name on the same project is refused unless
+`--replace` says to rebuild it.
+
+```bash
+scp "<the workbook>.xlsm" chad@192.168.0.145:~/estimating/imports/
+cd ~/estimating/app && .venv/bin/python backend/import_workbook.py ~/estimating/imports/<file>.xlsm --dry-run
+.venv/bin/python backend/import_workbook.py ~/estimating/imports/<file>.xlsm
+```
+
+Lakeside Townhomes (26-051, rev 14) was the first, on 2026-09-10.
+
 ## Still to do on the box
 
 * Funnel is up (above). `tailscale funnel status` shows it; it survives a
