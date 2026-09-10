@@ -615,6 +615,11 @@ def _wall_labor_drivers(db: Session, section_id: UUID, kind: str | None) -> dict
               coalesce(sum(length_ft), 0) AS wall_lf,
               coalesce(sum(calc_form_ff), 0) AS form_ff,
               coalesce(sum(calc_footing_sf), 0) AS footing_sf,
+              -- A spot footing's FACE FT (sql/089): the newer footings tab's
+              -- AY, length x thickness x count -- the wall rule with the
+              -- footing's thickness for its height, one face. Its contact
+              -- feet (the tab's AX) are twice this.
+              coalesce(sum(length_ft * ftg_thick_in / 12.0), 0) AS footing_face_ff,
               coalesce(sum(calc_total_rebar_lb), 0) AS total_rebar_lb,
               coalesce(sum(calc_concrete_cy), 0) AS total_concrete_cy,
               coalesce(sum(calc_excavate_cy), 0) AS excavate_cy,
@@ -644,6 +649,7 @@ def _wall_labor_drivers(db: Session, section_id: UUID, kind: str | None) -> dict
         "wall_lf": _d(row["wall_lf"]),
         "form_ff": _d(row["form_ff"]),
         "footing_sf": _d(row["footing_sf"]),
+        "footing_face_ff": _d(row["footing_face_ff"]),
         "excavate_cy": _d(row["excavate_cy"]),
         "backfill_cy": _d(row["backfill_cy"]),
         "drain_lf": _d(row["drain_lf"]),
@@ -1072,10 +1078,13 @@ def _wall_labor_lines(
     Excavate, backfill and the french drain all come off the takeoff's own
     stored quantities rather than being re-derived here.
 
-    A spot footing (sql/072) has no wall: the four form-foot lines and the
-    drain are not built for it, so their rates are never read and never
-    seed its rate sheet. The lines the sheet's 06-Footings tab carries at
-    zero are the ones a footing cannot have, not ones it might.
+    A spot footing (sql/072) has no wall, so the french drain is not built
+    for it. Its four form-foot lines ARE (sql/089), off by default and per
+    FACE FOOT of footing -- the newer footings tab's AY, length x thickness
+    x count -- beside the per-SF FOOTINGS line: the older tab's face feet
+    are the wall's (zero on a footing) and it prices the footing on the SF
+    line alone; the newer tab prices these four and leaves the SF line
+    blank. The importer switches on what a tab prices.
     """
     ff = float(d["form_ff"])
     ftg_sf = float(d["footing_sf"])
@@ -1106,6 +1115,35 @@ def _wall_labor_lines(
                   rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.25")),
                   unit="/FF", qty=ff, formula="form FF × rate",
                   notes="A wall finish operation — no slab equivalent", order=50),
+        ]
+    else:
+        # The footings tab's FORMING, PLACE AND FINISH, WRECK AND CLEAN UP and
+        # RUB AND PATCH rows (sql/089), per FACE FOOT of footing — the newer
+        # tab's AY, length x thickness x count — beside the per-SF FOOTINGS
+        # line above. Off by default: the older tab's face feet are the wall's
+        # (zero on a footing) and it prices the footing on the SF line; the
+        # newer tab prices these four and leaves the SF line blank. Chad,
+        # 2026-09-10: "add the missing line sets ... place and finish".
+        face = float(d.get("footing_face_ff") or 0)
+        off = ("Off by default — the newer footings tab prices this per face foot "
+               "(length × thickness) beside the per-SF FOOTINGS line; switch on when the job does")
+        lines += [
+            _line(group="labor", code="forming", label="FORMING",
+                  rate=_rate(db, kind, "labor_forming_sf", Decimal("3.5")),
+                  unit="/FF", qty=face, formula="footing face FF × rate",
+                  enabled=False, notes=off, order=20),
+            _line(group="labor", code="place_finish", label="PLACE AND FINISH",
+                  rate=_rate(db, kind, "labor_place_finish_sf", Decimal("3.5")),
+                  unit="/FF", qty=face, formula="footing face FF × rate",
+                  enabled=False, notes=off, order=30),
+            _line(group="labor", code="wreck", label="WRECK AND CLEAN UP",
+                  rate=_rate(db, kind, "labor_wreck_sf", Decimal("1")),
+                  unit="/FF", qty=face, formula="footing face FF × rate",
+                  enabled=False, notes=off, order=40),
+            _line(group="labor", code="rub_patch", label="RUB AND PATCH",
+                  rate=_rate(db, kind, "labor_rub_patch_sf", Decimal("0.25")),
+                  unit="/FF", qty=face, formula="footing face FF × rate",
+                  enabled=False, notes=off, order=50),
         ]
     lines.append(
         _line(group="labor", code="tie_steel", label="TIE STEEL",

@@ -1091,7 +1091,9 @@ def _pin_days(db: Session, section, code: str, days: Decimal, rate: Decimal | No
         from app.services.estimate_equipment import update_equipment_line
 
         try:
-            update_equipment_line(db, section.id, code, days_qty=days, rate=rate, mark_manual=True)
+            # A machine the set carries off by default (sql/089) comes on with its days.
+            update_equipment_line(db, section.id, code, days_qty=days, rate=rate, mark_manual=True,
+                                  enabled=True if days and days > 0 else None)
         except ValueError:
             return False
         return True
@@ -1436,12 +1438,21 @@ def _days_for(db: Session, section, t: TabSpec, entry: dict[str, Any]) -> None:
     # A pour's add $/SF lands on LABOR ADD whether or not the tab's block lists the line.
     if any(r.get("paving_add_per_sf") for r in t.rows):
         kept.add("labor_add")
+    # A line the set carries off by default (sql/089) comes on when the tab prices it.
+    for code in sorted(kept):
+        if code in labor_lines and not labor_lines[code].enabled:
+            try:
+                update_labor_line(db, section.id, code, enabled=True, mark_manual=None)
+                entry["typed"].append(f"{code} on")
+            except ValueError:
+                pass
     # A field labor line the tab does not carry (or carries at nothing) is switched off, and said so.
     for code, row in labor_lines.items():
         if row.group_name == "labor" and row.enabled and code not in kept and Decimal(str(row.ext_cost or 0)) != 0:
+            was = row.ext_cost   # the switch zeroes the row; the report says what it was
             try:
                 update_labor_line(db, section.id, code, enabled=False, mark_manual=None)
-                entry["off"].append(f"labor {code} ({row.ext_cost})")
+                entry["off"].append(f"labor {code} ({was}, not on the tab)")
             except ValueError:
                 pass
 

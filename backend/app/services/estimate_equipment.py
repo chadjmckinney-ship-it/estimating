@@ -949,6 +949,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
         mini = _find_equip(db, "MINI EXCAVATOR") or _find_equip(db, "MINI")
         skid = _find_equip(db, "SKID STEER") or _find_equip(db, "SKID")
         tower = _find_equip(db, "TOWER LIGHT") or _find_equip(db, "LIGHT")
+        comp = _find_equip(db, "COMPACTOR")
 
         lines = [
             day_line(
@@ -967,6 +968,16 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 code="skid_steer", label="SKID STEER",
                 **_priced(db, kind, skid, "equip_skid_steer_day_rate", 325),
                 equipment_id=skid["id"] if skid else None, order=30,
+            ),
+            # Off by default (sql/089): the newer beam and footing tabs run a
+            # compactor beside the backhoe at the ladder's days; the older ones
+            # carry none. The importer switches it on when a tab prices one.
+            day_line(
+                code="compactor", label="COMPACTOR",
+                **_priced(db, kind, comp, "equip_compactor_day_rate", 200),
+                equipment_id=comp["id"] if comp else None, order=35,
+                enabled=False,
+                notes="Off by default — the newer beam and footing tabs run one beside the backhoe; switch on when the job does",
             ),
             day_line(
                 code="light_tower", label="LIGHT TOWER",
@@ -1031,6 +1042,7 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
         mini = _find_equip(db, "MINI EXCAVATOR") or _find_equip(db, "MINI")
         skid = _find_equip(db, "SKID STEER") or _find_equip(db, "SKID")
         tower = _find_equip(db, "TOWER LIGHT") or _find_equip(db, "LIGHT")
+        comp = _find_equip(db, "COMPACTOR")
 
         lines = [
             day_line(
@@ -1051,6 +1063,16 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
                 code="skid_steer", label="SKID STEER",
                 **_priced(db, kind, skid, "equip_skid_steer_day_rate", 275),
                 equipment_id=skid["id"] if skid else None, order=30,
+            ),
+            # Off by default (sql/089): the newer beam and footing tabs run a
+            # compactor beside the backhoe at the ladder's days; the older ones
+            # carry none. The importer switches it on when a tab prices one.
+            day_line(
+                code="compactor", label="COMPACTOR",
+                **_priced(db, kind, comp, "equip_compactor_day_rate", 200),
+                equipment_id=comp["id"] if comp else None, order=35,
+                enabled=False,
+                notes="Off by default — the newer beam and footing tabs run one beside the backhoe; switch on when the job does",
             ),
             day_line(
                 code="light_tower", label="LIGHT TOWER",
@@ -1465,6 +1487,18 @@ def _calc_estimate_equipment(db: Session, section_id: UUID) -> dict[str, Any]:
             equipment_id=skid["id"] if skid else None,
             order=40,
             **parked_skid,
+        ),
+        # Off by default (sql/089): the older slab tabs carry no light tower;
+        # the newer one runs it beside the bobcat at the ladder's days, and
+        # the importer switches it on when a tab prices one.
+        day_line(
+            code="light_tower",
+            label="LIGHT TOWER",
+            **_priced(db, kind, tower, "equip_light_tower_day_rate", 100),
+            equipment_id=tower["id"] if tower else None,
+            order=45,
+            enabled=False,
+            notes="Off by default — the newer slab tab runs one beside the bobcat; switch on when the job does",
         ),
         day_line(
             code="vault",

@@ -111,6 +111,7 @@ def _slab_tab(ws) -> None:
         "B96": "EXPENSE ALLOWANCE", "E96": 80, "F96": "DAYS@", "G96": 100, "H96": "/DAY", "O96": 8000,
         "B97": "EQUIPMENT",
         "B98": "BOB CATS", "E98": 120, "F98": "Days ", "G98": 350, "H98": "/DAY", "O98": 19939.5,
+        "B99": "LIGHT TOWER", "E99": 120, "F99": "Days ", "G99": 65, "H99": "/DAY", "O99": 3703.05,
         "B100": "TRENCHER", "E100": 120, "F100": "Days ", "G100": 300, "H100": "/DAY", "J100": 0.5, "O100": 17091,
         "B103": "MISCELLANIOUS", "E103": 120, "F103": "Days", "G103": 55, "H103": "/DAY", "O103": 1980,
         "B104": "CONTRACT  SERVICES",
@@ -280,8 +281,8 @@ def test_the_book_is_read_by_its_headers(spec):
         ("Foreman", D("80"), D("295")), ("Superintendent", D("40"), D("390")),
         ("Project management", D("40"), D("200")), ("EXPENSE ALLOWANCE", D("80"), D("100"))]
     assert [(e["label"], e["days"], e["rate"], e["cost"]) for e in slab.equipment] == [
-        ("BOB CATS", D("120"), D("350"), D("19939.5")), ("TRENCHER", D("120"), D("300"), D("17091")),
-        ("MISCELLANIOUS", D("120"), D("55"), D("1980"))]
+        ("BOB CATS", D("120"), D("350"), D("19939.5")), ("LIGHT TOWER", D("120"), D("65"), D("3703.05")),
+        ("TRENCHER", D("120"), D("300"), D("17091")), ("MISCELLANIOUS", D("120"), D("55"), D("1980"))]
     contract = {c["label"]: c for c in slab.contract}
     assert contract["CONCRETE PUMPING"]["rate"] == D("16") and contract["CONCRETE PUMPING"]["qty"] == D("2382")
     assert contract["SAW CUTTING"]["rate"] is None and contract["SAW CUTTING"]["cost"] == 0
@@ -375,6 +376,8 @@ def test_the_book_becomes_a_priced_job(db, spec):
     assert (equipment["trencher"].days_qty, equipment["trencher"].rate, equipment["trencher"].is_manual) == (D("120.0000"), D("300.0000"), True)
     assert equipment["skid_steer"].days_qty == D("120.0000") and equipment["skid_steer"].rate == D("350.0000")   # the tab's BOB CATS
     assert equipment["mini_excavator"].enabled is False                                    # not on the tab
+    # The light tower the slab set carries off by default (sql/089) comes on at the tab's days and rate.
+    assert (equipment["light_tower"].enabled, equipment["light_tower"].days_qty, equipment["light_tower"].rate) == (True, D("120.0000"), D("65.0000"))
     assert equipment["haul_off"].ext_cost == 0 and equipment["concrete_pump"].enabled       # charged nothing / charged
     slab_entry = report.sections[0]
     assert any(o.startswith("mini_excavator (") for o in slab_entry["off"])   # the tab has no mini excavator
@@ -394,6 +397,14 @@ def test_the_book_becomes_a_priced_job(db, spec):
     assert (run.footing_count, run.footing_each_ft, run.length_ft, run.ftg_width_in, run.ftg_thick_in, run.ftg_top_size) == (13, D("8.500"), D("110.500"), D("102.000"), D("20.000"), 6)
     frates = {k: D(str(v)) for k, v in db.execute(text("SELECT key, value FROM section_rates WHERE section_id = :s"), {"s": str(footings.id)}).all()}
     assert frates["concrete_pump_cy"] == D("16") and frates["labor_excavate_cy"] == D("20")
+    # The tab prices FORMING per face foot and carries no per-SF FOOTINGS line (sql/089): the
+    # face-foot line comes on at the tab's rate and the footing's face feet, the per-SF line goes off.
+    assert frates["labor_forming_sf"] == D("4")
+    flines = _lines(db, footings.id)
+    assert flines["forming"].enabled and flines["forming"].rate == D("4.0000")
+    assert flines["forming"].qty == D("184.1667")                       # 13 x 8.5 ft x 20 in
+    assert flines["forming"].ext_cost == D("736.67") and flines["place_finish"].enabled is False
+    assert flines["footings"].enabled is False
 
     # Misc: the library item at the tab's count and dimensions, the pad added as a slab.
     items = {i.description: i for i in db.scalars(select(MiscItem).where(MiscItem.section_id == misc.id)).all()}

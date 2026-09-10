@@ -48,6 +48,9 @@ build it".
 * **The per-row add $/SF** (2026-09-10, `docs/specs/labor-add-per-sf.md`): the slab tabs' `LABOR ADD` column, the
   paving tab's `Paving Add $$/SF` and the sidewalks tab's `Cost Adder` are read onto the row, and a row carrying one
   keeps the section's LABOR ADD line on whatever the tab's labor block says.
+* **A line the set carries off by default** (2026-09-10, `docs/specs/missing-lines.md`) is switched on when the tab
+  prices it — Lakeside's light tower on the slabs, its compactors on the beams and footings, its four face-foot rows on
+  the footings — and the report says what a labor line cost before it was switched off.
 * **What stays the app's.** Every derived quantity — square feet, pump
   yards, saw-cut and joint feet, tons of steel, the lumber, the drops'
   feet, the excavation — is left to the app's rule. Nothing is pinned but
@@ -56,39 +59,50 @@ build it".
   the quantities beside them, and per section what was rated, typed and
   switched off and every tab line that found no home.
 
-## The Lakeside tie-out (test database, 2026-09-10)
+## The Lakeside tie-out (test database, 2026-09-10, after `sql/089`)
 
 | Section | Tab sale | App sale | Gap |
 |---|---:|---:|---:|
-| Mono Slab on Grade Garden Style | 2,387,292 | 2,463,003 | +3.2% |
-| Mono Slab on Grade Building 1 | 181,417 | 184,429 | +1.7% |
+| Mono Slab on Grade Garden Style | 2,387,292 | 2,467,447 | +3.4% |
+| Mono Slab on Grade Building 1 | 181,417 | 185,540 | +2.3% |
 | Private Paving | 2,163,343 | 2,174,590 | +0.5% |
-| Footings | 46,060 | 43,065 | −6.5% |
-| Gd Beams | 257,840 | 281,282 | +9.1% |
+| Footings | 46,060 | 41,093 | −10.8% |
+| Gd Beams | 257,840 | 283,561 | +10.0% |
 | SLAB ON GRADE | 16,949 | 15,827 | −6.6% |
 | SIDEWALKS | 685,162 | 663,290 | −3.2% |
 | Miscellaneous | 61,675 | 61,675 | 0.0% |
-| **Total** | **5,799,737** | **5,887,161** | **+1.5%** |
+| **Total** | **5,799,737** | **5,893,023** | **+1.6%** |
+
+(Before `sql/089` the light tower, the compactors and the footing rows had
+no lines: 5,887,161, +1.5%, with Footings at −6.5% only because the tab's
+FORMING rate had landed on the per-SF FOOTINGS line.)
 
 The workbook's own Summary tab is broken in this template (its total reads
 0 and its misc line carries one item), so the tabs' SALE cells are the
 target. The named differences:
 
-* **Garden style, +$76K.** The app prices drop labor at the Drops column's
+* **Garden style, +$80K.** The app prices drop labor at the Drops column's
   8,098 FF (367 FF × 5 T1s and so on); the tab's labor line uses 4,172 FF
   from a column driven by the exposed-beam cells, which are empty. That is
-  the tab disagreeing with itself; the app follows the Drops column. A
-  light tower the tab carries for 120 days ($3,703) has no line in the
-  mono-slab set. The app's mini excavator is switched off (the tab has
-  none).
-* **Gd Beams, +$23K.** The app excavates the trench (852 CY) where the tab
+  the tab disagreeing with itself; the app follows the Drops column. The
+  light tower the tab carries for 120 days is on the slab set since
+  `sql/089`, at the tab's days and $65. The app's mini excavator is
+  switched off (the tab has none).
+* **Gd Beams, +$26K.** The app excavates the trench (852 CY) where the tab
   excavates the concrete volume (374 CY); the app's lumber for a
-  separately poured beam is fuller than the tab's; a compactor ($1,899)
-  has no line in the beams set. Cartons and the retainer are off, as the
-  tab says.
-* **Footings, −$3K.** Place & finish, wreck and rub & patch have no lines
-  in the spot-footing set (the app's footing labor is one line per SF); a
-  compactor ($950) has no line.
+  separately poured beam is fuller than the tab's; the compactor is on the
+  beams set since `sql/089` (14 days at $200). Cartons and the retainer
+  are off, as the tab says.
+* **Footings, −$5K.** Since `sql/089` the tab's four face-foot rows tie to
+  the dollar (forming 1,014 / place & finish 1,014 / wreck 254 / rub &
+  patch 127 on 253.58 face feet), the tie steel, the supervision, the five
+  machines and the pump match, and the per-SF FOOTINGS line is off as the
+  tab leaves it blank. What is left: the tab's lumber-and-accessories
+  block (`R52:X90`, $3,624 — 18 sheets of ply, 2×10s, stakes, nails, a
+  drum of cure) is not read, and the app's own forming package for the
+  footing prices $918 (2×10s, stakes, chamfer, water stop, turnbuckles,
+  haul-off, accessories); and the tab excavates 1.3 × the concrete (102 CY
+  at $20) where the app digs its 72 CY.
 * **Slab on grade, −$1K.** The tab's grade/poly per LF and thickened-edge
   labor have no lines in the slabs set.
 * **Sidewalks, −$22K.** The app's lumber and sand for a walk are lighter

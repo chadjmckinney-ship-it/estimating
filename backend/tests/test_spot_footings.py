@@ -102,8 +102,16 @@ def test_the_labor_is_the_footing_lines_only(db, estimate):
     assert abs(D(str(labor["tie_steel"]["ext_cost"])) - sf.SHEET["tie_steel_labor"]) < D("10")
     assert D(str(labor["excavate"]["qty"])) == D("302")
     assert D(str(labor["excavate"]["ext_cost"])) == D("3624.00")
-    for code in ("forming", "place_finish", "wreck", "rub_patch", "french_drains"):
-        assert code not in labor, f"{code} is a wall line; there is no wall"
+    assert "french_drains" not in labor, "a wall line; there is no wall"
+    # The footing's own forming, place & finish, wreck and rub & patch per face foot (sql/089):
+    # there, at the footing's length x thickness x count, and off until the job prices them.
+    face = D(str(db.execute(text(
+        "SELECT sum(length_ft * ftg_thick_in / 12.0) FROM wall_runs WHERE section_id = :s"),
+        {"s": str(section.id)}).scalar())).quantize(D("0.0001"))
+    assert face > 0
+    for code, rate in (("forming", "3.5"), ("place_finish", "3.5"), ("wreck", "1"), ("rub_patch", "0.25")):
+        assert labor[code]["enabled"] is False and D(str(labor[code]["ext_cost"])) == 0, code
+        assert D(str(labor[code]["qty"])) == face and D(str(labor[code]["rate"])) == D(rate), code
     assert {"superintendent", "foreman", "expense", "pm"} <= set(labor)
     assert D(str(labor["pm"]["ext_cost"])) == D("2000")
 
@@ -191,4 +199,6 @@ def test_the_kind_is_offered_and_a_grid_row_saves_as_a_footing(client, db, estim
     assert (t["footing_count"], t["weld_plate_count"], t["run_count"]) == (4, 4, 1)
     rates = {x["key"] for x in client.get(f"/api/sections/{sid}/rates").json()["rows"]}
     assert {"labor_footings_sf", "labor_tie_steel_ton", "labor_excavate_cy"} <= rates
-    assert "labor_forming_sf" not in rates, "the wall's rate is not read on a footing"
+    assert {"labor_forming_sf", "labor_place_finish_sf", "labor_wreck_sf", "labor_rub_patch_sf"} <= rates, \
+        "the footing's face-foot lines read their rates (sql/089)"
+    assert "labor_french_drain_lf" not in rates, "the wall's drain is not read on a footing"
