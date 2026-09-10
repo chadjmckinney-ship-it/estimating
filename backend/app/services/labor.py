@@ -373,6 +373,11 @@ def _mono_slab_labor_lines(
     drops = float(d["drops_ff"])
     ledge = float(d["ledge_lf"])
     r_ledge = float(_rate(db, kind, "labor_brick_ledge_lf", Decimal("0")))
+    # The tab's LABOR ADD /SF column on every pour row (C on the LBJ slab
+    # tab, CP = C x SF, summed on the LABOR ADD line). Chad, 2026-09-10:
+    # "there is a column for most items of a cost added per sf". The same
+    # field paving has carried since sql/036, on every pour-shaped row now.
+    add = _d(d["paving_add"])
 
     # Tie steel covers the crew (or the sub) tying beam bars and slab mat.
     # Support steel is excluded: it is the #3 that holds the cables and mat up,
@@ -410,9 +415,10 @@ def _mono_slab_labor_lines(
               unit="/LF", qty=ledge, formula="brick_ledge_lf × rate",
               notes=None if r_ledge else "Set labor_brick_ledge_lf to price this",
               order=55),
-        _line(group="labor", code="labor_add", label="LABOR ADD", rate=0, unit="LS",
-              qty=0, formula="manual / pour labor adds (later)",
-              notes="Enter total $ or leave 0", order=60),
+        _line(group="labor", code="labor_add", label="LABOR ADD", rate=1, unit="LS", qty=add,
+              formula="Σ pour SF × count × that pour's add $/SF",
+              notes=(None if add else "Set an add $/SF on a pour to carry it here, or type a total"),
+              order=60),
         _line(group="labor", code="excavation", label="EXCAVATION ADD",
               rate=_rate(db, kind, "labor_excavation_cy", Decimal("12")),
               unit="/CY", qty=0, formula="dirt CY (manual / later from dirt calc)",
@@ -459,6 +465,7 @@ def _sidewalk_labor_lines(
     sf = float(d["total_sf"])
     edge = float(d.get("thick_edge_lf") or 0)
     stairs = float(d.get("stair_tread_lf") or 0)
+    add = _d(d.get("paving_add") or 0)
 
     return [
         _line(group="labor", code="forming", label="FORMING",
@@ -480,6 +487,13 @@ def _sidewalk_labor_lines(
         _line(group="labor", code="stair_treads", label="STAIR TREADS",
               rate=_rate(db, kind, "labor_stair_tread_lf", Decimal("2")),
               unit="/LF", qty=stairs, formula="stair tread LF × rate", order=60),
+        # The tab's Cost Adder column (H), $/SF on a walk row, the way the
+        # paving tab's Paving Add is carried (2026-09-10).
+        _line(group="labor", code="labor_add", label="LABOR ADJUSTMENT",
+              rate=1, unit="LS", qty=add,
+              formula="Σ walk SF × that walk's add $/SF",
+              notes=(None if add else "Set an add $/SF on a walk to carry an adjustment"),
+              order=70),
         _line(group="labor", code="extra_hours", label="EXTRA HOURS", rate=0,
               unit="LS", qty=0, formula="manual lump sum", order=100),
     ]

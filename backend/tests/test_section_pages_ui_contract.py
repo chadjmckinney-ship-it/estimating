@@ -52,7 +52,7 @@ PAGES = {
         # the pour form's fields, then the pour table's calc cells
         row_keys={
             "id", "description", "location", "qty", "square_footage", "thickness_in", "sand_thickness_in",
-            "perimeter_edge_lf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
+            "perimeter_edge_lf", "paving_add_per_sf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
             "slab_bar_spacing_in", "support_rebar_lb_per_sf", "pt_lb_per_sf", "pt_spacing_in", "notes",
             "calc_allocated_cost", "calc_concrete_cy", "calc_cost", "calc_cost_per_sf",
             "calc_direct_cost", "calc_gb_concrete_cy", "calc_grade_beam_rebar_lb", "calc_poly_gb_sf",
@@ -73,7 +73,7 @@ PAGES = {
         totals_keys=SLAB_TOTALS,
         row_keys={
             "id", "description", "location", "square_footage", "thickness_in", "sand_thickness_in",
-            "perimeter_edge_lf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
+            "perimeter_edge_lf", "paving_add_per_sf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
             "slab_bar_spacing_in", "support_rebar_lb_per_sf", "pt_lb_per_sf", "pt_spacing_in", "notes",
             "calc_allocated_cost", "calc_concrete_cy", "calc_cost", "calc_cost_per_sf",
             "calc_direct_cost", "calc_poly_sf", "calc_sale", "calc_sale_per_sf", "calc_sf_per_cy",
@@ -92,7 +92,7 @@ PAGES = {
         totals_keys=SLAB_TOTALS,
         row_keys={
             "id", "description", "location", "square_footage", "thickness_in", "sand_thickness_in",
-            "perimeter_edge_lf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
+            "perimeter_edge_lf", "paving_add_per_sf", "mix_design_id", "post_tension", "wire_mesh", "slab_bar_size",
             "slab_bar_spacing_in", "support_rebar_lb_per_sf", "pt_lb_per_sf", "pt_spacing_in", "notes",
             "calc_allocated_cost", "calc_concrete_cy", "calc_cost", "calc_cost_per_sf",
             "calc_direct_cost", "calc_poly_sf", "calc_sale", "calc_sale_per_sf", "calc_sf_per_cy",

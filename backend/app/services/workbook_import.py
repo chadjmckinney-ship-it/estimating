@@ -441,6 +441,7 @@ def read_mono_slab(ws, t: TabSpec) -> None:
     c_exp = col(cols, "EXP GB")
     c_drops = col(cols, "DROPS")
     c_gbs = col(cols, "GRADE BEAMS")
+    c_add = col(cols, "LABOR ADD", "COST ADDER", "PAVING ADD")
     sub = h + 1
     pairs: list[int] = []
     if c_gbs:
@@ -461,6 +462,7 @@ def read_mono_slab(ws, t: TabSpec) -> None:
             "slab_bar_size": ival(cell(ws, r, c_reinf)) if c_reinf else None,
             "slab_bar_spacing_in": num(cell(ws, r, c_reinf + 1)) if c_reinf else None,
             "wire_mesh": yes(cell(ws, r, c_mesh)) if c_mesh else False,
+            "paving_add_per_sf": pos(cell(ws, r, c_add)) if c_add else None,
         }
         t.rows.append(row)
         uses: list[tuple[str, int, Decimal]] = []
@@ -511,6 +513,7 @@ def read_slabs(ws, t: TabSpec) -> None:
     c_edge, c_sand = col(cols, "LN FT THICK EDGE"), col(cols, "SAND INCHE", "SAND INCHES")
     c_top, c_bot, c_mesh = col(cols, "TOP REINFORCING"), col(cols, "BOTTOM REINFORCING"), col(cols, "WIRE MESH")
     c_carton = col(cols, "CARTON")
+    c_add = col(cols, "LABOR ADD", "COST ADDER", "PAVING ADD")
     for r in data_rows(ws, h + 2, c_sf):
         size = ival(cell(ws, r, c_bot)) if c_bot else None
         spacing = num(cell(ws, r, c_bot + 1)) if c_bot else None
@@ -528,6 +531,7 @@ def read_slabs(ws, t: TabSpec) -> None:
             "slab_bar_size": size, "slab_bar_spacing_in": spacing,
             "wire_mesh": yes(cell(ws, r, c_mesh)) if c_mesh else False,
             "carton": yes(cell(ws, r, c_carton)) if c_carton else False,
+            "paving_add_per_sf": pos(cell(ws, r, c_add)) if c_add else None,
         })
     t.quantity = sum((row["square_footage"] for row in t.rows), _ZERO)
 
@@ -574,6 +578,7 @@ def read_sidewalks(ws, t: TabSpec) -> None:
     c_sand, c_mix, c_edge = col(cols, "SAND INCHE", "SAND INCHES"), col(cols, "MIX DESIGN"), col(cols, "LN FT THICK EDGE")
     c_stamp, c_color, c_acid = col(cols, "STAMPED"), col(cols, "INTRAGAL COLOR", "INTEGRAL COLOR"), col(cols, "ACID")
     c_traffic, c_stairs, c_reinf = col(cols, "TRAFFIC CONTROL"), col(cols, "STAIR TREADS"), col(cols, "REINFORCING")
+    c_add = col(cols, "COST ADDER", "LABOR ADD", "PAVING ADD")
     for r in data_rows(ws, h + 2, c_sf):
         t.rows.append({
             "description": _name(ws, r, c_type) or f"Walk {r}",
@@ -593,6 +598,7 @@ def read_sidewalks(ws, t: TabSpec) -> None:
             "slab_bar_size": ival(cell(ws, r, c_reinf)) if c_reinf else None,
             "slab_bar_spacing_in": num(cell(ws, r, c_reinf + 1)) if c_reinf else None,
             "mesh_gauge": ival(cell(ws, r, c_reinf + 2)) if c_reinf else None,
+            "paving_add_per_sf": pos(cell(ws, r, c_add)) if c_add else None,
         })
     t.quantity = sum((row["square_footage"] for row in t.rows), _ZERO)
 
@@ -1427,6 +1433,9 @@ def _days_for(db: Session, section, t: TabSpec, entry: dict[str, Any]) -> None:
         if typed and ln.get("qty") and ln.get("cost") and Decimal(str(labor_lines[typed].qty or 0)) == 0:
             if _pin_days(db, section, typed, ln["qty"], None, equipment=False):
                 entry["typed"].append(f"{typed} {ln['qty']} {ln.get('unit') or ''}".rstrip())
+    # A pour's add $/SF lands on LABOR ADD whether or not the tab's block lists the line.
+    if any(r.get("paving_add_per_sf") for r in t.rows):
+        kept.add("labor_add")
     # A field labor line the tab does not carry (or carries at nothing) is switched off, and said so.
     for code, row in labor_lines.items():
         if row.group_name == "labor" and row.enabled and code not in kept and Decimal(str(row.ext_cost or 0)) != 0:

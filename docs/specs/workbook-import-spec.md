@@ -45,6 +45,9 @@ build it".
   the tab charges nothing for and a machine or labor line the tab does not
   carry **switched off** and listed, the cartons off where the tab says N,
   and the job rolled up.
+* **The per-row add $/SF** (2026-09-10, `docs/specs/labor-add-per-sf.md`): the slab tabs' `LABOR ADD` column, the
+  paving tab's `Paving Add $$/SF` and the sidewalks tab's `Cost Adder` are read onto the row, and a row carrying one
+  keeps the section's LABOR ADD line on whatever the tab's labor block says.
 * **What stays the app's.** Every derived quantity — square feet, pump
   yards, saw-cut and joint feet, tons of steel, the lumber, the drops'
   feet, the excavation — is left to the app's rule. Nothing is pinned but

@@ -2337,6 +2337,7 @@ function sidewalkColumns(mixes) {
     { f: "stair_tread_lf", label: "Stairs LF", type: "number" },
     { f: "stair_tread_rise_in", label: 'Rise"', type: "number" },
     { f: "stair_tread_run_in", label: 'Run"', type: "number" },
+    { f: "paving_add_per_sf", label: "Add $/SF", type: "number", step: "0.01" },
     { f: "slab_bar_size", label: "Bar #", type: "select", options: barSizeChoices() },
     { f: "slab_bar_spacing_in", label: 'Spacing"', type: "number" },
     { f: "wire_mesh", label: "Mesh", type: "check" },
@@ -6245,6 +6246,12 @@ function openMonoSlabModal(section, existing = null) {
             value="${existing?.perimeter_edge_lf ?? ""}" />
         </div>
         <div class="field">
+          <label>Add $/SF</label>
+          <input type="number" name="paving_add_per_sf" min="0" step="0.01" placeholder="0"
+            title="The tab's LABOR ADD /SF column: this pour's square feet (times its count) at this rate land on the section's LABOR ADD line"
+            value="${existing?.paving_add_per_sf != null ? esc(existing.paving_add_per_sf) : ""}" />
+        </div>
+        <div class="field">
           <label>Mix design</label>
           <select name="mix_design_id">
             <option value="">—</option>
@@ -6356,6 +6363,7 @@ function openMonoSlabModal(section, existing = null) {
       thickness_in: Number(fd.get("thickness_in")),
       sand_thickness_in: optNum("sand_thickness_in"),
       perimeter_edge_lf: optNum("perimeter_edge_lf"),
+      paving_add_per_sf: optNum("paving_add_per_sf"),
       mix_design_id: fd.get("mix_design_id") ? Number(fd.get("mix_design_id")) : null,
       post_tension: fd.get("post_tension") === "true",
       wire_mesh: fd.get("wire_mesh") === "true",

@@ -66,14 +66,14 @@ def _slab_tab(ws) -> None:
         "B2": "JOB NAME", "B3": "Test Import", "G8": "Concrete Supplier", "J8": "Martin Marietta",
         "B9": "TYPE", "C9": "BLD #", "D9": "SQUARE FOOTAGE", "F9": "THICK INCH", "G9": "QTY ", "H9": "CABLE",
         "I9": "MIX DESIGN", "J9": "INCH OF SAND", "K9": "PERM. EDGE", "L9": "REINFORCING", "N9": "WIRE MESH Y/N",
-        "O9": "EXP GB", "Q9": "Drops", "S9": "GRADE BEAMS",
+        "O9": "EXP GB", "Q9": "Drops", "S9": "GRADE BEAMS", "AC9": "LABOR ADD", "AC10": "/SF",
         "G10": "SLABS", "L10": "SIZE", "M10": "SPACE", "O10": "TYPE", "P10": "FF", "Q10": "TYPE", "R10": "FF",
         "S10": "TYPE", "T10": "LN FT", "U10": "TYPE", "V10": "LN FT", "W10": "TYPE", "X10": "LN FT",
         # two building types: five T1s with two beams and a drop, seven T2s with one beam
         "B11": "01", "C11": "T1 / T1A", "D11": 7146, "F11": 4, "G11": 5, "H11": "y", "I11": 1, "J11": 2, "K11": 433,
         "N11": "N", "Q11": 6, "R11": 367, "S11": 1, "T11": 433, "U11": 2, "V11": 1251,
         "B12": "02", "C12": "T2", "D12": 4306, "F12": 4, "G12": 7, "H12": "y", "I12": 1, "J12": 2, "K12": 288,
-        "S12": 1, "T12": 288,
+        "S12": 1, "T12": 288, "AC12": 0.5,
         "O13": 9, "Q13": 10, "S13": 1,                       # a template placeholder row: no SF, no type
         "C49": "Total SF", "D49": 65872,
         "B50": "GB #", "C50": "GB DEMINSIONS", "E50": "TOP BARS", "G50": "BOT BARS", "I50": "MID BARS", "K50": "STIRRUPS",
@@ -260,6 +260,7 @@ def test_the_book_is_read_by_its_headers(spec):
     assert (t1["square_footage"], t1["thickness_in"], t1["qty"], t1["post_tension"]) == (D("7146"), D("4"), 5, True)
     assert (t1["mix"], t1["sand_thickness_in"], t1["perimeter_edge_lf"], t1["wire_mesh"]) == (1, D("2"), D("433"), False)
     assert slab.rows[1]["qty"] == 7
+    assert slab.rows[0]["paving_add_per_sf"] is None and slab.rows[1]["paving_add_per_sf"] == D("0.5")
     assert slab.usages == {0: [("grade_beam", 1, D("433")), ("grade_beam", 2, D("1251")), ("drop", 6, D("367"))],
                            1: [("grade_beam", 1, D("288"))]}
     assert [(b["n"], b["width_in"], b["height_in"], b["top_bars_count"], b["top_bars_size"], b["stirrup_spacing_in"])
@@ -367,6 +368,8 @@ def test_the_book_becomes_a_priced_job(db, spec):
     assert (lines["foreman"].qty, lines["pm"].qty, lines["expense"].qty) == (D("80.0000"), D("40.0000"), D("80.0000"))
     assert lines["forming"].rate == D("0.6000") and lines["forming"].enabled and lines["forming"].qty == D("65872.0000")
     assert lines["drops"].qty == D("1835.0000") and lines["drops"].rate == D("20.0000")     # 367 FF x 5 buildings
+    assert lines["labor_add"].qty == D("15071.0000") and lines["labor_add"].ext_cost == D("15071.00")   # 4306 SF x 7 x $0.50
+    assert pours[1].paving_add_per_sf == D("0.5000") and pours[0].paving_add_per_sf is None
     equipment = {r.code: r for r in db.execute(text(
         "SELECT code, days_qty, rate, enabled, is_manual, ext_cost FROM estimate_equipment_lines WHERE section_id = :s"), {"s": str(slab.id)}).all()}
     assert (equipment["trencher"].days_qty, equipment["trencher"].rate, equipment["trencher"].is_manual) == (D("120.0000"), D("300.0000"), True)
