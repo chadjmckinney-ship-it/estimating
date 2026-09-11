@@ -57,6 +57,11 @@ from pathlib import Path
 
 NAME = "estimating.tail5fb2cd.ts.net"
 BACKEND = "https+insecure://127.0.0.1:8001"
+# Absolute paths: the box's user manager carries a PATH without /usr/bin
+# (2026-09-11: ~/.grok/bin:~/.local/bin:~/bin), so a user timer cannot find
+# `dig` or `tailscale` by name.
+DIG = "/usr/bin/dig" if os.path.exists("/usr/bin/dig") else "dig"
+TAILSCALE = "/usr/bin/tailscale" if os.path.exists("/usr/bin/tailscale") else "tailscale"
 # ts.net's authoritative servers (dig NS ts.net) and Tailscale's own server,
 # the one tailscaled routes ts.net queries to.
 SERVERS = ["ns1.dnsimple.com", "ns2.dnsimple-edge.net", "ns3.dnsimple.com", "ns4.dnsimple-edge.org", "199.247.155.53"]
@@ -88,7 +93,7 @@ def parse_dig(text: str, rc: int) -> dict | None:
 def query(server: str, name: str = NAME) -> dict | None:
     try:
         out = subprocess.run(
-            ["dig", f"@{server}", name, "A", "+noall", "+comments", "+answer", "+time=5", "+tries=1"],
+            [DIG, f"@{server}", name, "A", "+noall", "+comments", "+answer", "+time=5", "+tries=1"],
             capture_output=True, text=True, timeout=25,
         )
     except Exception:  # noqa: BLE001 — a server we could not ask is "no answer", not a verdict
@@ -119,7 +124,7 @@ def classify(answers: dict[str, dict | None]) -> tuple[str, str]:
 def funnel_on() -> bool | None:
     """Whether tailscaled itself has Funnel on for the name; None when it could not be asked."""
     try:
-        out = subprocess.run(["tailscale", "serve", "status", "--json"], capture_output=True, text=True, timeout=20)
+        out = subprocess.run([TAILSCALE,"serve", "status", "--json"], capture_output=True, text=True, timeout=20)
     except Exception:  # noqa: BLE001
         return None
     if out.returncode != 0 or not out.stdout.strip():
@@ -171,14 +176,14 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
 
 
 def reapply() -> str:
-    on = _run(["tailscale", "funnel", "--bg", "--https=443", BACKEND])
+    on = _run([TAILSCALE,"funnel", "--bg", "--https=443", BACKEND])
     return f"on rc={on.returncode}" + (f" ({on.stderr.strip()[:120]})" if on.returncode else "")
 
 
 def toggle() -> str:
-    off = _run(["tailscale", "funnel", "--https=443", "off"])
+    off = _run([TAILSCALE,"funnel", "--https=443", "off"])
     time.sleep(5)
-    on = _run(["tailscale", "funnel", "--bg", "--https=443", BACKEND])
+    on = _run([TAILSCALE,"funnel", "--bg", "--https=443", BACKEND])
     return f"off rc={off.returncode} on rc={on.returncode}" + (f" ({on.stderr.strip()[:120]})" if on.returncode else "")
 
 

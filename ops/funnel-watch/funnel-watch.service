@@ -4,4 +4,6 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# The user manager's own PATH has no /usr/bin on this box (2026-09-11).
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/python3 %h/estimating/app/ops/funnel-watch/funnel_watch.py

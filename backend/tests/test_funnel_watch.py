@@ -108,4 +108,4 @@ def test_the_check_only_needs_the_standard_library_and_dig():
         if line.startswith(("import ", "from ")):
             mod = line.split()[1].split(".")[0]
             assert mod in {"__future__", "argparse", "ipaddress", "json", "os", "re", "subprocess", "sys", "time", "datetime", "pathlib"}, line
-    assert '"dig"' in text
+    assert '"/usr/bin/dig"' in text and '"/usr/bin/tailscale"' in text   # the user manager's PATH has no /usr/bin
