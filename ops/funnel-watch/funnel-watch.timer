@@ -1,0 +1,11 @@
+[Unit]
+Description=Funnel watchdog every five minutes (ops/funnel-watch)
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

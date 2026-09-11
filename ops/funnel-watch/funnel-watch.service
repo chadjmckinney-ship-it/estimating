@@ -1,0 +1,7 @@
+[Unit]
+Description=Funnel watchdog: republish the public DNS record when it lapses (ops/funnel-watch)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/estimating/app/ops/funnel-watch/funnel_watch.py

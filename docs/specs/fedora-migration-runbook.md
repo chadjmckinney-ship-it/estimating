@@ -147,6 +147,43 @@ certificate was issued; every one after was immediate. A phone on the
 public name needs no CA of ours; the box's own CA is only for the LAN
 address.
 
+### The Funnel watchdog (2026-09-11)
+
+Chad, 2026-09-11: "I am noticing tailscale has to be restarted everymorning
+to get funnel back up... can we create a script to toggle the funnel
+everymorning?" What lapses is the **public DNS record** for the name, on
+Tailscale's side: about a day after Funnel is turned on, the public servers
+answer NXDOMAIN (09-10) or the node's own `100.x` address (09-11) instead of
+the two ingress addresses, while the node stays registered, the ingress still
+proxies, and `tailscale funnel status` says on. A tailscaled restart does not
+renew the record; `tailscale funnel --https=443 off` then
+`tailscale funnel --bg --https=443 https+insecure://127.0.0.1:8001` does, and
+the record takes up to fifteen minutes to reach every server.
+
+`ops/funnel-watch/funnel_watch.py` runs every five minutes from
+`funnel-watch.timer` (a user unit, like the others): it asks ts.net's four
+authoritative servers and Tailscale's own DNS server directly with `dig` (the
+box's own resolver always answers the tailnet address for ts.net names, and
+the public recursive resolvers cached the 09-10 NXDOMAIN for up to an hour
+after the record was back, so neither can be asked), and when every server
+that answered says the record is gone or on a CGNAT address twice in a row,
+it acts: first it re-applies `tailscale funnel --bg --https=443 …` alone,
+which never deletes the record; if the record is still gone twenty minutes
+later it toggles Funnel off and on, the fix known to work, and may toggle
+again thirty minutes after that. Every attempt is logged with what it did, so
+the log says which one brings the record back. Funnel switched off in
+tailscaled on purpose is left alone. State and a transitions-only log are in
+`~/estimating/logs/`.
+
+```bash
+journalctl --user -u funnel-watch --since today       # one line per check
+cat ~/estimating/logs/funnel-watch.log                # transitions and toggles only
+python3 ~/estimating/app/ops/funnel-watch/funnel_watch.py --dry-run   # check now, never toggle
+systemctl --user list-timers | grep funnel
+```
+
+Installed with: `cp ~/estimating/app/ops/funnel-watch/funnel-watch.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now funnel-watch.timer`.
+
 ## The daily reports pull (2026-09-09)
 
 `backend/import_daily_reports.py` brings every Jotform submission of both
