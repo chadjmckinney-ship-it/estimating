@@ -16,3 +16,6 @@
 *.gif  binary
 *.zip  binary
 *.dump binary
+# eTakeoff item-tree templates are CRLF text that Dimension reads back; keep
+# the bytes, but let git diff them (sql/… etakeoff-bid-codes spec).
+*.itt  -text
